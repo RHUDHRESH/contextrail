@@ -1,0 +1,19 @@
+node_modules/
+.next/
+.data/
+*.log
+.DS_Store
+
+# Local environment and test output
+.env
+.env.*
+!.env.example
+coverage/
+playwright-report/
+test-results/
+*.tsbuildinfo
+
+# Local editor files
+.vscode/
+.idea/
+*.swp

@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ContextRail — the case, in six beats</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --ink: #07090e;
+      --panel: #0d111a;
+      --panel-2: #121826;
+      --line: #1c2434;
+      --line-strong: #2b3548;
+      --text: #e9edf6;
+      --muted: #8b95aa;
+      --dim: #5a6377;
+      --rail: #6e8cff;
+      --clear: #3ddc97;
+      --caution: #f5a623;
+      --stop: #ff5a5f;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; background: var(--ink); color: var(--text); }
+    body {
+      min-height: 100dvh;
+      font-family: Inter, system-ui, sans-serif;
+      display: grid;
+      grid-template-columns: 220px minmax(0, 1fr);
+    }
+    @media (max-width: 860px) {
+      body { grid-template-columns: 1fr; }
+      nav { flex-direction: row; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--line); }
+    }
+    nav {
+      border-right: 1px solid var(--line);
+      padding: 28px 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      background: #080a10;
+    }
+    .brand {
+      font-family: Archivo, sans-serif;
+      font-weight: 700;
+      letter-spacing: -0.04em;
+      font-size: 18px;
+      margin: 0 0 28px;
+    }
+    .brand span { color: var(--rail); }
+    button.act {
+      appearance: none;
+      background: transparent;
+      border: 0;
+      color: var(--muted);
+      text-align: left;
+      font: 500 12px/1.3 IBM Plex Mono, monospace;
+      padding: 10px 8px;
+      cursor: pointer;
+      border-left: 2px solid transparent;
+    }
+    button.act[aria-current="true"] {
+      color: var(--text);
+      border-left-color: var(--rail);
+      background: #6e8cff12;
+    }
+    button.act:hover { color: var(--text); }
+    .hint {
+      margin-top: auto;
+      font-size: 11px;
+      color: var(--dim);
+      line-height: 1.5;
+    }
+    main { padding: 36px 48px 64px; max-width: 920px; }
+    @media (max-width: 860px) { main { padding: 24px 20px 48px; } }
+    .kicker {
+      font-family: IBM Plex Mono, monospace;
+      font-size: 11px;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--dim);
+    }
+    h1 {
+      font-family: Archivo, sans-serif;
+      font-size: clamp(28px, 5vw, 44px);
+      font-weight: 700;
+      letter-spacing: -0.045em;
+      line-height: 1.05;
+      margin: 10px 0 16px;
+    }
+    h2 {
+      font-family: Archivo, sans-serif;
+      font-size: 22px;
+      letter-spacing: -0.03em;
+      margin: 0 0 12px;
+    }
+    p.lead { font-size: 16px; line-height: 1.55; color: var(--muted); max-width: 62ch; }
+    .quote {
+      margin: 28px 0;
+      padding: 20px 0 20px 22px;
+      border-left: 2px solid var(--rail);
+      font-family: Archivo, sans-serif;
+      font-size: 26px;
+      letter-spacing: -0.03em;
+    }
+    .lamps { display: grid; gap: 12px; margin-top: 28px; }
+    .lamp {
+      display: grid;
+      grid-template-columns: 72px 1fr;
+      gap: 16px;
+      align-items: start;
+      padding: 14px 0;
+      border-top: 1px solid var(--line);
+    }
+    .tag {
+      font-family: IBM Plex Mono, monospace;
+      font-size: 11px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      padding-top: 4px;
+    }
+    .tag.clear { color: var(--clear); }
+    .tag.caution { color: var(--caution); }
+    .tag.stop { color: var(--stop); }
+    .capsule, .row, table { width: 100%; }
+    .capsule {
+      margin-top: 20px;
+      border: 1px solid var(--line-strong);
+      background: var(--panel);
+    }
+    .cap-h {
+      display: flex;
+      justify-content: space-between;
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--line);
+      font-family: IBM Plex Mono, monospace;
+      font-size: 12px;
+      color: var(--rail);
+    }
+    .kv {
+      display: grid;
+      grid-template-columns: 140px 1fr;
+      gap: 8px 16px;
+      padding: 10px 16px;
+      border-bottom: 1px solid var(--line);
+      font-size: 13.5px;
+    }
+    .kv:last-child { border-bottom: 0; }
+    .kv b { font-family: IBM Plex Mono, monospace; font-weight: 400; color: var(--dim); font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; padding-top: 3px; }
+    table { border-collapse: collapse; margin-top: 16px; font-size: 13.5px; }
+    th, td { text-align: left; padding: 10px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+    th { font-family: IBM Plex Mono, monospace; font-size: 11px; color: var(--dim); font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; }
+    tr.denied td { color: var(--stop); text-decoration: line-through; text-decoration-thickness: 1px; }
+    tr.denied td:last-child, tr.held td:last-child { text-decoration: none; }
+    tr.held td:first-child { color: var(--caution); }
+    .clause {
+      margin-top: 18px;
+      padding: 16px 18px;
+      background: #ff5a5f0f;
+      border: 1px solid #ff5a5f33;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+    .clause code { font-family: IBM Plex Mono, monospace; color: var(--stop); }
+    .split { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-top: 20px; }
+    @media (max-width: 720px) { .split { grid-template-columns: 1fr; } }
+    .hop { padding: 12px 0; border-bottom: 1px solid var(--line); font-size: 13.5px; }
+    .hop b { display: block; font-family: IBM Plex Mono, monospace; font-size: 11px; color: var(--rail); font-weight: 500; margin-bottom: 4px; }
+    .foot { margin-top: 36px; color: var(--dim); font-size: 12.5px; line-height: 1.5; max-width: 62ch; }
+    .hidden { display: none; }
+    a { color: var(--rail); }
+    .visual-rail {
+      display: flex;
+      align-items: center;
+      gap: 0;
+      margin: 8px 0 28px;
+      overflow-x: auto;
+      padding: 0 0 6px;
+    }
+    .visual-rail li {
+      list-style: none;
+      flex: 1;
+      min-width: 72px;
+      text-align: center;
+      position: relative;
+      font-family: IBM Plex Mono, monospace;
+      font-size: 9px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--dim);
+    }
+    .visual-rail li::before {
+      content: "";
+      display: block;
+      width: 10px;
+      height: 10px;
+      margin: 0 auto 8px;
+      border-radius: 99px;
+      background: var(--line-strong);
+      box-shadow: 0 0 0 3px #07090e;
+      position: relative;
+      z-index: 1;
+    }
+    .visual-rail li:not(:last-child)::after {
+      content: "";
+      position: absolute;
+      top: 4px;
+      left: calc(50% + 8px);
+      right: calc(-50% + 8px);
+      height: 2px;
+      background: var(--line);
+    }
+    .visual-rail li.on::before { background: var(--rail); }
+    .visual-rail li.clear::before { background: var(--clear); }
+    .visual-rail li.hold::before { background: var(--caution); }
+    .visual-rail li.stop::before { background: var(--stop); }
+    .visual-rail li.on { color: var(--text); }
+    .visual-rail li.clear { color: var(--clear); }
+    .visual-rail li.hold { color: var(--caution); }
+    .visual-rail li.stop { color: var(--stop); }
+  </style>
+</head>
+<body>
+  <nav>
+    <p class="brand">Context<span>Rail</span></p>
+    <button class="act" data-act="0" aria-current="true">01  Cover</button>
+    <button class="act" data-act="1">02  Subject</button>
+    <button class="act" data-act="2">03  Capsule</button>
+    <button class="act" data-act="3">04  Refusal</button>
+    <button class="act" data-act="4">05  Verify</button>
+    <button class="act" data-act="5">06  Tracks</button>
+    <p class="hint">Keys 1–6. This is the Stage 1 narrative. The working product is the app on port 3100.</p>
+  </nav>
+
+  <main>
+    <ol class="visual-rail" id="rail" aria-label="Eight-stage rail">
+      <li>Discover</li>
+      <li>Compile</li>
+      <li>Govern</li>
+      <li>Plan</li>
+      <li>Handoff</li>
+      <li>Approve</li>
+      <li>Execute</li>
+      <li>Verify</li>
+    </ol>
+    <article id="a0">
+      <div class="kicker">TGPF 2026 · Track 1 · Freshworks</div>
+      <h1>The evidence contract between enterprise agents.</h1>
+      <p class="lead">MCP moves verbs. ContextRail moves the case: who the subject is, which clause applies, what may not happen, and whether the systems actually changed.</p>
+      <p class="quote">“Priya starts Monday. Give her everything.”</p>
+      <div class="lamps">
+        <div class="lamp"><div class="tag clear">Clear</div><div>Seven onboarding actions executed and post-checked. Paperwork gate, Freshservice ticket, pool laptop, Slack guest, onboarding checklist, manager brief, and GitHub read-only — each with a probe, not a hope.</div></div>
+        <div class="lamp"><div class="tag caution">Held</div><div>GitHub read-only on northbeam/perception-sdk waits for Security. An approval is a named human and a typed reason. It is not a deny with extra steps.</div></div>
+        <div class="lamp"><div class="tag stop">Stop</div><div>Production credentials refused under <strong>POL-CTR-001</strong>. Terminal. No queue. The clause is quoted in the capsule that every specialist still holds.</div></div>
+      </div>
+      <p class="foot">A refusal is a successful governed result. If the manager asked for “everything” and production access shipped, the system failed — even if every API returned 200.</p>
+    </article>
+
+    <article id="a1" class="hidden">
+      <div class="kicker">02 · Identity is not search</div>
+      <h2>The subject is fetched. Documents are searched.</h2>
+      <p class="lead">The eval harness paraphrased the request (“new contract engineer starting next week”). Search returned a different evidence set. The contractor policy family never loaded. Production credentials were issued. That is the defect. The fix is architectural.</p>
+      <div class="capsule">
+        <div class="cap-h">anchor lookup · not ranked retrieval</div>
+        <div class="kv"><b>utterance</b><span>Priya joins engineering on Monday. Give her everything she needs to start.</span></div>
+        <div class="kv"><b>anchor</b><span>worker_id W-8841 — fetched by identity, not by BM25</span></div>
+        <div class="kv"><b>subject</b><span>Priya Raghunathan · contractor · start 2026-09-01 · engagement ends 2027-02-28</span></div>
+        <div class="kv"><b>policy family</b><span>contractor · loaded because the subject record says contractor</span></div>
+      </div>
+      <p class="foot">Search finds policy PDFs. It must not be how you decide who Priya is. If identity is a retrieval accident, governance is a retrieval accident.</p>
+    </article>
+
+    <article id="a2" class="hidden">
+      <div class="kicker">03 · The object that hops</div>
+      <h2>One capsule. Three specialists. Zero re-derivation.</h2>
+      <p class="lead">HR, IT, and Security do not receive a summary. They receive the case: request, subject, citations, constraints, prior decisions, blockers.</p>
+      <div class="capsule">
+        <div class="cap-h">REQ-24081 · tenant tnt_northbeam · audit: partial</div>
+        <div class="kv"><b>intent</b><span>contractor_onboarding · 0.84</span></div>
+        <div class="kv"><b>subject</b><span>W-8841 · contractor · 2026-09-01 · fetched by identity</span></div>
+        <div class="kv"><b>sources</b><span>11 cited across HRIS · Notion · GitHub · Google Docs · Freshservice · Slack · Linear</span></div>
+        <div class="kv"><b>constraint</b><span>POL-CTR-001 · contractors cannot receive production credentials</span></div>
+        <div class="kv"><b>handoff</b><span>HR_AGENT → IT_PROVISIONING_AGENT → SECURITY_AGENT</span></div>
+        <div class="kv"><b>blocker</b><span>POL-CTR-001 production credentials · terminal</span></div>
+      </div>
+      <p class="foot">MCP 2026-07-28 made tool calls independently routable. The protocol will not remember this object for you. ContextRail will.</p>
+    </article>
+
+    <article id="a3" class="hidden">
+      <div class="kicker">04 · Denial is not a queue</div>
+      <h2>The forbidden row stays on the plan. Struck through.</h2>
+      <table>
+        <thead><tr><th>Action</th><th>Owner</th><th>State</th></tr></thead>
+        <tbody>
+          <tr><td>Verify NDA and countersigned SOW</td><td>HR</td><td>allowed</td></tr>
+          <tr><td>Open Freshservice onboarding ticket</td><td>IT</td><td>allowed</td></tr>
+          <tr><td>Invite to Slack as single-channel guest</td><td>IT</td><td>allowed</td></tr>
+          <tr><td>Reserve a contractor-pool laptop</td><td>IT</td><td>allowed</td></tr>
+          <tr class="held"><td>GitHub read-only on northbeam/perception-sdk</td><td>Security</td><td>held · typed approval</td></tr>
+          <tr class="denied"><td>Issue production database credentials</td><td>Security</td><td>denied · POL-CTR-001</td></tr>
+        </tbody>
+      </table>
+      <div class="clause">
+        <code>POL-CTR-001</code> — Contractor Onboarding Policy §4: contractors cannot receive production credentials, production database access, or customer PII exports. No approval path exists for this grant.
+      </div>
+      <p class="foot">If a judge remembers one thing: a deny that can be approved is not a deny. ContextRail will not convert this row into a queue.</p>
+    </article>
+
+    <article id="a4" class="hidden">
+      <div class="kicker">05 · Proof, not 200 OK</div>
+      <h2>Each write is probed. GitHub takes two attempts.</h2>
+      <div class="split">
+        <div>
+          <div class="hop"><b>HR → IT</b>Capsule by value. Subject, citations, POL-CTR-001, open blocker.</div>
+          <div class="hop"><b>IT → Security</b>Same object, plus the ticket, laptop and Slack results. Nothing re-asked of HRIS.</div>
+          <div class="hop"><b>Security</b>Sees the terminal deny and the held GitHub grant. Approves the latter with a typed reason.</div>
+        </div>
+        <div>
+          <table>
+            <thead><tr><th>Probe</th><th>Result</th></tr></thead>
+            <tbody>
+              <tr><td>Ticket SR-4401 in IT Provisioning</td><td>verified</td></tr>
+              <tr><td>Slack guest scoped to 1 channel</td><td>verified</td></tr>
+              <tr><td>Asset NB-CTR-0114 reserved</td><td>verified</td></tr>
+              <tr><td>GitHub grant read-only, expiring</td><td>2 attempts · verified</td></tr>
+              <tr><td>Production credentials</td><td>not executed</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <p class="foot">Partial completion is the honest outcome: 7 verified, 1 refused. The manager sees the gap. That is the product.</p>
+    </article>
+
+    <article id="a5" class="hidden">
+      <div class="kicker">06 · Why this room</div>
+      <h2>Track 1 is the story. Track 2 is the distribution.</h2>
+      <div class="split">
+        <div>
+          <h2 style="font-size:16px">Track 1</h2>
+          <p class="lead">Customer &amp; Employee Experience on Agent Studio, MCP, and multi-agent orchestration. Contractor onboarding is the brief, almost verbatim.</p>
+        </div>
+        <div>
+          <h2 style="font-size:16px">Track 2</h2>
+          <p class="lead">Six tools, five skills, one engine. The UI, the MCP server, and the skill packs cannot disagree about a deny.</p>
+        </div>
+      </div>
+      <table>
+        <thead><tr><th>Tool</th><th>Contract</th></tr></thead>
+        <tbody>
+          <tr><td>search_enterprise_knowledge</td><td>cited, freshness-flagged evidence</td></tr>
+          <tr><td>compile_context_capsule</td><td>portable case object</td></tr>
+          <tr><td>check_policy_and_permissions</td><td>clause-quoted verdict</td></tr>
+          <tr><td>generate_action_plan</td><td>denied rows remain visible</td></tr>
+          <tr><td>handoff_to_specialist</td><td>capsule by value</td></tr>
+          <tr><td>execute_and_verify</td><td>refuses without approval; probes after write</td></tr>
+        </tbody>
+      </table>
+      <p class="foot">Freshworks Agent Studio and the MCP Gateway are the ecosystem. ContextRail is the missing evidence contract, not a replacement. Working demo: run the app. This page is only the argument.</p>
+    </article>
+  </main>
+  <script>
+    const acts = [...document.querySelectorAll("button.act")];
+    const pages = [...document.querySelectorAll("main article")];
+    const lamps = [...document.querySelectorAll("#rail li")];
+    const lampMap = [
+      [0, 1, 2, 3, 4, 5, 6, 7],
+      [0],
+      [0, 1],
+      [0, 1, 2, 3],
+      [0, 1, 2, 3, 4, 5],
+      [0, 1, 2, 3, 4, 5, 6, 7],
+    ];
+    const lampKind = ["clear", "clear", "stop", "clear", "clear", "hold", "clear", "clear"];
+    function show(i) {
+      acts.forEach((b, n) => b.setAttribute("aria-current", n === i ? "true" : "false"));
+      pages.forEach((p, n) => p.classList.toggle("hidden", n !== i));
+      lamps.forEach((el, n) => {
+        el.className = "";
+        if (lampMap[i].includes(n)) el.classList.add(i === 5 ? lampKind[n] : "on");
+        if (i === 3 && n === 2) el.classList.add("stop");
+        if (i === 5) el.classList.add(lampKind[n]);
+      });
+    }
+    acts.forEach((b) => b.addEventListener("click", () => show(Number(b.dataset.act))));
+    document.addEventListener("keydown", (e) => {
+      if (e.key >= "1" && e.key <= "6") show(Number(e.key) - 1);
+    });
+    show(0);
+  </script>
+</body>
+</html>

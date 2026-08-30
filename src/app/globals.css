@@ -1,0 +1,183 @@
+@import "tailwindcss";
+
+/* ------------------------------------------------------------------ *
+ * ContextRail — railway signalling as a design system.
+ * Green is clear, amber is held, red is stopped. Nothing in the
+ * interface uses those three colours for decoration.
+ * ------------------------------------------------------------------ */
+
+@theme {
+  --color-ink: #07090e;
+  --color-panel: #0d111a;
+  --color-panel-2: #121826;
+  --color-panel-3: #18202f;
+  --color-line: #1c2434;
+  --color-line-strong: #2b3548;
+
+  --color-text: #e9edf6;
+  /* Both steps clear WCAG AA (4.5:1) on every surface token, including
+     panel-3. The old dim (#5a6377) measured 2.71:1 there. */
+  --color-muted: #9aa4b8;
+  --color-dim: #7e88a0;
+
+  --color-rail: #6e8cff;
+  --color-rail-dim: #3d4d8f;
+
+  --color-clear: #3ddc97;
+  --color-caution: #f5a623;
+  --color-stop: #ff5a5f;
+
+  --color-notion: #b8b3ff;
+  --color-gdocs: #7cc4ff;
+  --color-slack: #ff9ecd;
+  --color-freshservice: #57d9c2;
+  --color-crm: #ffc46b;
+  --color-github: #c9d1e0;
+  --color-linear: #a8a0ff;
+  --color-hris: #86e0a3;
+
+  --font-display: "Archivo", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", "Cascadia Mono", Menlo, monospace;
+}
+
+@layer base {
+  * {
+    border-color: var(--color-line);
+  }
+
+  html {
+    color-scheme: dark;
+    scrollbar-color: var(--color-line-strong) transparent;
+  }
+
+  body {
+    background: var(--color-ink);
+    color: var(--color-text);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    /* A faint track running behind everything — the rail the product is named for. */
+    background-image:
+      radial-gradient(900px 500px at 12% -10%, rgba(110, 140, 255, 0.09), transparent 62%),
+      linear-gradient(to bottom, rgba(110, 140, 255, 0.035), transparent 320px);
+  }
+
+  ::selection {
+    background: rgba(110, 140, 255, 0.35);
+  }
+
+  /* Longhands, deliberately. The `outline` shorthand resolved
+     outline-color to currentColor on elements that set their own text
+     colour, so the nav rail's focus ring rendered dim-on-dark. */
+  :focus-visible {
+    outline-width: 2px;
+    outline-style: solid;
+    outline-color: var(--color-rail);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  ::-webkit-scrollbar {
+    width: 9px;
+    height: 9px;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--color-line-strong);
+    border-radius: 99px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+}
+
+@layer utilities {
+  /* Uppercase micro-labels in mono — the control-plane voice. */
+  .eyebrow {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    line-height: 1;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--color-dim);
+  }
+
+  .panel {
+    background: var(--color-panel);
+    border: 1px solid var(--color-line);
+    border-radius: 10px;
+  }
+
+  .panel-raised {
+    background: linear-gradient(180deg, var(--color-panel-2), var(--color-panel));
+    border: 1px solid var(--color-line);
+    border-radius: 10px;
+  }
+
+  .hairline {
+    height: 1px;
+    background: linear-gradient(90deg, var(--color-line-strong), transparent);
+  }
+
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+/* Signal lamps ---------------------------------------------------- */
+@keyframes lamp-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    box-shadow: 0 0 0 0 currentColor;
+  }
+  50% {
+    opacity: 0.55;
+    box-shadow: 0 0 0 4px color-mix(in oklab, currentColor 22%, transparent);
+  }
+}
+
+.lamp-live {
+  animation: lamp-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes rail-travel {
+  from {
+    background-position: 0 0;
+  }
+  to {
+    background-position: 0 -22px;
+  }
+}
+
+.rail-active {
+  background-image: linear-gradient(
+    to bottom,
+    var(--color-rail) 0 10px,
+    transparent 10px 22px
+  );
+  background-size: 2px 22px;
+  animation: rail-travel 0.85s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lamp-live,
+  .rail-active {
+    animation: none;
+  }
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* React Flow overrides -------------------------------------------- */
+.react-flow__attribution {
+  display: none;
+}
+.react-flow__edge-path {
+  stroke-width: 1.5;
+}
+.react-flow__handle {
+  opacity: 0;
+}
