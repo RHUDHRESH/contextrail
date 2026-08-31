@@ -1,8 +1,16 @@
-# ContextRail
-
-[![License: MIT](https://img.shields.io/badge/license-MIT-black.svg)](LICENSE)
-
-**MCP moves verbs. ContextRail moves the case.**
+<div align="center">
+  <img src="public/brand/the-rail.svg" alt="ContextRail eight-stage evidence rail" width="760" />
+  <h1>ContextRail</h1>
+  <p><strong>MCP moves verbs. ContextRail moves the case.</strong></p>
+  <p>Evidence, policy, ownership, and proof — carried together from the first request to the final verified action.</p>
+  <p>
+    <a href="http://localhost:3100">Run locally</a> ·
+    <a href="public/storyboard.html">View storyboard</a> ·
+    <a href="https://github.com/RHUDHRESH/contextrail">GitHub</a> ·
+    <a href="https://the-great-agent-hackathon.devpost.com/">Hackathon</a>
+  </p>
+  <p><a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-black.svg" alt="MIT license" /></a></p>
+</div>
 
 Enterprise agents can already search, call tools, and hand work to specialists. What they drop is the *file*: who the person is, which clause applies, what is forbidden, and whether the systems actually changed.
 
@@ -10,9 +18,7 @@ ContextRail is that file. It rides a visual rail — green clear, amber held, re
 
 Built for **The Great Agent Hackathon (TGPF 2026)** · Track 1 story · Track 2 platform.
 
-![The eight-stage rail](public/brand/the-rail.svg)
-
-[Live storyboard](public/storyboard.html) · [GitHub](https://github.com/RHUDHRESH/contextrail) · [Devpost](https://the-great-agent-hackathon.devpost.com/)
+![Policy verdict with its deciding clause](docs/screens/05-policy-verdicts-with-clause.png)
 
 ---
 
@@ -31,6 +37,12 @@ ContextRail does the unfashionable thing:
 | **STOP** | Terminal deny. Not a queue. | Production credentials · `POL-CTR-001` |
 
 The manager does not get a green dashboard. They get a **partial completion**: seven verified, one refused, clause quoted. That refusal is the product.
+
+### The product in one glance
+
+| Request | Evidence | Decision | Proof |
+|---|---|---|---|
+| “Give her everything” | Resolved subject + cited sources | 7 clear · 1 held · 1 terminal stop | Idempotent writes + post-condition probes |
 
 ---
 
@@ -252,7 +264,7 @@ No API keys. Open `/storyboard.html` for the six-beat narrative. Open `/` for th
 | State | Append-only file store, shaped for a future `runs` table |
 | Integrity | SHA-256 capsule digest over subject, constraints, decisions, blockers |
 | Safety | Subject-aware policy, terminal deny, approval, idempotency, verify |
-| Proof | Vitest — adversarial suite + live MCP integration; CI on every push |
+| Proof | Vitest — adversarial suite + live MCP integration |
 
 ## Docs
 

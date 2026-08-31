@@ -81,8 +81,8 @@ started from an external MCP client appears in the Command Center.
 - **Policy Studio** — every rule replayed across all four fixture workflows with that rule
   held out, so the blast radius of a governance change is visible before anyone edits it.
 - **Proof** — 46 tests, including an adversarial suite and an integration test that spawns
-  the real MCP server and asserts it reaches the same verdict as the UI engine. CI runs
-  lint, tests, eval, and build on every push.
+  the real MCP server and asserts it reaches the same verdict as the UI engine. The local
+  quality gate runs lint, tests, eval, and build.
 
 **The demo is an eight-system fixture** — HRIS, Notion policy, Freshservice, Slack,
 GitHub, Linear, CRM, Google Docs. No live tenant is claimed or implied.
@@ -294,7 +294,7 @@ it for us. That is the working style we would bring to Stage 2.
 - [x] Fixture system names corrected to match shipped code
 - [x] Cross-process store bug fixed — the "three doors" claim is now true, and tested
 - [x] Adversarial suite added (deny-laundering, prompt injection, capsule tampering)
-- [x] MIT licence added; CI workflow added
+- [x] MIT licence added; local quality gate documented
 - [x] Storyboard corrected — it described three connectors the product does not have
 - [x] Rail described as eight stages consistently (Audit is the record, not a ninth stage)
 - [x] Freshworks positioning re-checked against official docs (MCP is inbound-only, EAP)

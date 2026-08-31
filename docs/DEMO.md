@@ -2,7 +2,7 @@
 
 Stage 1 asks for a 1–2 minute walkthrough. This is the shot list. Record at 1512×950 in a clean browser window with deliberate pointer movement.
 
-**Before you record:** `rm -rf .data && npm run build && npm start`, then open `http://localhost:3100`. Leave the store empty — the first run should assemble live on camera.
+**Before you record:** stop any existing server, clear the demo store (`Remove-Item .data -Recurse -Force` in PowerShell or `rm -rf .data` in a Unix shell), then run `npm run build && npm start` and open `http://localhost:3100`. Leave the store empty — the first run should assemble live on camera.
 
 ---
 
