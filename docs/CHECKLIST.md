@@ -8,10 +8,10 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 <!-- stats:start -->
 | Priority | Tasks | Done |
 |---|---|---|
-| P0 | 148 | 31 |
+| P0 | 148 | 32 |
 | P1 | 92 | 0 |
 | P2 | 10 | 0 |
-| **Total** | **250** | **31** |
+| **Total** | **250** | **32** |
 
 👤 human-owned tasks: 24
 <!-- stats:end -->
@@ -82,7 +82,7 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 
 ## E. Policy engine and the 12 rules (20)
 
-- [ ] T053 `P0` Rule schema (pydantic): id, title, source, clause_text, applies_to, match, conditions, verdict, approver, terminal, expires_after.
+- [x] T053 `P0` Rule schema (pydantic): id, title, source, clause_text, applies_to, match, conditions, verdict, approver, terminal, expires_after.
 - [ ] T054 `P0` Rule loader for `policy/rules/*.yaml` with schema validation at startup.
 - [ ] T055 `P0` `applies_to` matcher over Subject fields only.
 - [ ] T056 `P0` `match` matcher over action kind and target (dot paths, list membership).
