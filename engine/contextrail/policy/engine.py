@@ -19,6 +19,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from contextrail.models import Action, Subject, Verdict
+from contextrail.policy.approvers import ApproverDirectory, resolve_approver
 from contextrail.policy.conditions import evaluate, evaluate_all
 from contextrail.policy.matchers import applies_to, matches
 from contextrail.policy.schema import APPROVER_ROLES, Rule
@@ -68,8 +69,9 @@ def rule_outcome(rule: Rule, ctx: dict) -> RuleOutcome | None:
 
 
 class PolicyEngine:
-    def __init__(self, rules: list[Rule]) -> None:
+    def __init__(self, rules: list[Rule], directory: ApproverDirectory | None = None) -> None:
         self.rules = sorted(rules, key=lambda r: r.id)
+        self.directory = directory
 
     def decide(self, action: Action, subject: Subject, *, role: dict | None = None, run: dict | None = None,
                decision: dict | None = None, disabled: frozenset[str] = frozenset()) -> Decision:
@@ -80,9 +82,9 @@ class PolicyEngine:
             if r.id not in disabled and applies_to(r, subject) and matches(r, action)
             if (o := rule_outcome(r, ctx)) is not None
         )
-        return Decision(verdict=self._resolve(fired), fired=fired)
+        return Decision(verdict=self._resolve(fired, subject, (run or {}).get("requested_by")), fired=fired)
 
-    def _resolve(self, fired: tuple[RuleOutcome, ...]) -> Verdict:
+    def _resolve(self, fired: tuple[RuleOutcome, ...], subject: Subject, requested_by: str | None) -> Verdict:
         refusals = [o for o in fired if o.verdict == "REFUSE"]
         if refusals:
             top = min(refusals, key=lambda o: (not o.rule.terminal, o.rule.id))
@@ -91,8 +93,8 @@ class PolicyEngine:
         holds = [o for o in fired if o.verdict == "HOLD"]
         if holds:
             top = max(holds, key=lambda o: (_APPROVER_RANK.get(o.approver_role or "", -1), _neg(o.rule.id)))
-            return Verdict(verdict="HOLD", rule_id=top.rule.id, clause_text=top.rule.clause_text,
-                           approver=top.approver_role)
+            approver = resolve_approver(self.directory, top.approver_role, subject, requested_by=requested_by)
+            return Verdict(verdict="HOLD", rule_id=top.rule.id, clause_text=top.rule.clause_text, approver=approver)
         allows = [o for o in fired if o.verdict == "ALLOW"]
         if allows:
             top = min(allows, key=lambda o: o.rule.id)

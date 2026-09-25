@@ -42,14 +42,14 @@ def test_refuse_beats_hold_beats_allow_and_terminal_refuse_is_chosen_first():
     v = PolicyEngine(rules).decide(grant(), ANIL).verdict
     assert (v.verdict, v.rule_id, v.terminal) == ("REFUSE", "POL-TST-004", True)
     v2 = PolicyEngine(rules[:2]).decide(grant(), ANIL).verdict
-    assert (v2.verdict, v2.approver) == ("HOLD", "manager")
+    assert (v2.verdict, v2.approver) == ("HOLD", "role:manager")  # no directory -> visibly unresolved
 
 
 def test_most_senior_approver_wins_among_holds():
     rules = [R("POL-TST-001", verdict="HOLD", approver="manager"),
              R("POL-TST-002", verdict="HOLD", approver="security-oncall")]
     v = PolicyEngine(rules).decide(grant(), ANIL).verdict
-    assert (v.rule_id, v.approver) == ("POL-TST-002", "security-oncall")
+    assert (v.rule_id, v.approver) == ("POL-TST-002", "role:security-oncall")
 
 
 def test_escalate_and_else_verdict():
@@ -62,7 +62,7 @@ def test_escalate_and_else_verdict():
     eng = PolicyEngine([repo])
     assert eng.decide(grant(system="github", repo="northbeam/docs", permission="write"), ANIL).verdict.verdict == "ALLOW"
     held = eng.decide(grant(system="github", repo="northbeam/payments-core", repo_tags=["production"]), ANIL).verdict
-    assert (held.verdict, held.approver) == ("HOLD", "security-oncall")
+    assert (held.verdict, held.approver) == ("HOLD", "role:security-oncall")
     sow = grant(system="github", repo="northbeam/perception-sdk", permission="read", repo_tags=["production"])
     assert eng.decide(sow, PRIYA).verdict.verdict == "HOLD"
     off_sow = grant(system="github", repo="northbeam/payments-core", permission="read")
