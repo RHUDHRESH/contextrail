@@ -1,6 +1,6 @@
 import pytest
 
-from contextrail.rail.discover import HeuristicExtractor
+from contextrail.rail.discover import HeuristicExtractor, lookup
 
 # --- intent + mentions (T085, heuristic path) ---------------------------------------------------------------
 
@@ -30,3 +30,27 @@ async def test_extractor_returns_mentions_never_identities():
 async def test_dates_are_captured():
     i = await HeuristicExtractor().extract("Priya starts Monday 2026-09-28")
     assert "Monday" in i.dates and "2026-09-28" in i.dates
+
+
+# --- exact lookup (T086) -----------------------------------------------------------------------------------
+
+@pytest.fixture
+def hris(tmp_path):
+    from contextrail.connectors.fixture import FixtureHRIS
+    from contextrail.connectors.state import FixtureState
+
+    s = FixtureState("hris", directory=tmp_path)
+    s.reset()
+    return FixtureHRIS(s)
+
+
+async def test_lookup_by_id_is_exact(hris):
+    assert [r["display_name"] for r in await lookup(hris, "W-8841")] == ["Priya Raghunathan"]
+    assert await lookup(hris, "W-9999") == []
+
+
+async def test_lookup_by_name_is_exact_never_fuzzy(hris):
+    assert [r["source_id"] for r in await lookup(hris, "Anil")] == ["E-1042"]
+    assert [r["source_id"] for r in await lookup(hris, "anil kumar")] == ["E-1042"]
+    assert await lookup(hris, "Anill") == []          # a typo is not a match
+    assert await lookup(hris, "Kumar") == []          # surnames alone do not resolve

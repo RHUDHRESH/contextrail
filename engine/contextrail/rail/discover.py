@@ -84,3 +84,33 @@ class HeuristicExtractor:
             return Intent(intent="query", kind="query", subject_mention=ids[0] if ids else None, dates=dates,
                           extractor=self.name)
         return Intent(intent="unknown", kind="request", dates=dates, extractor=self.name)
+
+
+# --- resolution: mentions -> people, by exact lookup only (T086) ---------------------------------------------
+
+_ID_RE = re.compile(rf"^{_ID}$")
+
+
+class Candidate(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    source_id: str
+    display_name: str
+    team: str | None = None
+    role: str | None = None
+    employment_type: str
+
+
+def _candidate(record: dict) -> Candidate:
+    return Candidate(**{k: record.get(k) for k in Candidate.model_fields})
+
+
+async def lookup(hris, mention: str) -> list[dict]:
+    """Exact lookup. An ID reads that one record; a name returns every exact full- or first-name match."""
+    mention = mention.strip()
+    if _ID_RE.match(mention):
+        try:
+            return [await hris.read({"source_id": mention})]
+        except Exception:  # noqa: BLE001 -- connector says "no such record": that is zero matches, not a crash
+            return []
+    return await hris.find_by_name(mention)
