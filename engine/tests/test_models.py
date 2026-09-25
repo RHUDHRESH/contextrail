@@ -83,8 +83,8 @@ def test_retrieved_at_must_be_timezone_aware():
 
 # --- Action (T045) -----------------------------------------------------------------------------------------
 
-def act(**kw):
-    return Action(**({"id": "A1", "kind": "grant", "target": {"system": "github"}, "params_hash": "a" * 64} | kw))
+def act(id="A1", kind="grant", target=None, **kw):
+    return Action.create(id, kind, target or {"system": "github"}, **kw)
 
 
 def test_allow_path_ends_verified_only_after_executed():
@@ -124,7 +124,7 @@ def test_unknown_outcome_must_be_reconciled_not_retried_blind():
 
 def test_params_hash_shape_and_python_matches_db_states():
     with pytest.raises(ValidationError):
-        act(params_hash="not-a-hash")
+        Action(id="A1", kind="grant", target={}, params_hash="not-a-hash")
     assert {s.value for s in ActionState} == {
         "planned", "awaiting", "approved", "refused", "executed", "verified", "failed", "unknown"}
 

@@ -14,6 +14,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from contextrail.canonical import params_hash as compute_params_hash
+
 
 class _Model(BaseModel):
     model_config = ConfigDict(extra="forbid", validate_assignment=True)
@@ -120,16 +122,30 @@ VerdictKind = Literal["ALLOW", "HOLD", "REFUSE"]
 
 
 class Action(_Model):
-    id: str
-    kind: str                        # 'grant' | 'revoke' | 'assign_asset' | 'refund' ...
-    target: dict
-    params_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    # Identity fields are frozen: pydantic raises on assignment *before* mutating. (A model_validator alone is not
+    # enough: pydantic v2 leaves the new value in place after an after-validator rejects an assignment.)
+    id: str = Field(frozen=True)
+    kind: str = Field(frozen=True)   # 'grant' | 'revoke' | 'assign_asset' | 'refund' ...
+    target: dict = Field(frozen=True)
+    params_hash: str = Field(pattern=r"^[0-9a-f]{64}$", frozen=True)
     verdict: VerdictKind | None = None
     rule_id: str | None = None
     clause: str | None = None
     approver: str | None = None
     state: ActionState = ActionState.PLANNED
     expires_at: datetime | None = None
+
+    @model_validator(mode="after")
+    def _params_hash_matches(self) -> Action:
+        # The hash is what approvals bind to. It must describe this exact kind+target, so a target edited after
+        # approval can never keep the old approval (CLAUDE.md §8 Approve: "changed params -> approval void").
+        if self.params_hash != compute_params_hash(self.kind, self.target):
+            raise ValueError(f"{self.id}: params_hash does not match kind+target; build a new Action instead")
+        return self
+
+    @classmethod
+    def create(cls, id: str, kind: str, target: dict, **kw) -> Action:
+        return cls(id=id, kind=kind, target=target, params_hash=compute_params_hash(kind, target), **kw)
 
     def transition(self, to: ActionState | str) -> None:
         """Move to a new state or raise. A REFUSE verdict may only ever become 'refused' (P4)."""
