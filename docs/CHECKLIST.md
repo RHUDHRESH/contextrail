@@ -8,10 +8,10 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 <!-- stats:start -->
 | Priority | Tasks | Done |
 |---|---|---|
-| P0 | 148 | 66 |
+| P0 | 148 | 67 |
 | P1 | 92 | 0 |
 | P2 | 10 | 0 |
-| **Total** | **250** | **66** |
+| **Total** | **250** | **67** |
 
 👤 human-owned tasks: 24
 <!-- stats:end -->
@@ -129,7 +129,7 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 - [ ] T091 `P1` Compile: extract SOW constraints with cited spans.
 - [x] T092 `P0` Compile: mark stale evidence into open blockers.
 - [x] T093 `P0` Compile: include untrusted messages/email bodies as evidence, wrapped as data.
-- [ ] T094 `P0` Compile: seal the capsule and store the digest.
+- [x] T094 `P0` Compile: seal the capsule and store the digest.
 - [x] T095 `P0` Govern: build candidate actions (peer's items minus requester's current items).
 - [x] T096 `P0` Govern: evaluate every candidate through the policy engine.
 - [x] T097 `P0` Plan: dependency ordering; add revoke actions for the old team.
