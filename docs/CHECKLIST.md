@@ -8,10 +8,10 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 <!-- stats:start -->
 | Priority | Tasks | Done |
 |---|---|---|
-| P0 | 148 | 35 |
+| P0 | 148 | 36 |
 | P1 | 92 | 0 |
 | P2 | 10 | 0 |
-| **Total** | **250** | **35** |
+| **Total** | **250** | **36** |
 
 👤 human-owned tasks: 24
 <!-- stats:end -->
@@ -86,7 +86,7 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 - [x] T054 `P0` Rule loader for `policy/rules/*.yaml` with schema validation at startup.
 - [x] T055 `P0` `applies_to` matcher over Subject fields only.
 - [x] T056 `P0` `match` matcher over action kind and target (dot paths, list membership).
-- [ ] T057 `P0` Safe condition evaluator (`in`, `==`, `contains`, `>`, `<`); no `eval`.
+- [x] T057 `P0` Safe condition evaluator (`in`, `==`, `contains`, `>`, `<`); no `eval`.
 - [ ] T058 `P0` Precedence: terminal REFUSE > HOLD > explicit ALLOW; default deny for access actions.
 - [ ] T059 `P0` Approver resolution: role/group → named person (fixture first, Freshservice group later).
 - [ ] T060 `P0` Verdict carries `rule_id` and the clause verbatim (clauses ported from `src/lib/contextrail/policy.ts`).
