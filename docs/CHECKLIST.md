@@ -8,10 +8,10 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 <!-- stats:start -->
 | Priority | Tasks | Done |
 |---|---|---|
-| P0 | 148 | 24 |
+| P0 | 148 | 25 |
 | P1 | 92 | 0 |
 | P2 | 10 | 0 |
-| **Total** | **250** | **24** |
+| **Total** | **250** | **25** |
 
 👤 human-owned tasks: 24
 <!-- stats:end -->
@@ -72,7 +72,7 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 - [x] T043 `P0` `Subject` model (source, required source_id, employment_type, role, team, manager, dates, sow_repos).
 - [x] T044 `P0` `Evidence` model with `trust`: record / curated / untrusted.
 - [x] T045 `P0` `Action` model and state enum.
-- [ ] T046 `P0` `Verdict` model (ALLOW / HOLD / REFUSE, rule_id, clause_text, approver).
+- [x] T046 `P0` `Verdict` model (ALLOW / HOLD / REFUSE, rule_id, clause_text, approver).
 - [ ] T047 `P0` `CaseFile` model.
 - [ ] T048 `P0` Canonical JSON serializer (sorted keys, no whitespace, UTC) + `params_hash(action)`.
 - [ ] T049 `P0` Capsule seal: compute and store the digest.

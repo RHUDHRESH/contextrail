@@ -138,3 +138,35 @@ class Action(_Model):
         if to not in ACTION_TRANSITIONS[self.state]:
             raise IllegalTransition(f"{self.id}: {self.state} -> {to} is not allowed")
         self.state = to
+
+
+class Verdict(_Model):
+    """The policy engine's decision for one action. Produced by code (policy/engine.py), never by a model (§0 rule 2)."""
+
+    verdict: VerdictKind
+    rule_id: str = Field(min_length=1)       # 'DEFAULT-DENY' when no rule matched an access action
+    clause_text: str = Field(min_length=1)   # quoted verbatim from the rule's source
+    approver: str | None = None              # named human (or role resolved to one) for HOLD
+    terminal: bool = False                   # a terminal REFUSE cannot be approved or overridden
+
+    @model_validator(mode="after")
+    def _shape(self) -> Verdict:
+        if self.verdict == "HOLD" and not self.approver:
+            raise ValueError("a HOLD verdict must name its approver")
+        if self.verdict != "HOLD" and self.approver:
+            raise ValueError(f"a {self.verdict} verdict has no approver")
+        if self.verdict != "REFUSE" and self.terminal:
+            raise ValueError("only a REFUSE can be terminal")
+        return self
+
+
+def apply_verdict(action: Action, v: Verdict) -> Action:
+    """Stamp a verdict onto a planned action exactly once, moving it to its first state (refused / awaiting)."""
+    if action.verdict is not None:
+        raise IllegalTransition(f"{action.id}: already has verdict {action.verdict}; verdicts are set once")
+    action.verdict, action.rule_id, action.clause, action.approver = v.verdict, v.rule_id, v.clause_text, v.approver
+    if v.verdict == "REFUSE":
+        action.transition(ActionState.REFUSED)
+    elif v.verdict == "HOLD":
+        action.transition(ActionState.AWAITING)
+    return action

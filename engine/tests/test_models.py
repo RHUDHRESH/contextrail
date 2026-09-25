@@ -3,7 +3,16 @@ from datetime import UTC, datetime
 import pytest
 from pydantic import ValidationError
 
-from contextrail.models import ACTION_TRANSITIONS, Action, ActionState, Evidence, IllegalTransition, Subject
+from contextrail.models import (
+    ACTION_TRANSITIONS,
+    Action,
+    ActionState,
+    Evidence,
+    IllegalTransition,
+    Subject,
+    Verdict,
+    apply_verdict,
+)
 
 
 def anil(**kw):
@@ -116,3 +125,30 @@ def test_params_hash_shape_and_python_matches_db_states():
         act(params_hash="not-a-hash")
     assert {s.value for s in ActionState} == {
         "planned", "awaiting", "approved", "refused", "executed", "verified", "failed", "unknown"}
+
+
+# --- Verdict (T046) ----------------------------------------------------------------------------------------
+
+def test_verdict_shapes():
+    Verdict(verdict="ALLOW", rule_id="POL-ACC-001", clause_text="baseline")
+    Verdict(verdict="HOLD", rule_id="POL-ACC-005", clause_text="paid seats", approver="p-manager")
+    Verdict(verdict="REFUSE", rule_id="POL-CTR-001", clause_text="§4", terminal=True)
+    with pytest.raises(ValidationError, match="name its approver"):
+        Verdict(verdict="HOLD", rule_id="POL-ACC-005", clause_text="x")
+    with pytest.raises(ValidationError, match="no approver"):
+        Verdict(verdict="ALLOW", rule_id="R", clause_text="x", approver="someone")
+    with pytest.raises(ValidationError, match="only a REFUSE"):
+        Verdict(verdict="HOLD", rule_id="R", clause_text="x", approver="a", terminal=True)
+    with pytest.raises(ValidationError):
+        Verdict(verdict="ALLOW", rule_id="", clause_text="x")  # a verdict always cites its rule
+
+
+def test_apply_verdict_sets_fields_and_first_state_once():
+    a = apply_verdict(act(), Verdict(verdict="REFUSE", rule_id="POL-CTR-001", clause_text="§4 text", terminal=True))
+    assert (a.state, a.rule_id, a.clause) == (ActionState.REFUSED, "POL-CTR-001", "§4 text")
+    h = apply_verdict(act(id="A2"), Verdict(verdict="HOLD", rule_id="POL-ACC-004", clause_text="c", approver="sec"))
+    assert h.state is ActionState.AWAITING and h.approver == "sec"
+    ok = apply_verdict(act(id="A3"), Verdict(verdict="ALLOW", rule_id="POL-ACC-001", clause_text="c"))
+    assert ok.state is ActionState.PLANNED
+    with pytest.raises(IllegalTransition, match="set once"):
+        apply_verdict(a, Verdict(verdict="ALLOW", rule_id="X", clause_text="y"))  # no laundering a refusal
