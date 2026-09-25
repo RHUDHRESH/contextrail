@@ -8,10 +8,10 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 <!-- stats:start -->
 | Priority | Tasks | Done |
 |---|---|---|
-| P0 | 148 | 50 |
+| P0 | 148 | 51 |
 | P1 | 92 | 0 |
 | P2 | 10 | 0 |
-| **Total** | **250** | **50** |
+| **Total** | **250** | **51** |
 
 👤 human-owned tasks: 24
 <!-- stats:end -->
@@ -108,7 +108,7 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 - [x] T073 `P0` HRIS fixture: Priya W-8841 contractor; Anil (payments, employee); Rahul (senior); a second "Rahul" for the ambiguity demo.
 - [x] T074 `P0` Entitlements + role catalogue fixture: Rahul's 16 items (resource_class, repo_tags) → 13 / 2 / 1 for Anil; payments-engineer baseline.
 - [x] T075 `P0` GitHub fixture state (repos, collaborators, permissions).
-- [ ] T076 `P0` Slack corpus fixture incl. the planted "ignore policy" message (ported from `src/lib/contextrail/data/corpus.ts`).
+- [x] T076 `P0` Slack corpus fixture incl. the planted "ignore policy" message (ported from `src/lib/contextrail/data/corpus.ts`).
 - [ ] T077 `P1` Priya's SOW document naming `northbeam/perception-sdk` + incident INC-4412 fixture.
 - [ ] T078 `P2` Payments fixture: customers, plans, prior credits, one duplicate.
 - [ ] T079 `P0` Fixture connectors with persistent state files and a real `verify()` against that state.

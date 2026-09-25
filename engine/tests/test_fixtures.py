@@ -58,3 +58,36 @@ def test_github_state_matches_who_holds_what():
                    if ents["catalog"][e]["system"] == "github"}
     assert rahul_repos == {r for r, v in gh["repos"].items() if rahul in v["collaborators"]}
     assert not any(anil in v["collaborators"] for v in gh["repos"].values())  # Anil starts with no repo access
+
+
+# --- Slack corpus with planted injections (T076) -----------------------------------------------------------
+
+def _stage1_body(doc_id: str) -> str:
+    import re
+    from pathlib import Path
+
+    corpus = (Path(__file__).resolve().parents[2] / "src/lib/contextrail/data/corpus.ts").read_text(encoding="utf-8")
+    block = corpus.split(f'id: "{doc_id}"', 1)[1]
+    return re.search(r"D\(`(.*?)`\)", block, flags=re.DOTALL).group(1)
+
+
+def test_slack_corpus_labelled_and_injections_planted():
+    corpus = load("slack_corpus")
+    assert corpus["_meta"]["mode"] == "FIXTURE"
+    planted = {m["id"] for m in corpus["messages"] if m["planted"]}
+    assert planted == {"slk_prod_access_thread", "slk_payments_admin_override"}
+    for m in corpus["messages"]:
+        if m["planted"]:
+            assert "ignore" in m["text"].lower()
+
+
+def test_priya_injection_is_ported_verbatim_from_stage1():
+    msg = next(m for m in load("slack_corpus")["messages"] if m["id"] == "slk_prod_access_thread")
+    assert msg["text"] == _stage1_body("slk_prod_access_thread")
+
+
+def test_anil_injection_targets_the_one_refused_item():
+    msg = next(m for m in load("slack_corpus")["messages"] if m["id"] == "slk_payments_admin_override")
+    catalog = load("entitlements")["catalog"]
+    assert catalog["aws-payments-prod-admin"]["label"].split()[-1] in msg["text"]  # "AdministratorAccess"
+    assert "anil" in msg["tags"]  # retrieval for Anil's run will surface it
