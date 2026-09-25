@@ -8,10 +8,10 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 <!-- stats:start -->
 | Priority | Tasks | Done |
 |---|---|---|
-| P0 | 148 | 36 |
+| P0 | 148 | 37 |
 | P1 | 92 | 0 |
 | P2 | 10 | 0 |
-| **Total** | **250** | **36** |
+| **Total** | **250** | **37** |
 
 👤 human-owned tasks: 24
 <!-- stats:end -->
@@ -87,7 +87,7 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 - [x] T055 `P0` `applies_to` matcher over Subject fields only.
 - [x] T056 `P0` `match` matcher over action kind and target (dot paths, list membership).
 - [x] T057 `P0` Safe condition evaluator (`in`, `==`, `contains`, `>`, `<`); no `eval`.
-- [ ] T058 `P0` Precedence: terminal REFUSE > HOLD > explicit ALLOW; default deny for access actions.
+- [x] T058 `P0` Precedence: terminal REFUSE > HOLD > explicit ALLOW; default deny for access actions.
 - [ ] T059 `P0` Approver resolution: role/group → named person (fixture first, Freshservice group later).
 - [ ] T060 `P0` Verdict carries `rule_id` and the clause verbatim (clauses ported from `src/lib/contextrail/policy.ts`).
 - [ ] T061 `P0` POL-CTR-001: contractors never get production credentials (REFUSE, terminal).
