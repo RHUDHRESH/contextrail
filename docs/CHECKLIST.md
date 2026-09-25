@@ -8,10 +8,10 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 <!-- stats:start -->
 | Priority | Tasks | Done |
 |---|---|---|
-| P0 | 148 | 55 |
+| P0 | 148 | 56 |
 | P1 | 92 | 0 |
 | P2 | 10 | 0 |
-| **Total** | **250** | **55** |
+| **Total** | **250** | **56** |
 
 👤 human-owned tasks: 24
 <!-- stats:end -->
@@ -271,7 +271,7 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 
 ## P. Audit, receipts and glass box (8)
 
-- [ ] T209 `P0` Audit append with hash chaining.
+- [x] T209 `P0` Audit append with hash chaining.
 - [ ] T210 `P0` Receipt builder: short summary + full JSON.
 - [ ] T211 `P0` Write the receipt to Freshservice (note; custom object when ready).
 - [ ] T212 `P0` SSE endpoint `/v1/runs/{id}/events`.
