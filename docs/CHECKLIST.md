@@ -8,10 +8,10 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 <!-- stats:start -->
 | Priority | Tasks | Done |
 |---|---|---|
-| P0 | 148 | 11 |
+| P0 | 148 | 12 |
 | P1 | 92 | 0 |
 | P2 | 10 | 0 |
-| **Total** | **250** | **11** |
+| **Total** | **250** | **12** |
 
 👤 human-owned tasks: 24
 <!-- stats:end -->
@@ -48,7 +48,7 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 - [x] T025 `P0` `scripts/buildlog.sh` generating `docs/BUILDLOG.md` from `git log`.
 - [x] T026 `P0` `engine/pyproject.toml` with pinned deps: fastapi, uvicorn, pydantic v2, pydantic-settings, httpx, tenacity, structlog, psycopg[pool], anthropic[bedrock], mcp, slack_bolt, boto3, pyyaml, opentelemetry-sdk.
 - [x] T027 `P0` `settings.py` (pydantic-settings) reading every variable in `.env.example`.
-- [ ] T028 `P0` `main.py`: FastAPI app, `/health`, `/v1` router mount.
+- [x] T028 `P0` `main.py`: FastAPI app, `/health`, `/v1` router mount.
 - [ ] T029 `P0` Dockerfiles for engine and voice (`python:3.12-slim`).
 - [ ] T030 `P0` `docker-compose.yml`: postgres:16, engine, voice, caddy.
 - [ ] T031 `P0` `Caddyfile`: engine `/`, `/mcp`, `/slack/*`, `/api/teams/*`, `/a/*`; voice `/voice/*`; automatic TLS.
