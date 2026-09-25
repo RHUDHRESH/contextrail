@@ -56,3 +56,24 @@ def test_ctr_001_is_terminal_even_if_another_rule_would_allow(engine):
 def test_ctr_001_does_not_apply_to_employees(engine):
     v = decide(engine, grant(system="aws", resource_class="production_credential"), ANIL)
     assert v.rule_id != "POL-CTR-001"
+
+
+# --- POL-ACC-001 (T062) ------------------------------------------------------------------------------------
+
+PAYMENTS_ROLE = {"id": "payments-engineer", "baseline": ["gh-payments-api-read", "slack-payments", "jira-pay"]}
+
+
+def test_acc_001_role_baseline_is_allowed(engine):
+    v = decide(engine, grant(system="github", entitlement="gh-payments-api-read"), ANIL, role=PAYMENTS_ROLE)
+    assert (v.verdict, v.rule_id) == ("ALLOW", "POL-ACC-001")
+    assert "baseline" in v.clause_text
+
+
+def test_acc_001_outside_baseline_is_not_allowed_by_this_rule(engine):
+    v = decide(engine, grant(system="datadog", entitlement="dd-admin"), ANIL, role=PAYMENTS_ROLE)
+    assert v.rule_id != "POL-ACC-001"
+
+
+def test_acc_001_without_a_role_record_allows_nothing(engine):
+    v = decide(engine, grant(entitlement="gh-payments-api-read"), ANIL)  # role catalogue not loaded
+    assert (v.verdict, v.rule_id) == ("REFUSE", "DEFAULT-DENY")
