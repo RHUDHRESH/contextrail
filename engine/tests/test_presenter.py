@@ -8,8 +8,7 @@ PEOPLE = {p["person_id"]: p["display_name"] for p in load("identity")["people"]}
 async def _view(deps, rid):
     async with deps.db.connection() as c:
         run, actions = await repo.get_run(c, rid), await repo.list_actions(c, rid)
-    modes = {c["name"]: c["mode"] for c in deps.registry.describe.__self__.describe(None)["connectors"]} \
-        if False else {n: deps.registry.get(n).mode for n in ("hris", "entitlements", "github", "slack_corpus")}
+    modes = {n: deps.registry.get(n).mode for n in ("hris", "entitlements", "github", "slack_corpus")}
     return build_view(run, actions, people=PEOPLE, modes=modes)
 
 
