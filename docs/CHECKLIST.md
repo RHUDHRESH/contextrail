@@ -8,10 +8,10 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 <!-- stats:start -->
 | Priority | Tasks | Done |
 |---|---|---|
-| P0 | 148 | 15 |
+| P0 | 148 | 16 |
 | P1 | 92 | 0 |
 | P2 | 10 | 0 |
-| **Total** | **250** | **15** |
+| **Total** | **250** | **16** |
 
 👤 human-owned tasks: 24
 <!-- stats:end -->
@@ -60,7 +60,7 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 
 ## C. Database (6)
 
-- [ ] T037 `P0` Plain-SQL migration runner (`engine/migrations/*.sql`, applied in order, recorded in `schema_migrations`).
+- [x] T037 `P0` Plain-SQL migration runner (`engine/contextrail/migrations/*.sql`, applied in order, recorded in `schema_migrations`).
 - [ ] T038 `P0` `0001_core.sql`: `runs`, `actions` (unique `idempotency_key`), `approvals` (PK `(run_id, action_id)`, channel incl. teams/email/voice).
 - [ ] T039 `P0` `0002_audit_jobs_llm.sql`: `audit` (hash chain), `jobs` (run_at, attempts, locked_until), `llm_calls`.
 - [ ] T040 `P0` `0003_doors.sql`: `webhook_dedupe`, `identity_map` (slack/teams/email/phone/Freshservice ids, preferred door), `receipts`, `door_messages`.
