@@ -15,7 +15,7 @@ Append-only. Each entry records what we chose, why, and what would change our mi
 | D-008 | 2026-09-26 | `mcp` 2.x: use `MCPServer` (brief says `FastMCP`) | Accepted |
 | D-009 | 2026-09-26 | Local dev/test database: embedded PostgreSQL 16 (`pgserver`), production: `postgres:16` container | Accepted |
 | D-010 | 2026-09-26 | Task-linked, hook-enforced commits; per-section PRs merged without squash | Accepted |
-| D-011 | — | Stage 1 policy IDs → the brief's 12 rules | Open (section E) |
+| D-011 | 2026-09-26 | Stage 1 policy IDs → the brief's 12 rules; rule-format refinements | Accepted |
 | D-012 | — | Teams SDK: Microsoft 365 Agents SDK vs Bot Framework SDK | Open (T240) |
 
 ---
@@ -104,3 +104,30 @@ history. Tasks that could not be verified are committed with `Verified: NOT VERI
 unticked until they are.
 **Why.** The judges read the history. A dense, honest, task-linked trail shows how the system was built,
 including what failed.
+
+## D-011 — Reconciling the Stage 1 policies with the brief's 12 rules
+**Context.** Stage 1 (`src/lib/contextrail/policy.ts`) had 12 TypeScript policies with different ids and
+scopes from the 12 rules the brief requires (CLAUDE.md §9).
+
+**Rule format refinements** (the brief gives "minimum shapes"):
+- `escalate: {when, verdict, approver}` raises a rule's ALLOW to HOLD, for example when the repository is tagged
+  production. `else_verdict` fires when a condition fails. Conditions can nest `{any: [...]}` and
+  `{all: [...]}`. This replaces the brief's `verdict_if_all` sketch with an equivalent that is testable.
+- Precedence: **any** REFUSE wins, with terminal refusals chosen first. The brief left non-terminal refusals
+  unspecified; treating them as weaker than a HOLD would let an approval override a written refusal, which
+  contradicts P4. `terminal` records "no approval path exists" and blocks Policy Studio exceptions.
+- Nothing fires → `DEFAULT-DENY` for every action, not only access actions. Stage 1 had the same stance:
+  "nothing in the rail executes without a matching allow".
+
+**Mapping.**
+| Stage 1 | Stage 2 | Note |
+|---|---|---|
+| POL-CTR-001 | POL-CTR-001 | Clause verbatim (§4); `applies_to` also covers vendors |
+| POL-CTR-002 (contractor repos) | POL-ACC-004 | Merged with the Access Control Standard's production-repository line, for everyone. The brief's approval card shows ACC-004 applied to an employee (Anil), while its YAML sketch is contractor-only. One rule covers both |
+| POL-OFF-001 (offboarding, 4 h) | POL-OFF-001 (transfer revocation) | The brief's rule is about team transfers; the 4-hour window is kept |
+| POL-FIN-004, POL-REF-001…003 | POL-REF-001/002 (P2) | $2,000 / $10,000 thresholds carried into the refund work |
+| POL-CTR-003/004/005, POL-ACC-010, POL-ONB-020 | not yet ported | Onboarding-workflow rules (pool hardware, Slack guest, paperwork, expiry, training); they return with the onboarding workflow (P1/P2) |
+
+**Authored clauses.** ACC-001, ACC-002, ACC-003, ACC-004 (combined), ACC-005, OFF-001 (transfer) and
+SOD-001 carry clause text written for Stage 2, marked in each YAML file. When the OKF bundle lands (T173), each
+clause must appear verbatim in its `source.okf` page, and a test will enforce it.

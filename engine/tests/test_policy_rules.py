@@ -121,3 +121,35 @@ def test_acc_003_senior_is_held_for_named_security_approver(engine):
 def test_acc_003_unknown_seniority_is_refused_not_assumed(engine):
     v = decide(engine, grant(system="aws", resource_class="admin"), person(seniority=None))
     assert v.verdict == "REFUSE"
+
+
+# --- POL-ACC-004 (T065) ------------------------------------------------------------------------------------
+
+def repo(name, permission="read", tags=()):
+    return grant(system="github", repo=name, permission=permission, repo_tags=list(tags))
+
+
+def test_acc_004_employee_untagged_repo_allowed(engine):
+    v = decide(engine, repo("northbeam/payments-docs", "write"), ANIL)
+    assert (v.verdict, v.rule_id) == ("ALLOW", "POL-ACC-004")
+
+
+def test_acc_004_employee_production_repo_held_for_security(engine):
+    v = decide(engine, repo("northbeam/payments-core", tags=["production"]), ANIL)
+    assert (v.verdict, v.rule_id, v.approver) == ("HOLD", "POL-ACC-004", "p-dana")
+    assert "tagged 'production'" in v.clause_text
+
+
+def test_acc_004_contractor_sow_repo_read_only_held_when_production(engine):
+    v = decide(engine, repo("northbeam/perception-sdk", tags=["production"]), PRIYA)
+    assert (v.verdict, v.approver) == ("HOLD", "p-dana")
+
+
+@pytest.mark.parametrize("action", [
+    repo("northbeam/payments-core"),                          # not in the SOW
+    repo("northbeam/perception-sdk", "write"),                # in the SOW but not read-only
+    repo("northbeam/perception-sdk", "admin", ["production"]),
+])
+def test_acc_004_contractor_outside_sow_or_not_read_is_refused(engine, action):
+    v = decide(engine, action, PRIYA)
+    assert (v.verdict, v.rule_id) == ("REFUSE", "POL-ACC-004")
