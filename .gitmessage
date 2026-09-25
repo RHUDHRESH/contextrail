@@ -1,7 +1,7 @@
 # <type>(<scope>): <imperative summary, header ≤ 100 chars> [T###]
 #
 # type : feat fix refactor docs chore build ci perf test
-# scope: repo policy rail db models fixtures llm fs slack email teams voice fdk mcp skills okf audit deploy dodo
+# scope: repo engine policy rail db models fixtures llm fs slack email teams voice fdk mcp skills okf audit deploy dodo
 #
 # Why: the problem or principle this serves (cite CLAUDE.md §, e.g. §9 "rules decide, not the model")
 # What:

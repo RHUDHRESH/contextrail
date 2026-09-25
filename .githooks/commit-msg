@@ -26,7 +26,7 @@ fail() {
 }
 
 types='feat|fix|refactor|docs|chore|build|ci|perf|test'
-scopes='repo|policy|rail|db|models|fixtures|llm|fs|slack|email|teams|voice|fdk|mcp|skills|okf|audit|deploy|dodo'
+scopes='repo|engine|policy|rail|db|models|fixtures|llm|fs|slack|email|teams|voice|fdk|mcp|skills|okf|audit|deploy|dodo'
 header_re="^(${types})\((${scopes})\): .+ \[T[0-9]{3}\]$"
 
 printf '%s' "$header" | grep -Eq "$header_re" \

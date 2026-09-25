@@ -732,7 +732,7 @@ Refs: CLAUDE.md §9, docs/CHECKLIST.md
 ```
 
 - **types:** `feat fix refactor docs chore build ci perf test`.
-- **scopes:** `repo policy rail db models fixtures llm fs slack email teams voice fdk mcp skills okf audit deploy dodo`.
+- **scopes:** `repo engine policy rail db models fixtures llm fs slack email teams voice fdk mcp skills okf audit deploy dodo`.
 - `.githooks/commit-msg` enforces the header, the matching `Task:` trailer, `Priority:`, `Why:`, `Verified:` and `Mode:`. `.githooks/pre-commit` blocks `.env` files and credential shapes. Run `scripts/setup-hooks.sh` once per clone.
 - **Tick the task** (`- [ ]` → `- [x]`) in `docs/CHECKLIST.md` in the same commit.
 - **Branch per section** (`sec/B-skeleton`, `sec/E-policy`, `sec/R-email`, …). At the end of the section: push, then open a PR using `.github/pull_request_template.md` (ticked tasks, verification output, screenshots). **Merge with a merge commit, never squash.**
