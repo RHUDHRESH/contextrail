@@ -8,10 +8,10 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 <!-- stats:start -->
 | Priority | Tasks | Done |
 |---|---|---|
-| P0 | 148 | 8 |
+| P0 | 148 | 9 |
 | P1 | 92 | 0 |
 | P2 | 10 | 0 |
-| **Total** | **250** | **8** |
+| **Total** | **250** | **9** |
 
 👤 human-owned tasks: 24
 <!-- stats:end -->
@@ -38,7 +38,7 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 
 ## B. Repository skeleton and commit discipline (19)
 
-- [ ] T018 `P0` Folders: `engine/`, `voice/`, `teams/`, `fdk-app/`, `knowledge/`, `fixtures/` (each with a README stating its purpose).
+- [x] T018 `P0` Folders: `engine/`, `voice/`, `teams/`, `fdk-app/`, `knowledge/`, `fixtures/` (each with a README stating its purpose).
 - [x] T019 `P0` `CLAUDE.md` (the build context) at the repo root.
 - [x] T020 `P0` `docs/CHECKLIST.md` (this file) with computed totals (`scripts/checklist-stats.sh`).
 - [x] T021 `P0` `.githooks/commit-msg`: enforce `<type>(<scope>): … [T###]`, matching `Task:`, `Priority:`, `Why:`, `Verified:`, `Mode:`.
