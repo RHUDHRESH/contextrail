@@ -14,12 +14,33 @@ def _env_keys_from_claude_md() -> set[str]:
     return {m.group(1) for m in re.finditer(r"^([A-Z][A-Z0-9_]+)=", block, re.MULTILINE)}
 
 
+def _env_keys_from_env_example() -> set[str]:
+    text = (ROOT / ".env.example").read_text(encoding="utf-8")
+    return {m.group(1) for m in re.finditer(r"^([A-Z][A-Z0-9_]+)=", text, re.MULTILINE)}
+
+
 def test_every_env_example_key_has_a_setting():
     keys = _env_keys_from_claude_md()
     assert len(keys) >= 30, keys
     fields = {name.upper() for name in Settings.model_fields}
     missing = sorted(keys - fields)
     assert not missing, f"Settings is missing: {missing}"
+
+
+def test_env_example_file_matches_claude_md_and_settings():
+    file_keys = _env_keys_from_env_example()
+    assert _env_keys_from_claude_md() <= file_keys, "CLAUDE.md §19 lists keys .env.example lacks"
+    fields = {name.upper() for name in Settings.model_fields}
+    assert file_keys == fields, f"drift: file-only={sorted(file_keys - fields)} settings-only={sorted(fields - file_keys)}"
+
+
+def test_env_example_parses(monkeypatch):
+    for k in _env_keys_from_env_example():
+        monkeypatch.delenv(k, raising=False)
+    s = Settings(_env_file=ROOT / ".env.example")
+    assert s.agent_language == "hi-IN"
+    assert s.cors_allowed_origins == []
+    assert not s.freshservice_configured
 
 
 def test_secrets_never_render(monkeypatch):

@@ -8,10 +8,10 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 <!-- stats:start -->
 | Priority | Tasks | Done |
 |---|---|---|
-| P0 | 148 | 13 |
+| P0 | 148 | 14 |
 | P1 | 92 | 0 |
 | P2 | 10 | 0 |
-| **Total** | **250** | **13** |
+| **Total** | **250** | **14** |
 
 👤 human-owned tasks: 24
 <!-- stats:end -->
@@ -52,7 +52,7 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 - [ ] T029 `P0` Dockerfiles for engine and voice (`python:3.12-slim`).
 - [ ] T030 `P0` `docker-compose.yml`: postgres:16, engine, voice, caddy.
 - [ ] T031 `P0` `Caddyfile`: engine `/`, `/mcp`, `/slack/*`, `/api/teams/*`, `/a/*`; voice `/voice/*`; automatic TLS.
-- [ ] T032 `P0` `.env.example` with every key from CLAUDE.md §19.
+- [x] T032 `P0` `.env.example` with every key from CLAUDE.md §19.
 - [ ] T033 `P0` Makefile targets: `up`, `down`, `migrate`, `seed`, `reset`, `logs`, `fmt`.
 - [x] T034 `P0` structlog JSON logging with `run_id`/`channel` context + problem+json error middleware with a request id.
 - [ ] T035 `P1` CORS / allowed-origin config for the FDK app origin.
