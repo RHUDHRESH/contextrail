@@ -25,3 +25,6 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 *.egg-info/
+
+# FIXTURE connector state (reset with the engine reset command)
+.state/

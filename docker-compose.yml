@@ -31,8 +31,9 @@ services:
         required: false
     environment:
       DATABASE_URL: postgresql://cr:cr@postgres:5432/cr
-      CONTEXTRAIL_FIXTURES_DIR: /data/fixtures
-      CONTEXTRAIL_KNOWLEDGE_DIR: /data/knowledge
+      FIXTURES_DIR: /data/fixtures
+      STATE_DIR: /data/state
+      KNOWLEDGE_DIR: /data/knowledge
     volumes:
       # Fixtures are read-only seeds; mutable fixture state lives in the named volume.
       - ./fixtures:/data/fixtures:ro

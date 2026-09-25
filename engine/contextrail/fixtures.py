@@ -12,12 +12,13 @@ from pathlib import Path
 from typing import Any
 
 from contextrail.models import Subject
+from contextrail.settings import get_settings
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 def fixtures_dir() -> Path:
-    return Path(os.environ.get("FIXTURES_DIR") or _REPO_ROOT / "fixtures")
+    return Path((os.environ.get("FIXTURES_DIR") or get_settings().fixtures_dir) or _REPO_ROOT / "fixtures")
 
 
 @cache
