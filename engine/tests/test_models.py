@@ -66,7 +66,8 @@ def test_messages_and_documents_are_always_untrusted():
 def test_relabelling_after_creation_is_also_refused():
     e = ev()
     with pytest.raises(ValidationError):
-        e.trust = "curated"  # validate_assignment: an injected message cannot be promoted later
+        e.trust = "curated"  # an injected message cannot be promoted later...
+    assert e.trust == "untrusted"  # ...and a caught error leaves nothing relabelled
 
 
 def test_records_and_policies_have_their_own_trust():

@@ -64,6 +64,10 @@ _ALLOWED_TRUST: dict[str, set[str]] = {
 
 
 class Evidence(_Model):
+    # Frozen: evidence is what was retrieved, as retrieved. Freezing also closes a pydantic v2 gap where a rejected
+    # assignment still leaves the new value on the object (an injected message would stay relabelled 'curated').
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
     id: str
     kind: EvidenceKind
     source: str                      # 'hris' | 'freshservice' | 'okf' | 'slack' | 'email' | 'voice' ...
