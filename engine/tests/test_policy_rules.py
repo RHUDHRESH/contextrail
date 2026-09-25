@@ -101,3 +101,23 @@ def test_acc_002_peer_item_outside_requesters_role_is_refused_with_clause(engine
 def test_acc_002_only_governs_mirrored_requests(engine):
     v = decide(engine, grant(system="looker", entitlement="looker-risk", role_scope=["risk-analyst"]), ANIL)
     assert v.rule_id != "POL-ACC-002"
+
+
+# --- POL-ACC-003 (T064) ------------------------------------------------------------------------------------
+
+def test_acc_003_non_senior_is_refused_admin_rights(engine):
+    v = decide(engine, grant(system="aws", entitlement="aws-payments-prod-admin", resource_class="production_admin"),
+               ANIL)
+    assert (v.verdict, v.rule_id) == ("REFUSE", "POL-ACC-003")
+    assert "senior engineers and above" in v.clause_text
+
+
+def test_acc_003_senior_is_held_for_named_security_approver(engine):
+    rahul = person(source_id="E-0007", display_name="Rahul Mehta", seniority="senior")
+    v = decide(engine, grant(system="aws", resource_class="admin"), rahul)
+    assert (v.verdict, v.rule_id, v.approver) == ("HOLD", "POL-ACC-003", "p-dana")
+
+
+def test_acc_003_unknown_seniority_is_refused_not_assumed(engine):
+    v = decide(engine, grant(system="aws", resource_class="admin"), person(seniority=None))
+    assert v.verdict == "REFUSE"

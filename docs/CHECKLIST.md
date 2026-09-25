@@ -8,10 +8,10 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 <!-- stats:start -->
 | Priority | Tasks | Done |
 |---|---|---|
-| P0 | 148 | 41 |
+| P0 | 148 | 42 |
 | P1 | 92 | 0 |
 | P2 | 10 | 0 |
-| **Total** | **250** | **41** |
+| **Total** | **250** | **42** |
 
 👤 human-owned tasks: 24
 <!-- stats:end -->
@@ -93,7 +93,7 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 - [x] T061 `P0` POL-CTR-001: contractors never get production credentials (REFUSE, terminal).
 - [x] T062 `P0` POL-ACC-001: role baseline entitlements ALLOW.
 - [x] T063 `P0` POL-ACC-002: "same as peer" filtered by the requester's role, not the peer's.
-- [ ] T064 `P0` POL-ACC-003: admin rights only for senior roles.
+- [x] T064 `P0` POL-ACC-003: admin rights only for senior roles.
 - [ ] T065 `P0` POL-ACC-004: contractor repos limited to SOW, read-only, Security approval if production-tagged.
 - [ ] T066 `P0` POL-ACC-005: paid SaaS seats need manager approval.
 - [ ] T067 `P1` POL-DAT-001: raw customer PII only for analytics; suggest the masked view.
