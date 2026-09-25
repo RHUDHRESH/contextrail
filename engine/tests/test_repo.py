@@ -1,5 +1,6 @@
 import asyncio
 import hashlib
+import itertools
 from datetime import UTC, datetime, timedelta
 
 import psycopg
@@ -80,17 +81,16 @@ async def test_claim_job_skip_locked_no_double_claim(migrated_db):
 
 
 async def test_expired_lease_is_reclaimable_and_complete_finishes(migrated_db):
-    async with Database(migrated_db) as db:
-        async with db.transaction() as c:
-            jid = await repo.enqueue_job(c, "approval.deadline", dedupe_key="dl:1")
-            assert await repo.enqueue_job(c, "approval.deadline", dedupe_key="dl:1") is None
-            job = await repo.claim_job(c, lease_seconds=60)
-            assert job["id"] == jid and job["attempts"] == 1
-            await c.execute("update jobs set locked_until = now() - interval '1 second' where id = %s", (jid,))
-            again = await repo.claim_job(c)
-            assert again["id"] == jid and again["attempts"] == 2
-            await repo.complete_job(c, jid)
-            assert await repo.claim_job(c) is None
+    async with Database(migrated_db) as db, db.transaction() as c:
+        jid = await repo.enqueue_job(c, "approval.deadline", dedupe_key="dl:1")
+        assert await repo.enqueue_job(c, "approval.deadline", dedupe_key="dl:1") is None
+        job = await repo.claim_job(c, lease_seconds=60)
+        assert job["id"] == jid and job["attempts"] == 1
+        await c.execute("update jobs set locked_until = now() - interval '1 second' where id = %s", (jid,))
+        again = await repo.claim_job(c)
+        assert again["id"] == jid and again["attempts"] == 2
+        await repo.complete_job(c, jid)
+        assert await repo.claim_job(c) is None
 
 
 async def test_fail_job_schedules_retry(migrated_db):
@@ -122,7 +122,7 @@ async def test_concurrent_audit_appends_form_one_linear_chain(migrated_db):
         async with db.connection() as c:
             rows = await (await c.execute("select prev_hash, hash from audit order by seq")).fetchall()
     assert rows[0]["prev_hash"] == repo.GENESIS
-    for prev, cur in zip(rows, rows[1:], strict=False):
+    for prev, cur in itertools.pairwise(rows):
         assert cur["prev_hash"] == prev["hash"]  # no forks
 
 
