@@ -54,3 +54,15 @@ async def test_lookup_by_name_is_exact_never_fuzzy(hris):
     assert [r["source_id"] for r in await lookup(hris, "anil kumar")] == ["E-1042"]
     assert await lookup(hris, "Anill") == []          # a typo is not a match
     assert await lookup(hris, "Kumar") == []          # surnames alone do not resolve
+
+
+async def test_hris_outage_is_not_mistaken_for_no_match():
+    class DownHRIS:
+        async def read(self, ref):
+            raise TimeoutError("hris unreachable")
+
+        async def find_by_name(self, name):
+            raise TimeoutError("hris unreachable")
+
+    with pytest.raises(TimeoutError):
+        await lookup(DownHRIS(), "W-8841")

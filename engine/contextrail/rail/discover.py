@@ -13,6 +13,8 @@ from typing import Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict
 
+from contextrail.connectors.base import ConnectorError
+
 IntentName = Literal["access.same_as_peer", "onboarding", "access.request", "refund.outage", "query",
                      "approval_reply", "unknown"]
 RequestKind = Literal["request", "query", "approval_reply"]
@@ -111,6 +113,6 @@ async def lookup(hris, mention: str) -> list[dict]:
     if _ID_RE.match(mention):
         try:
             return [await hris.read({"source_id": mention})]
-        except Exception:  # noqa: BLE001 -- connector says "no such record": that is zero matches, not a crash
+        except ConnectorError:  # "no such record" is zero matches; an outage (anything else) must propagate
             return []
     return await hris.find_by_name(mention)
