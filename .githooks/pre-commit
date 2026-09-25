@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+# ContextRail secret gate: refuse to commit credentials or local env files.
+# Secrets live in AWS SSM / Secrets Manager in production and .env locally (CLAUDE.md §0 rule 8).
+set -euo pipefail
+
+status=0
+
+# 1. No local env files, ever. .env.example is the only allowed one.
+while IFS= read -r path; do
+  base="$(basename "$path")"
+  case "$base" in
+    .env.example) ;;
+    .env|.env.*) printf 'pre-commit: refusing to commit env file: %s\n' "$path" >&2; status=1 ;;
+  esac
+done < <(git diff --cached --name-only --diff-filter=ACMR)
+
+# 2. Scan added lines for credential shapes. The hook files themselves are excluded
+#    because they must contain the patterns.
+patterns=(
+  'xox[baprs]-[0-9]+-[0-9A-Za-z-]+'          # Slack tokens
+  'xapp-[0-9]-[A-Z0-9]+-'                     # Slack app-level tokens
+  'sk-ant-[A-Za-z0-9_-]{20,}'                 # Anthropic keys
+  'AKIA[0-9A-Z]{16}'                          # AWS access key IDs
+  '-----BEGIN ([A-Z]+ )?PRIVATE KEY-----'     # PEM private keys
+  '(FS|FD|DODO|SARVAM|VOBIZ)_API_KEY=[^[:space:]]+'  # filled-in API keys
+  '(SLACK_SIGNING_SECRET|FS_WEBHOOK_SECRET|VOBIZ_AUTH_TOKEN|TEAMS_APP_PASSWORD)=[^[:space:]]+'
+)
+
+added="$(git diff --cached -U0 --no-color -- . ':(exclude).githooks/*' | grep -E '^\+[^+]' || true)"
+for p in "${patterns[@]}"; do
+  if hits="$(printf '%s\n' "$added" | grep -En -e "$p")"; then
+    printf 'pre-commit: possible secret matching /%s/:\n%s\n' "$p" "$hits" >&2
+    status=1
+  fi
+done
+
+if [ "$status" -ne 0 ]; then
+  printf 'pre-commit: commit blocked. Move the value to .env (local) or SSM (prod).\n' >&2
+fi
+exit "$status"
