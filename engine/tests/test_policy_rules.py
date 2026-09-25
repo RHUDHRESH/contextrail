@@ -153,3 +153,30 @@ def test_acc_004_contractor_sow_repo_read_only_held_when_production(engine):
 def test_acc_004_contractor_outside_sow_or_not_read_is_refused(engine, action):
     v = decide(engine, action, PRIYA)
     assert (v.verdict, v.rule_id) == ("REFUSE", "POL-ACC-004")
+
+
+# --- POL-ACC-005 (T066) ------------------------------------------------------------------------------------
+
+def test_acc_005_paid_seat_held_for_the_named_manager(engine):
+    v = decide(engine, grant(system="postman", entitlement="postman-enterprise-seat", seat_cost_usd=49), ANIL,
+               run={"requested_by": "p-anil"})
+    assert (v.verdict, v.rule_id, v.approver) == ("HOLD", "POL-ACC-005", "p-meera")
+    assert "paid SaaS tool" in v.clause_text
+
+
+def test_acc_005_hold_outranks_a_baseline_allow(engine):
+    # A seat can be on the role baseline and still cost money: the manager still approves.
+    v = decide(engine, grant(system="figma", entitlement="figma-seat", seat_cost_usd=15), ANIL,
+               role={"baseline": ["figma-seat"]})
+    assert (v.verdict, v.rule_id) == ("HOLD", "POL-ACC-005")
+
+
+def test_acc_005_free_tool_is_not_held(engine):
+    v = decide(engine, grant(system="slack", entitlement="slack-payments", seat_cost_usd=0), ANIL,
+               role={"baseline": ["slack-payments"]})
+    assert (v.verdict, v.rule_id) == ("ALLOW", "POL-ACC-001")
+
+
+def test_acc_005_manager_who_requested_cannot_approve(engine):
+    v = decide(engine, grant(system="postman", seat_cost_usd=49), ANIL, run={"requested_by": "p-meera"})
+    assert v.approver == "role:manager"  # visibly unresolved -> blocker, never self-approval

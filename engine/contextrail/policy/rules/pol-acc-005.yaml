@@ -1,0 +1,10 @@
+id: POL-ACC-005
+title: Paid SaaS seats need the manager's approval
+source: {okf: knowledge/policies/access-control-standard.md, clause: "§6"}
+# Authored for Stage 2; see docs/DECISIONS.md D-011.
+clause_text: "A seat in a paid SaaS tool is a cost to the team's budget and requires approval from the person's manager before it is assigned."
+match: {kind: grant}
+conditions:
+  - target.seat_cost_usd > 0
+verdict: HOLD
+approver: manager
