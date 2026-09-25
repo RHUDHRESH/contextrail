@@ -6,14 +6,21 @@ from pydantic import ValidationError
 
 from contextrail.models import (
     ACTION_TRANSITIONS,
+    STAGE_ORDER,
     Action,
     ActionState,
     CaseFile,
     Evidence,
     IllegalTransition,
+    RunStatus,
+    Stage,
+    StageEvent,
     Subject,
     Verdict,
     apply_verdict,
+    check_run_transition,
+    check_stage_order,
+    next_stage,
 )
 
 
@@ -190,3 +197,42 @@ def test_subject_fields_cannot_be_edited_in_place():
     with pytest.raises(ValidationError):
         s.source_id = "Anil Kumar"
     assert (s.employment_type, s.source_id) == ("employee", "E-1042")
+
+
+# --- run lifecycle + StageEvent (T052) ---------------------------------------------------------------------
+
+def test_stage_order_is_fixed_and_cannot_skip():
+    assert [s.value for s in STAGE_ORDER] == [
+        "discover", "compile", "govern", "plan", "handoff", "approve", "execute", "verify", "finalize"]
+    assert next_stage(None) is Stage.DISCOVER and next_stage("finalize") is None
+    check_stage_order("govern", "plan")
+    with pytest.raises(IllegalTransition, match="skips"):
+        check_stage_order("govern", "execute")     # cannot jump past plan/handoff/approve
+    with pytest.raises(IllegalTransition):
+        check_stage_order("verify", "execute")     # cannot go backwards
+
+
+def test_run_status_transitions():
+    check_run_transition("running", "needs_input")
+    check_run_transition("needs_input", "running")
+    check_run_transition("awaiting_approval", "partial")
+    for final in ("partial", "done", "failed"):
+        with pytest.raises(IllegalTransition):
+            check_run_transition(final, "running")   # finished runs stay finished
+    with pytest.raises(IllegalTransition):
+        check_run_transition("needs_input", "done")  # cannot finish without resolving the subject
+
+
+def test_python_run_statuses_match_the_database():
+    assert {s.value for s in RunStatus} == {"running", "needs_input", "awaiting_approval", "partial", "done", "failed"}
+
+
+def test_stage_event_shape():
+    e = StageEvent(run_id=uuid.uuid4(), seq=3, stage="govern", status="running",
+                   message="Govern: 13 allowed, 2 held, 1 refused", counts={"allow": 13, "hold": 2, "refuse": 1},
+                   at=datetime.now(UTC))
+    assert e.counts["refuse"] == 1
+    with pytest.raises(ValidationError):
+        StageEvent(run_id=uuid.uuid4(), seq=-1, stage="govern", status="running", message="x", at=datetime.now(UTC))
+    with pytest.raises(ValidationError):
+        e.message = "edited"

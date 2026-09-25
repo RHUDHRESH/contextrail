@@ -8,10 +8,10 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 <!-- stats:start -->
 | Priority | Tasks | Done |
 |---|---|---|
-| P0 | 148 | 30 |
+| P0 | 148 | 31 |
 | P1 | 92 | 0 |
 | P2 | 10 | 0 |
-| **Total** | **250** | **30** |
+| **Total** | **250** | **31** |
 
 👤 human-owned tasks: 24
 <!-- stats:end -->
@@ -78,7 +78,7 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 - [x] T049 `P0` Capsule seal: compute and store the digest.
 - [x] T050 `P0` Capsule verify at every handoff; raise `DigestMismatch`.
 - [x] T051 `P0` Idempotency key = sha256(run_id + action_id + params_hash).
-- [ ] T052 `P0` Run status and stage enums with an allowed-transitions table + `StageEvent` model for SSE and doors.
+- [x] T052 `P0` Run status and stage enums with an allowed-transitions table + `StageEvent` model for SSE and doors.
 
 ## E. Policy engine and the 12 rules (20)
 

@@ -225,3 +225,78 @@ class CaseFile(_Model):
             if a.id == action_id:
                 return a
         raise KeyError(action_id)
+
+
+# --- run lifecycle (T052) ----------------------------------------------------------------------------------
+
+class RunStatus(StrEnum):
+    RUNNING = "running"
+    NEEDS_INPUT = "needs_input"              # identity ambiguous or missing: ask, never guess (P1)
+    AWAITING_APPROVAL = "awaiting_approval"
+    PARTIAL = "partial"                      # finished with refusals or failures: a governed outcome, not an error
+    DONE = "done"
+    FAILED = "failed"
+
+
+_R = RunStatus
+RUN_TRANSITIONS: dict[RunStatus, frozenset[RunStatus]] = {
+    _R.RUNNING: frozenset({_R.NEEDS_INPUT, _R.AWAITING_APPROVAL, _R.PARTIAL, _R.DONE, _R.FAILED}),
+    _R.NEEDS_INPUT: frozenset({_R.RUNNING, _R.FAILED}),
+    _R.AWAITING_APPROVAL: frozenset({_R.RUNNING, _R.PARTIAL, _R.DONE, _R.FAILED}),
+    _R.PARTIAL: frozenset(),
+    _R.DONE: frozenset(),
+    _R.FAILED: frozenset(),
+}
+
+
+class Stage(StrEnum):
+    DISCOVER = "discover"
+    COMPILE = "compile"
+    GOVERN = "govern"
+    PLAN = "plan"
+    HANDOFF = "handoff"
+    APPROVE = "approve"
+    EXECUTE = "execute"
+    VERIFY = "verify"
+    FINALIZE = "finalize"
+
+
+# The rail's order is fixed in code. The model never chooses the next stage (CLAUDE.md §8, D-002).
+STAGE_ORDER: tuple[Stage, ...] = tuple(Stage)
+
+
+def check_run_transition(current: RunStatus | str, to: RunStatus | str) -> RunStatus:
+    current, to = RunStatus(current), RunStatus(to)
+    if to not in RUN_TRANSITIONS[current]:
+        raise IllegalTransition(f"run status {current} -> {to} is not allowed")
+    return to
+
+
+def next_stage(current: Stage | str | None) -> Stage | None:
+    """The only stage that may follow `current` (None -> DISCOVER; FINALIZE -> None)."""
+    if current is None:
+        return STAGE_ORDER[0]
+    i = STAGE_ORDER.index(Stage(current))
+    return STAGE_ORDER[i + 1] if i + 1 < len(STAGE_ORDER) else None
+
+
+def check_stage_order(current: Stage | str | None, to: Stage | str) -> Stage:
+    to = Stage(to)
+    if next_stage(current) is not to:
+        raise IllegalTransition(f"stage {current} -> {to} skips or reorders the rail")
+    return to
+
+
+class StageEvent(_Model):
+    """One streamed status update: SSE (/v1/runs/{id}/events), Slack set_status, Teams card update, voice prompt."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    run_id: UUID
+    seq: int = Field(ge=0)                    # monotonic per run, so doors can drop stale/out-of-order updates
+    stage: Stage
+    status: RunStatus
+    message: str = Field(max_length=280)      # one short human sentence, e.g. "Govern: 13 allowed, 2 held, 1 refused"
+    counts: dict[Literal["allow", "hold", "refuse", "verified", "failed"], int] = Field(default_factory=dict)
+    at: datetime
+    replay: bool = False                      # T4 replay tier was used: every door must show it
