@@ -8,10 +8,10 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 <!-- stats:start -->
 | Priority | Tasks | Done |
 |---|---|---|
-| P0 | 148 | 54 |
+| P0 | 148 | 55 |
 | P1 | 92 | 0 |
 | P2 | 10 | 0 |
-| **Total** | **250** | **54** |
+| **Total** | **250** | **55** |
 
 👤 human-owned tasks: 24
 <!-- stats:end -->
@@ -113,7 +113,7 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 - [ ] T078 `P2` Payments fixture: customers, plans, prior credits, one duplicate.
 - [x] T079 `P0` Fixture connectors with persistent state files and a real `verify()` against that state.
 - [x] T080 `P0` Seed script loading fixtures and the identity map for all doors (Slack, Teams, email, phone).
-- [ ] T081 `P0` `/v1/connectors` endpoint listing each connector's LIVE/FIXTURE/ONE-WAY mode.
+- [x] T081 `P0` `/v1/connectors` endpoint listing each connector's LIVE/FIXTURE/ONE-WAY mode.
 - [x] T082 `P0` Reset script restoring fixture state between demo runs.
 
 ## G. The rail (eight stages) and the door layer (26)
