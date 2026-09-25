@@ -8,10 +8,10 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 <!-- stats:start -->
 | Priority | Tasks | Done |
 |---|---|---|
-| P0 | 148 | 62 |
+| P0 | 148 | 63 |
 | P1 | 92 | 0 |
 | P2 | 10 | 0 |
-| **Total** | **250** | **62** |
+| **Total** | **250** | **63** |
 
 👤 human-owned tasks: 24
 <!-- stats:end -->
@@ -127,7 +127,7 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 - [x] T089 `P0` Compile: parallel fetch of records, entitlements and policies (`asyncio.gather`).
 - [ ] T090 `P1` Compile: load OKF concepts by tags/rules.
 - [ ] T091 `P1` Compile: extract SOW constraints with cited spans.
-- [ ] T092 `P0` Compile: mark stale evidence into open blockers.
+- [x] T092 `P0` Compile: mark stale evidence into open blockers.
 - [x] T093 `P0` Compile: include untrusted messages/email bodies as evidence, wrapped as data.
 - [ ] T094 `P0` Compile: seal the capsule and store the digest.
 - [ ] T095 `P0` Govern: build candidate actions (peer's items minus requester's current items).

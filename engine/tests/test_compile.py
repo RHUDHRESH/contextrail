@@ -9,6 +9,7 @@ from contextrail.fixtures import subject_from_record
 from contextrail.policy.loader import load_rules
 from contextrail.rail.compile import (
     gather_inputs,
+    mark_stale,
     retrieve_messages,
     search_terms,
     subject_constraints,
@@ -101,3 +102,41 @@ def test_wrapped_text_cannot_close_its_own_fence():
     assert wrapped.count("</untrusted>") == 1 and wrapped.endswith("</untrusted>")
     assert wrapped.count("<untrusted ") == 1
     assert "&lt;/untrusted&gt;" in wrapped
+
+
+# --- stale evidence -> blockers (T092) ---------------------------------------------------------------------
+
+def _ev(kind, trust, days_old, **kw):
+    from datetime import timedelta
+
+    from contextrail.models import Evidence
+    return Evidence(id=f"EV-{kind}-{days_old}", kind=kind, source="x", uri=f"x://{kind}", excerpt="e",
+                    retrieved_at=NOW, last_verified=(NOW - timedelta(days=days_old)).date(), trust=trust, **kw)
+
+
+def test_stale_record_and_policy_become_blockers():
+    ev, blockers = mark_stale([_ev("record", "record", 120), _ev("policy", "curated", 400),
+                               _ev("record", "record", 10)], now=NOW)
+    assert [e.stale for e in ev] == [True, True, False]
+    assert len(blockers) == 2 and "x://record" in blockers[0] and "budget 90" in blockers[0]
+
+
+def test_stale_messages_are_flagged_but_never_block():
+    ev, blockers = mark_stale([_ev("message", "untrusted", 60)], now=NOW)
+    assert ev[0].stale and blockers == []
+
+
+def test_unknown_freshness_is_not_guessed():
+    from contextrail.models import Evidence
+    e = Evidence(id="EV-p", kind="policy", source="policy", uri="p", excerpt="e", retrieved_at=NOW,
+                 trust="curated")
+    ev, blockers = mark_stale([e], now=NOW)
+    assert ev[0].stale is False and blockers == []
+
+
+async def test_demo_fixture_evidence_is_fresh(conns, corpus):
+    anil = await conns["hris"].read({"source_id": "E-1042"})
+    inputs = await gather_inputs(anil, None, entitlements=conns["entitlements"], rules=load_rules(), now=NOW)
+    msgs = await retrieve_messages(corpus, ["anil"], now=NOW)
+    _, blockers = mark_stale(inputs.evidence + msgs, now=NOW)
+    assert blockers == []  # the demo run is not blocked by its own fixtures

@@ -107,3 +107,28 @@ def wrap_untrusted(ev: Evidence) -> str:
     """How untrusted text enters any prompt: fenced as data, with no way to close the fence from inside (§11)."""
     body = ev.excerpt.replace("<", "&lt;").replace(">", "&gt;")
     return f'<untrusted source="{ev.source}" uri="{ev.uri}" trust="{ev.trust}">\n{body}\n</untrusted>'
+
+
+# --- freshness: stale evidence becomes a blocker, not an assumption (T092) -----------------------------------
+
+FRESHNESS_DAYS = {"record": 90, "policy": 365, "precedent": 180, "document": 180, "message": 30}
+_DECIDING_KINDS = {"record", "policy", "precedent"}  # what Govern relies on; untrusted text never decides
+
+
+def mark_stale(evidence: list[Evidence], now: datetime | None = None) -> tuple[list[Evidence], list[str]]:
+    """Flag evidence older than its freshness budget. Stale records/policies become open blockers; stale messages
+    and documents are only flagged. Evidence without last_verified is not judged here: an unknown date is reported
+    by the knowledge lint (T179), not silently treated as fresh or stale."""
+    today = (now or datetime.now(UTC)).date()
+    out, blockers = [], []
+    for e in evidence:
+        if e.last_verified is None:
+            out.append(e)
+            continue
+        age = (today - e.last_verified).days
+        stale = age > FRESHNESS_DAYS[e.kind]
+        out.append(e.model_copy(update={"stale": stale}) if stale != e.stale else e)
+        if stale and e.kind in _DECIDING_KINDS:
+            blockers.append(f"Stale {e.kind}: {e.uri} last verified {e.last_verified.isoformat()} "
+                            f"({age} days; budget {FRESHNESS_DAYS[e.kind]}). Re-verify before acting.")
+    return out, blockers
