@@ -8,10 +8,10 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 <!-- stats:start -->
 | Priority | Tasks | Done |
 |---|---|---|
-| P0 | 148 | 52 |
+| P0 | 148 | 53 |
 | P1 | 92 | 0 |
 | P2 | 10 | 0 |
-| **Total** | **250** | **52** |
+| **Total** | **250** | **53** |
 
 👤 human-owned tasks: 24
 <!-- stats:end -->
@@ -112,7 +112,7 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 - [ ] T077 `P1` Priya's SOW document naming `northbeam/perception-sdk` + incident INC-4412 fixture.
 - [ ] T078 `P2` Payments fixture: customers, plans, prior credits, one duplicate.
 - [x] T079 `P0` Fixture connectors with persistent state files and a real `verify()` against that state.
-- [ ] T080 `P0` Seed script loading fixtures and the identity map for all doors (Slack, Teams, email, phone).
+- [x] T080 `P0` Seed script loading fixtures and the identity map for all doors (Slack, Teams, email, phone).
 - [ ] T081 `P0` `/v1/connectors` endpoint listing each connector's LIVE/FIXTURE/ONE-WAY mode.
 - [ ] T082 `P0` Reset script restoring fixture state between demo runs.
 

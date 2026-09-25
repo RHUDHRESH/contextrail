@@ -1,0 +1,26 @@
+{
+  "_meta": {
+    "mode": "FIXTURE",
+    "system": "identity",
+    "note": "One identity per person across every door. Emails use the reserved .example domain; phone numbers are fictional. Freshservice ids are filled in once the trial tenant exists (T002)."
+  },
+  "people": [
+    {"person_id": "p-anil",   "display_name": "Anil Kumar",        "hris_id": "E-1042", "email": "anil.kumar@northbeam.example",   "slack_user_id": "U0ANIL001", "teams_aad_id": "00000000-0000-4000-8000-000000001042", "phone": "+919990000142", "preferred_door": "slack", "can_approve": false},
+    {"person_id": "p-rahul",  "display_name": "Rahul Mehta",       "hris_id": "E-0007", "email": "rahul.mehta@northbeam.example",  "slack_user_id": "U0RAHU007", "teams_aad_id": "00000000-0000-4000-8000-000000000007", "phone": "+919990000107", "preferred_door": "slack", "can_approve": false},
+    {"person_id": "p-rverma", "display_name": "Rahul Verma",       "hris_id": "E-0415", "email": "rahul.verma@northbeam.example",  "slack_user_id": "U0RVER415", "teams_aad_id": "00000000-0000-4000-8000-000000000415", "phone": null,            "preferred_door": "teams", "can_approve": false},
+    {"person_id": "p-priya",  "display_name": "Priya Raghunathan", "hris_id": "W-8841", "email": "priya.r@contractor.northbeam.example", "slack_user_id": null, "teams_aad_id": null,                             "phone": null,            "preferred_door": "email", "can_approve": false},
+    {"person_id": "p-meera",  "display_name": "Meera Iyer",        "hris_id": "E-0301", "email": "meera.iyer@northbeam.example",   "slack_user_id": "U0MEER301", "teams_aad_id": "00000000-0000-4000-8000-000000000301", "phone": "+919990000301", "preferred_door": "email", "can_approve": true},
+    {"person_id": "p-dana",   "display_name": "Dana Osei",         "hris_id": "E-0050", "email": "dana.osei@northbeam.example",    "slack_user_id": "U0DANA050", "teams_aad_id": "00000000-0000-4000-8000-000000000050", "phone": "+919990000150", "preferred_door": "teams", "can_approve": true},
+    {"person_id": "p-omar",   "display_name": "Omar Haddad",       "hris_id": "E-0051", "email": "omar.haddad@northbeam.example",  "slack_user_id": "U0OMAR051", "teams_aad_id": "00000000-0000-4000-8000-000000000051", "phone": "+919990000151", "preferred_door": "voice", "can_approve": true},
+    {"person_id": "p-marc",   "display_name": "Marc Liu",          "hris_id": "E-0120", "email": "marc.liu@northbeam.example",     "slack_user_id": "U0MARC120", "teams_aad_id": null,                                   "phone": null,            "preferred_door": "slack", "can_approve": true},
+    {"person_id": "p-sam",    "display_name": "Sam Whitfield",     "hris_id": "E-0210", "email": "sam.whitfield@northbeam.example","slack_user_id": "U0SAMW210", "teams_aad_id": null,                                   "phone": null,            "preferred_door": "slack", "can_approve": true},
+    {"person_id": "p-ravi",   "display_name": "Ravi Menon",        "hris_id": "E-0002", "email": "ravi.menon@northbeam.example",   "slack_user_id": "U0RAVI002", "teams_aad_id": null,                                   "phone": null,            "preferred_door": "email", "can_approve": true}
+  ],
+  "roster": {
+    "security-oncall": ["p-dana", "p-omar"],
+    "incident-commander": ["p-omar", "p-dana"],
+    "data-owner": ["p-ravi"],
+    "finance": ["p-ravi"],
+    "vp-finance": ["p-ravi"]
+  }
+}
