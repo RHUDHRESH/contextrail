@@ -76,3 +76,45 @@ def test_unknown_source_and_status_rejected(migrated_db):
         rid = _run(c)
         with pytest.raises(psycopg.errors.CheckViolation):
             c.execute("update runs set status = 'approved' where id = %s", (rid,))
+
+
+# --- 0002_audit_jobs_llm -----------------------------------------------------------------------------------
+
+def _audit(c, rid, n):
+    c.execute("insert into audit (run_id, event, prev_hash, hash) values (%s, 'stage', 'GENESIS', %s)",
+              (rid, f"{n:064x}"))
+
+
+def test_audit_rejects_update_delete_truncate(migrated_db):
+    with psycopg.connect(migrated_db) as c:
+        rid = _run(c)
+        _audit(c, rid, 1)
+        for sql in ("update audit set event = 'forged'", "delete from audit", "truncate audit"):
+            with pytest.raises(psycopg.errors.InsufficientPrivilege), c.transaction():
+                c.execute(sql)
+        assert c.execute("select event from audit").fetchone()[0] == "stage"
+
+
+def test_audit_hash_must_be_sha256_hex_and_unique(migrated_db):
+    with psycopg.connect(migrated_db) as c:
+        rid = _run(c)
+        with pytest.raises(psycopg.errors.CheckViolation), c.transaction():
+            c.execute("insert into audit (run_id, event, prev_hash, hash) values (%s, 'e', 'GENESIS', 'nope')",
+                      (rid,))
+        _audit(c, rid, 7)
+        with pytest.raises(psycopg.errors.UniqueViolation):
+            _audit(c, rid, 7)
+
+
+def test_llm_call_tier_is_constrained(migrated_db):
+    with psycopg.connect(migrated_db) as c:
+        c.execute("insert into llm_calls (model, tier, replay) values ('claude-haiku-4-5-20251001', 'T4', true)")
+        with pytest.raises(psycopg.errors.CheckViolation):
+            c.execute("insert into llm_calls (model, tier) values ('x', 'T9')")
+
+
+def test_job_dedupe_key(migrated_db):
+    with psycopg.connect(migrated_db) as c:
+        c.execute("insert into jobs (kind, dedupe_key) values ('rail.run', 'fs:ticket:42')")
+        with pytest.raises(psycopg.errors.UniqueViolation):
+            c.execute("insert into jobs (kind, dedupe_key) values ('rail.run', 'fs:ticket:42')")
