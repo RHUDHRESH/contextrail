@@ -1,0 +1,62 @@
+{
+  "_meta": {
+    "mode": "FIXTURE",
+    "system": "hris",
+    "org": "Northbeam",
+    "note": "Demo HR records. Every connector backed by this file reports mode FIXTURE. Names match the Stage 1 corpus."
+  },
+  "people": [
+    {
+      "source": "hris", "source_id": "E-1042", "display_name": "Anil Kumar", "employment_type": "employee",
+      "role": "payments-engineer", "team": "payments", "seniority": "mid", "manager_id": "E-0301",
+      "start_date": "2024-02-12", "end_date": null, "sow_repos": [],
+      "previous_team": "risk-analytics", "transfer_date": "2026-09-21"
+    },
+    {
+      "source": "hris", "source_id": "E-0007", "display_name": "Rahul Mehta", "employment_type": "employee",
+      "role": "payments-engineer", "team": "payments", "seniority": "senior", "manager_id": "E-0301",
+      "start_date": "2021-06-01", "end_date": null, "sow_repos": []
+    },
+    {
+      "source": "hris", "source_id": "E-0415", "display_name": "Rahul Verma", "employment_type": "employee",
+      "role": "risk-analyst", "team": "risk-analytics", "seniority": "mid", "manager_id": "E-0210",
+      "start_date": "2023-01-09", "end_date": null, "sow_repos": []
+    },
+    {
+      "source": "hris", "source_id": "W-8841", "display_name": "Priya Raghunathan", "employment_type": "contractor",
+      "role": "contract-engineer", "team": "perception", "seniority": null, "manager_id": "E-0120",
+      "start_date": "2026-09-28", "end_date": "2027-03-31", "sow_repos": ["northbeam/perception-sdk"],
+      "nda_signed": true, "sow_countersigned": true
+    },
+    {
+      "source": "hris", "source_id": "E-0301", "display_name": "Meera Iyer", "employment_type": "employee",
+      "role": "engineering-manager", "team": "payments", "seniority": "lead", "manager_id": "E-0002",
+      "start_date": "2020-03-16", "end_date": null, "sow_repos": []
+    },
+    {
+      "source": "hris", "source_id": "E-0050", "display_name": "Dana Osei", "employment_type": "employee",
+      "role": "security-engineer", "team": "security", "seniority": "senior", "manager_id": "E-0002",
+      "start_date": "2019-11-04", "end_date": null, "sow_repos": []
+    },
+    {
+      "source": "hris", "source_id": "E-0051", "display_name": "Omar Haddad", "employment_type": "employee",
+      "role": "security-engineer", "team": "security", "seniority": "senior", "manager_id": "E-0002",
+      "start_date": "2022-08-22", "end_date": null, "sow_repos": []
+    },
+    {
+      "source": "hris", "source_id": "E-0120", "display_name": "Marc Liu", "employment_type": "employee",
+      "role": "engineering-lead", "team": "perception", "seniority": "lead", "manager_id": "E-0002",
+      "start_date": "2020-10-05", "end_date": null, "sow_repos": []
+    },
+    {
+      "source": "hris", "source_id": "E-0210", "display_name": "Sam Whitfield", "employment_type": "employee",
+      "role": "engineering-manager", "team": "risk-analytics", "seniority": "lead", "manager_id": "E-0002",
+      "start_date": "2021-02-01", "end_date": null, "sow_repos": []
+    },
+    {
+      "source": "hris", "source_id": "E-0002", "display_name": "Ravi Menon", "employment_type": "employee",
+      "role": "vp-engineering", "team": "engineering", "seniority": "principal", "manager_id": null,
+      "start_date": "2018-04-02", "end_date": null, "sow_repos": []
+    }
+  ]
+}
