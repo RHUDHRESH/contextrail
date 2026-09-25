@@ -72,3 +72,18 @@ def sha256_hex(value: Any) -> str:
 def params_hash(kind: str, target: dict) -> str:
     """What an approval is bound to: the action kind and its exact target. Change either and the hash changes."""
     return sha256_hex({"kind": kind, "target": target})
+
+
+def idempotency_key(run_id: object, action_id: str, params_hash_hex: str) -> str:
+    """Key for every external write of an action (§0 rule 5). A replayed webhook, a double-clicked button or a
+    retried job produces the same key, so the connector writes once. Changed params produce a different key,
+    because it is then a different action.
+
+    Hashes a canonical structure rather than a joined string, so ("ab", "c") and ("a", "bc") cannot collide.
+    """
+    return sha256_hex({"run_id": run_id, "action_id": action_id, "params_hash": params_hash_hex})
+
+
+def door_send_key(run_id: object, action_id: str, channel: str) -> str:
+    """Key for a door's outbound message about an action (one approval email per action, one Slack card...)."""
+    return sha256_hex({"run_id": run_id, "action_id": action_id, "channel": channel})

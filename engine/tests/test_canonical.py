@@ -5,7 +5,14 @@ from decimal import Decimal
 import pytest
 from pydantic import ValidationError
 
-from contextrail.canonical import NotCanonicalizable, canonical_json, params_hash, sha256_hex
+from contextrail.canonical import (
+    NotCanonicalizable,
+    canonical_json,
+    door_send_key,
+    idempotency_key,
+    params_hash,
+    sha256_hex,
+)
 from contextrail.models import Action, ActionState
 
 
@@ -49,3 +56,26 @@ def test_action_hash_must_match_its_target():
         a.target = {"system": "github", "permission": "admin"}  # silent escalation after hashing is refused
     assert a.target == {"system": "github", "permission": "read"}  # and the object was NOT mutated
     assert a.state is ActionState.PLANNED
+
+
+# --- idempotency keys (T051) -------------------------------------------------------------------------------
+
+def test_idempotency_key_is_stable_and_bound_to_params():
+    rid = uuid.UUID(int=7)
+    a = Action.create("A1", "grant", {"system": "github", "perm": "read"})
+    k = idempotency_key(rid, a.id, a.params_hash)
+    assert k == idempotency_key(uuid.UUID(int=7), "A1", a.params_hash)  # replay -> same key -> one write
+    changed = Action.create("A1", "grant", {"system": "github", "perm": "write"})
+    assert idempotency_key(rid, "A1", changed.params_hash) != k       # different params -> different action
+    assert idempotency_key(uuid.UUID(int=8), "A1", a.params_hash) != k
+    assert len(k) == 64
+
+
+def test_keys_cannot_collide_by_concatenation():
+    assert idempotency_key("ab", "c", "h") != idempotency_key("a", "bc", "h")
+
+
+def test_door_send_key_differs_per_channel():
+    rid = uuid.UUID(int=7)
+    assert door_send_key(rid, "A1", "email") != door_send_key(rid, "A1", "slack")
+    assert door_send_key(rid, "A1", "email") == door_send_key(rid, "A1", "email")
