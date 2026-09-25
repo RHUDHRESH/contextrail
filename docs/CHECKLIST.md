@@ -8,10 +8,10 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 <!-- stats:start -->
 | Priority | Tasks | Done |
 |---|---|---|
-| P0 | 148 | 45 |
+| P0 | 148 | 46 |
 | P1 | 92 | 0 |
 | P2 | 10 | 0 |
-| **Total** | **250** | **45** |
+| **Total** | **250** | **46** |
 
 👤 human-owned tasks: 24
 <!-- stats:end -->
@@ -99,7 +99,7 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 - [ ] T067 `P1` POL-DAT-001: raw customer PII only for analytics; suggest the masked view.
 - [ ] T068 `P1` POL-EMG-001: incident access read-only, 4-hour expiry, incident commander approval.
 - [x] T069 `P0` POL-OFF-001: revoke old-team access on transfer.
-- [ ] T070 `P0` POL-SOD-001: requester cannot approve their own request (enforced in `door.decide` for every door).
+- [x] T070 `P0` POL-SOD-001: requester cannot approve their own request (enforced in `door.decide` for every door).
 - [ ] T071 `P2` POL-REF-001 (refund limit) and POL-REF-002 (one outage credit per quarter).
 - [ ] T072 `P1` Policy Studio function: re-evaluate a run with one rule held out and return the diff.
 

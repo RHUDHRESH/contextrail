@@ -4,7 +4,7 @@ import pytest
 
 from contextrail.models import Action, Subject
 from contextrail.policy.approvers import StaticDirectory
-from contextrail.policy.engine import PolicyEngine
+from contextrail.policy.engine import PolicyEngine, check_decision
 from contextrail.policy.loader import load_rules
 
 DIRECTORY = StaticDirectory(roster={"security-oncall": ["p-dana"], "incident-commander": ["p-omar"]},
@@ -195,3 +195,33 @@ def test_off_001_old_team_access_is_revoked_on_transfer(engine):
 def test_off_001_other_revocations_are_not_blanket_allowed(engine):
     revoke = Action.create("R2", "revoke", {"system": "github", "entitlement": "gh-payments-api-read"})
     assert decide(engine, revoke, ANIL).rule_id == "DEFAULT-DENY"
+
+
+# --- POL-SOD-001 (T070) ------------------------------------------------------------------------------------
+
+H = "a" * 64
+
+
+def sod(engine, approver, requested_by="p-anil", beneficiary="p-anil"):
+    return check_decision(engine, ANIL, action_id="A7", params_hash=H, approver=approver,
+                          requested_by=requested_by, beneficiary=beneficiary)
+
+
+def test_sod_001_independent_approver_is_allowed(engine):
+    v = sod(engine, "p-dana")
+    assert (v.verdict, v.rule_id) == ("ALLOW", "POL-SOD-001")
+
+
+@pytest.mark.parametrize(("approver", "requested_by", "beneficiary"), [
+    ("p-anil", "p-anil", "p-anil"),     # approving your own request
+    ("p-meera", "p-meera", "p-anil"),   # manager raised it, manager approves it
+    ("p-anil", "p-meera", "p-anil"),    # beneficiary approves a request raised for them
+])
+def test_sod_001_requester_or_beneficiary_cannot_approve(engine, approver, requested_by, beneficiary):
+    v = sod(engine, approver, requested_by, beneficiary)
+    assert (v.verdict, v.rule_id, v.terminal) == ("REFUSE", "POL-SOD-001", True)
+    assert "void" in v.clause_text
+
+
+def test_sod_001_unattributable_request_is_refused(engine):
+    assert sod(engine, "p-dana", requested_by=None).verdict == "REFUSE"

@@ -105,3 +105,15 @@ class PolicyEngine:
 def _neg(rule_id: str) -> tuple[int, ...]:
     # Tie-break for max(): lower rule id wins among equally senior approvers.
     return tuple(-ord(c) for c in rule_id)
+
+
+def check_decision(engine: PolicyEngine, subject: Subject, *, action_id: str, params_hash: str, approver: str,
+                   requested_by: str | None, beneficiary: str | None) -> Verdict:
+    """Separation of duties for any door's approval (POL-SOD-001), evaluated by the same engine as everything else.
+
+    An unknown requester or beneficiary makes the check fail: an approval nobody can attribute is refused.
+    """
+    synthetic = Action.create(f"{action_id}:decision", "approval_decision",
+                              {"action_id": action_id, "params_hash": params_hash})
+    run = {k: v for k, v in (("requested_by", requested_by), ("beneficiary", beneficiary)) if v}
+    return engine.decide(synthetic, subject, run=run, decision={"approver": approver}).verdict

@@ -1,0 +1,13 @@
+id: POL-SOD-001
+title: Nobody approves a request they raised or benefit from
+source: {okf: knowledge/policies/access-control-standard.md, clause: "§7"}
+# Generalises the Stage 1 Access Control Standard line "Approval authority cannot be delegated to the requester's
+# own manager when the requester is the beneficiary"; see docs/DECISIONS.md D-011.
+clause_text: "No one may approve a request they raised or from which they benefit. An approval given by the requester or the beneficiary is void."
+match: {kind: approval_decision}
+conditions:
+  - decision.approver != run.requested_by
+  - decision.approver != run.beneficiary
+verdict: ALLOW
+else_verdict: REFUSE
+terminal: true
