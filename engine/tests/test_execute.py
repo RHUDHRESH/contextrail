@@ -77,3 +77,56 @@ async def test_refused_or_unapproved_actions_never_execute(registry):
             await execute_action(a, run_id=RID, registry=registry, sleep=_no_sleep)
     held.transition("approved")
     assert (await execute_action(held, run_id=RID, registry=registry, sleep=_no_sleep)).state is ActionState.EXECUTED
+
+
+# --- unknown outcome: reconcile before any retry (T104) ----------------------------------------------------
+
+class CountingConnector:
+    """Wraps a fixture connector and counts writes, to prove a reconciled timeout does not write twice."""
+
+    def __init__(self, inner):
+        self.inner, self.writes = inner, 0
+        self.name, self.mode, self.state = inner.name, inner.mode, inner.state
+
+    async def write(self, action, key):
+        self.writes += 1
+        return await self.inner.write(action, key)
+
+    async def verify(self, action):
+        return await self.inner.verify(action)
+
+    async def read(self, ref):
+        return await self.inner.read(ref)
+
+
+async def test_timeout_after_apply_is_reconciled_without_a_second_write(registry):
+    counting = CountingConnector(registry.get("entitlements"))
+    registry.connectors["entitlements"] = counting
+    await counting.state.inject_fault("jira-pay", "timeout_after_apply")
+    out = await execute_action(allowed(), run_id=RID, registry=registry, sleep=_no_sleep)
+    assert (out.state, out.attempts, counting.writes) == (ActionState.EXECUTED, 1, 1)
+    assert "reconciled" in out.note
+
+
+async def test_timeout_before_apply_is_retried_with_the_same_key(registry):
+    counting = CountingConnector(registry.get("entitlements"))
+    registry.connectors["entitlements"] = counting
+    await counting.state.inject_fault("jira-pay", "timeout_before_apply")
+    out = await execute_action(allowed(), run_id=RID, registry=registry, sleep=_no_sleep)
+    assert (out.state, out.attempts, counting.writes) == (ActionState.EXECUTED, 2, 2)
+    assert (await counting.verify(allowed()))[0]
+
+
+async def test_unreconcilable_timeout_stops_at_unknown(registry):
+    class Opaque(CountingConnector):
+        async def write(self, action, key):
+            from contextrail.connectors.base import UnknownOutcome
+            raise UnknownOutcome("timed out")
+
+        async def verify(self, action):
+            from contextrail.connectors.base import ConnectorError
+            raise ConnectorError("read-back unavailable")
+
+    registry.connectors["entitlements"] = Opaque(registry.get("entitlements"))
+    out = await execute_action(allowed(), run_id=RID, registry=registry, sleep=_no_sleep)
+    assert out.state is ActionState.UNKNOWN and out.attempts == 1  # no blind retry

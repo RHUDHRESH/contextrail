@@ -57,7 +57,17 @@ async def execute_action(action: Action, *, run_id: UUID, registry, max_attempts
                 return ExecOutcome(action.id, ActionState.FAILED, attempt, note=f"transient, gave up: {e}")
             await sleep(backoff(attempt))
         except UnknownOutcome as e:
-            return ExecOutcome(action.id, ActionState.UNKNOWN, attempt, note=str(e))
+            # T104: never blind-retry. Read the system back first: if the change landed, we are done; if it did
+            # not, retrying with the SAME idempotency key is safe; if we cannot tell, stop at 'unknown'.
+            try:
+                present, _ = await connector.verify(action)
+            except ConnectorError:
+                return ExecOutcome(action.id, ActionState.UNKNOWN, attempt, note=f"{e}; reconcile read failed")
+            if present:
+                return ExecOutcome(action.id, ActionState.EXECUTED, attempt, note="reconciled: change was applied")
+            if attempt == max_attempts:
+                return ExecOutcome(action.id, ActionState.UNKNOWN, attempt, note=f"{e}; not applied, out of attempts")
+            await sleep(backoff(attempt))
         except ConnectorError as e:
             return ExecOutcome(action.id, ActionState.FAILED, attempt, note=f"permanent: {e}")
     raise AssertionError("unreachable")
