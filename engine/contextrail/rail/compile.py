@@ -75,3 +75,35 @@ def subject_constraints(subject: Subject) -> list[str]:
         if subject.end_date:
             out.append(f"All access expires on the SOW end date {subject.end_date.isoformat()}.")
     return out
+
+
+# --- retrieved messages: evidence, never instructions (T093) ------------------------------------------------
+
+def search_terms(subject: Subject | None, peer: Subject | None, intent: str) -> list[str]:
+    terms = []
+    for person in (subject, peer):
+        if person:
+            terms += [person.display_name.split()[0].lower(), person.display_name.lower()]
+            if person.team:
+                terms.append(person.team)
+    terms += {"access.same_as_peer": ["same as", "access"], "onboarding": ["onboarding", "starts", "joins"],
+              "refund.outage": ["outage", "credit"]}.get(intent, [])
+    return list(dict.fromkeys(terms))
+
+
+async def retrieve_messages(corpus, terms: list[str], now: datetime | None = None, limit: int = 5) -> list[Evidence]:
+    """Retrieval surfaces relevant messages, including planted ones. All are kind=message, trust=untrusted (P6)."""
+    now = now or datetime.now(UTC)
+    out = []
+    for m in await corpus.search(terms, limit=limit):
+        posted = datetime.fromisoformat(m["posted_at"])  # Python 3.11+ parses the trailing 'Z'
+        out.append(Evidence(
+            id=f"EV-{m['id']}", kind="message", source="slack", uri=f"slack://{m['channel_id']}/{m['ts']}",
+            excerpt=m["text"], retrieved_at=now, last_verified=posted.date(), trust="untrusted"))
+    return out
+
+
+def wrap_untrusted(ev: Evidence) -> str:
+    """How untrusted text enters any prompt: fenced as data, with no way to close the fence from inside (§11)."""
+    body = ev.excerpt.replace("<", "&lt;").replace(">", "&gt;")
+    return f'<untrusted source="{ev.source}" uri="{ev.uri}" trust="{ev.trust}">\n{body}\n</untrusted>'
