@@ -180,3 +180,18 @@ def test_acc_005_free_tool_is_not_held(engine):
 def test_acc_005_manager_who_requested_cannot_approve(engine):
     v = decide(engine, grant(system="postman", seat_cost_usd=49), ANIL, run={"requested_by": "p-meera"})
     assert v.approver == "role:manager"  # visibly unresolved -> blocker, never self-approval
+
+
+# --- POL-OFF-001 (T069) ------------------------------------------------------------------------------------
+
+def test_off_001_old_team_access_is_revoked_on_transfer(engine):
+    revoke = Action.create("R1", "revoke", {"system": "looker", "entitlement": "looker-risk", "origin": "transfer",
+                                            "previous_team": "risk-analytics"})
+    v = decide(engine, revoke, ANIL)
+    assert (v.verdict, v.rule_id) == ("ALLOW", "POL-OFF-001")
+    assert "within 4 hours" in v.clause_text
+
+
+def test_off_001_other_revocations_are_not_blanket_allowed(engine):
+    revoke = Action.create("R2", "revoke", {"system": "github", "entitlement": "gh-payments-api-read"})
+    assert decide(engine, revoke, ANIL).rule_id == "DEFAULT-DENY"
