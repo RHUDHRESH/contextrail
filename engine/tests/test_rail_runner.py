@@ -3,40 +3,12 @@
 from collections import Counter
 
 import psycopg
-import pytest
 
 from contextrail import repo
 from contextrail.audit.chain import verify_db
-from contextrail.connectors.registry import build_registry
-from contextrail.db import Database
-from contextrail.fixtures import load
 from contextrail.models import RunStatus
-from contextrail.policy.engine import PolicyEngine
-from contextrail.policy.loader import load_rules
-from contextrail.rail.discover import HeuristicExtractor
-from contextrail.rail.plan import TemplateExplainer
-from contextrail.rail.runner import RailDeps, Runner
-from contextrail.seed import approver_directory, reset_fixture_state
 
 STAGES = ["discover", "compile", "govern", "plan", "handoff", "approve", "execute", "verify", "finalize"]
-
-
-@pytest.fixture
-async def rail(migrated_db, tmp_path):
-    reset_fixture_state(tmp_path)
-    people = {p["person_id"]: p["display_name"] for p in load("identity")["people"]}
-    rules = load_rules()
-
-    async def no_sleep(_):
-        return None
-
-    db = Database(migrated_db, max_size=4)
-    await db.open()
-    deps = RailDeps(db=db, registry=build_registry(tmp_path), engine=PolicyEngine(rules, approver_directory()),
-                    rules=rules, extractor=HeuristicExtractor(), explainer=TemplateExplainer(people),
-                    backoff=lambda n: 0, sleep=no_sleep)
-    yield Runner(deps), deps
-    await db.close()
 
 
 async def _actions(deps, run_id):
