@@ -8,10 +8,10 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 <!-- stats:start -->
 | Priority | Tasks | Done |
 |---|---|---|
-| P0 | 148 | 3 |
+| P0 | 148 | 4 |
 | P1 | 92 | 0 |
 | P2 | 10 | 0 |
-| **Total** | **250** | **3** |
+| **Total** | **250** | **4** |
 
 👤 human-owned tasks: 24
 <!-- stats:end -->
@@ -41,7 +41,7 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 - [ ] T018 `P0` Folders: `engine/`, `voice/`, `teams/`, `fdk-app/`, `knowledge/`, `fixtures/` (each with a README stating its purpose).
 - [x] T019 `P0` `CLAUDE.md` (the build context) at the repo root.
 - [x] T020 `P0` `docs/CHECKLIST.md` (this file) with computed totals (`scripts/checklist-stats.sh`).
-- [ ] T021 `P0` `.githooks/commit-msg`: enforce `<type>(<scope>): … [T###]`, matching `Task:`, `Priority:`, `Why:`, `Verified:`, `Mode:`.
+- [x] T021 `P0` `.githooks/commit-msg`: enforce `<type>(<scope>): … [T###]`, matching `Task:`, `Priority:`, `Why:`, `Verified:`, `Mode:`.
 - [ ] T022 `P0` `.githooks/pre-commit`: block `.env` files and credential shapes.
 - [ ] T023 `P0` `.gitmessage` template + `scripts/setup-hooks.sh` (sets `core.hooksPath` and `commit.template`).
 - [ ] T024 `P0` `.github/pull_request_template.md` for per-section PRs.

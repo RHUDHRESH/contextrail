@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+# ContextRail commit-message gate.
+# Every commit must map to exactly one checklist task in docs/CHECKLIST.md and say how it was verified.
+# Format (see .gitmessage and CLAUDE.md §24):
+#   <type>(<scope>): <summary> [T###]
+#   ...
+#   Why: / What: / Verified: / Mode:
+#   Task: T### / Priority: P0|P1|P2
+set -euo pipefail
+
+msg_file="$1"
+# Drop comment lines git adds to the editor buffer.
+msg="$(grep -v '^#' "$msg_file" || true)"
+header="$(printf '%s\n' "$msg" | sed -n '1p')"
+
+# Merge and revert commits produced by git/GitHub are allowed through unchanged.
+case "$header" in
+  Merge\ *|Revert\ *) exit 0 ;;
+esac
+
+fail() {
+  printf 'commit-msg: %s\n' "$1" >&2
+  printf '  header was: %s\n' "$header" >&2
+  printf '  see .gitmessage for the required format\n' >&2
+  exit 1
+}
+
+types='feat|fix|refactor|docs|chore|build|ci|perf|test'
+scopes='repo|policy|rail|db|models|fixtures|llm|fs|slack|email|teams|voice|fdk|mcp|skills|okf|audit|deploy|dodo'
+header_re="^(${types})\((${scopes})\): .+ \[T[0-9]{3}\]$"
+
+printf '%s' "$header" | grep -Eq "$header_re" \
+  || fail "header must be '<type>(<scope>): <summary> [T###]' with type in {${types//|/, }} and scope in {${scopes//|/, }}"
+
+[ "${#header}" -le 100 ] || fail "header is ${#header} chars; keep it at 100 or fewer"
+
+header_task="$(printf '%s' "$header" | grep -Eo '\[T[0-9]{3}\]$' | tr -d '[]')"
+
+trailer_task="$(printf '%s\n' "$msg" | grep -Eo '^Task: T[0-9]{3}$' | head -1 | sed 's/^Task: //' || true)"
+[ -n "$trailer_task" ] || fail "missing 'Task: T###' trailer"
+[ "$trailer_task" = "$header_task" ] || fail "header tag [$header_task] does not match trailer Task: $trailer_task"
+
+printf '%s\n' "$msg" | grep -Eq '^Priority: P[012]$' || fail "missing 'Priority: P0|P1|P2' trailer"
+printf '%s\n' "$msg" | grep -Eq '^Why: .+'            || fail "missing 'Why:' line"
+printf '%s\n' "$msg" | grep -Eq '^Verified: .+'       || fail "missing 'Verified:' line (write 'NOT VERIFIED: <reason>' if it was not)"
+printf '%s\n' "$msg" | grep -Eq '^Mode: (LIVE|FIXTURE|n/a)$' || fail "missing 'Mode: LIVE|FIXTURE|n/a' line"
+
+exit 0
