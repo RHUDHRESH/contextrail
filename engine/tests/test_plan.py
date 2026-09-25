@@ -54,3 +54,19 @@ async def test_plan_orders_grants_revokes_holds_refusals_and_keeps_the_refusal(a
     assert shape[17] == ("grant", "REFUSE")                       # visible, last, not deleted
     assert plan[17].action.target["entitlement"] == "aws-payments-prod-admin"
     assert Counter(g.verdict.rule_id for g in plan[13:15]) == {"POL-OFF-001": 2}
+
+
+# --- explanations (T098, template path) --------------------------------------------------------------------
+
+async def test_template_explanations_for_holds_and_refusals_only(anil_case):
+    from contextrail.rail.plan import TemplateExplainer, explanations
+
+    anil, rec, inputs, engine, gov = anil_case
+    plan = build_plan(gov, anil, rec, inputs, engine, requested_by="p-anil")
+    before = [(g.action.id, g.verdict.verdict, g.action.state) for g in plan]
+    ex = explanations(plan, TemplateExplainer({"p-dana": "Dana Osei", "p-meera": "Meera Iyer"}))
+    assert [e["verdict"] for e in ex] == ["HOLD", "HOLD", "REFUSE"] and all(e["explainer"] == "template" for e in ex)
+    texts = [e["explanation"] for e in ex]
+    assert texts[0].startswith("Held for Dana Osei:") and texts[1].startswith("Held for Meera Iyer:")
+    assert texts[2].startswith("Refused under POL-ACC-003:")
+    assert [(g.action.id, g.verdict.verdict, g.action.state) for g in plan] == before  # words change nothing
