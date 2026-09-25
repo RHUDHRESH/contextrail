@@ -6,14 +6,23 @@ Each test gets its own freshly created database, so tests never see each other's
 
 from __future__ import annotations
 
+import asyncio
 import os
 import shutil
+import sys
 import tempfile
 import uuid
 from collections.abc import Iterator
 
 import psycopg
 import pytest
+
+
+def pytest_asyncio_loop_factories(config, item):
+    # psycopg async cannot run on Windows' default Proactor loop (see contextrail/db.py).
+    if sys.platform == "win32":
+        return {"selector": asyncio.SelectorEventLoop}
+    return {"default": asyncio.new_event_loop}
 
 
 @pytest.fixture(scope="session")
