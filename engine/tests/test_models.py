@@ -181,3 +181,12 @@ def test_case_file_rejects_duplicate_ids_and_unknown_fields():
         case(evidence=[ev(), ev()])
     with pytest.raises(ValidationError):
         case(salary_band="L5")
+
+
+def test_subject_fields_cannot_be_edited_in_place():
+    s = anil()
+    with pytest.raises(ValidationError):
+        s.employment_type = "contractor"
+    with pytest.raises(ValidationError):
+        s.source_id = "Anil Kumar"
+    assert (s.employment_type, s.source_id) == ("employee", "E-1042")

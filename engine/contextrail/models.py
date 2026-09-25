@@ -27,6 +27,10 @@ EmploymentType = Literal["employee", "contractor", "vendor", "customer"]
 class Subject(_Model):
     """The person (or customer) a run is about. Fetched by ID from a system of record, never chosen by search."""
 
+    # Frozen: a subject is a record as fetched. Policy reads these fields (employment_type decides POL-CTR-001), so
+    # nothing downstream may edit them in place; re-fetch instead.
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
     source: Literal["freshservice", "hris", "freshdesk"]
     source_id: str = Field(min_length=1, max_length=64)
     display_name: str
