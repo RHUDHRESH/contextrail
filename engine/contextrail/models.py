@@ -2,14 +2,15 @@
 
 The models carry principles, not just shapes:
 - P1 relevance is not identity: `Subject.source_id` must look like a system-of-record ID, not a name.
+- P6 retrieved text is data: messages and documents are always `trust="untrusted"`; nothing can relabel them.
 """
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class _Model(BaseModel):
@@ -41,4 +42,44 @@ class Subject(_Model):
         # came from an exact lookup, but it stops the commonest failure: a display name passed as the subject.
         if any(ch.isspace() for ch in v):
             raise ValueError("source_id must be a system-of-record ID, not a name (P1: relevance is not identity)")
+        return v
+
+
+EvidenceKind = Literal["record", "policy", "document", "message", "precedent"]
+Trust = Literal["record", "curated", "untrusted"]
+
+# What each kind of evidence is allowed to be trusted as. Retrieved free text (messages, documents, inbound email
+# bodies, voice transcripts) is untrusted, always: it may enter the capsule, and it can still change nothing.
+_ALLOWED_TRUST: dict[str, set[str]] = {
+    "record": {"record"},
+    "policy": {"curated"},
+    "precedent": {"curated"},
+    "document": {"untrusted"},
+    "message": {"untrusted"},
+}
+
+
+class Evidence(_Model):
+    id: str
+    kind: EvidenceKind
+    source: str                      # 'hris' | 'freshservice' | 'okf' | 'slack' | 'email' | 'voice' ...
+    uri: str
+    excerpt: str
+    retrieved_at: datetime
+    last_verified: date | None = None
+    stale: bool = False
+    trust: Trust
+
+    @model_validator(mode="after")
+    def _trust_matches_kind(self) -> Evidence:
+        if self.trust not in _ALLOWED_TRUST[self.kind]:
+            allowed = ", ".join(sorted(_ALLOWED_TRUST[self.kind]))
+            raise ValueError(f"evidence of kind {self.kind!r} must have trust {allowed} (P6), got {self.trust!r}")
+        return self
+
+    @field_validator("retrieved_at")
+    @classmethod
+    def _aware(cls, v: datetime) -> datetime:
+        if v.tzinfo is None:
+            raise ValueError("retrieved_at must be timezone-aware (UTC)")
         return v
