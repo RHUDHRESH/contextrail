@@ -8,10 +8,10 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 <!-- stats:start -->
 | Priority | Tasks | Done |
 |---|---|---|
-| P0 | 148 | 56 |
+| P0 | 148 | 57 |
 | P1 | 92 | 0 |
 | P2 | 10 | 0 |
-| **Total** | **250** | **56** |
+| **Total** | **250** | **57** |
 
 👤 human-owned tasks: 24
 <!-- stats:end -->
@@ -119,7 +119,7 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 ## G. The rail (eight stages) and the door layer (26)
 
 - [ ] T083 `P0` `runner.py`: fixed-order stage executor with per-stage timing.
-- [ ] T084 `P0` Stage event emitter feeding SSE and per-door callbacks.
+- [x] T084 `P0` Stage event emitter feeding SSE and per-door callbacks.
 - [ ] T085 `P0` Discover: intent + mentions + request/query/approval-reply via the intent prompt (structured output).
 - [ ] T086 `P0` Discover: resolve mentions to IDs by exact lookup only (HRIS / Freshservice requester).
 - [ ] T087 `P0` Discover: ambiguity → `needs_input` with a candidate list.
