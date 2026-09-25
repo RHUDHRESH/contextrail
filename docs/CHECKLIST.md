@@ -8,10 +8,10 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 <!-- stats:start -->
 | Priority | Tasks | Done |
 |---|---|---|
-| P0 | 148 | 63 |
+| P0 | 148 | 64 |
 | P1 | 92 | 0 |
 | P2 | 10 | 0 |
-| **Total** | **250** | **63** |
+| **Total** | **250** | **64** |
 
 👤 human-owned tasks: 24
 <!-- stats:end -->
@@ -130,7 +130,7 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 - [x] T092 `P0` Compile: mark stale evidence into open blockers.
 - [x] T093 `P0` Compile: include untrusted messages/email bodies as evidence, wrapped as data.
 - [ ] T094 `P0` Compile: seal the capsule and store the digest.
-- [ ] T095 `P0` Govern: build candidate actions (peer's items minus requester's current items).
+- [x] T095 `P0` Govern: build candidate actions (peer's items minus requester's current items).
 - [ ] T096 `P0` Govern: evaluate every candidate through the policy engine.
 - [ ] T097 `P0` Plan: dependency ordering; add revoke actions for the old team.
 - [ ] T098 `P0` Plan: one-line explanations for HOLD and REFUSE (Sonnet).

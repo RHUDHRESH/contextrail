@@ -25,8 +25,8 @@
     "aws-payments-prod-admin":      {"label": "AWS payments-prod AdministratorAccess", "system": "aws",        "resource_class": "production_admin", "permission": "admin", "role_scope": ["payments-engineer"]},
     "looker-risk-dashboards":       {"label": "Looker risk dashboards",                "system": "looker",     "resource_class": "standard", "permission": "viewer",    "role_scope": ["risk-analyst"]},
     "slack-risk-analytics":         {"label": "Slack #risk-analytics",                 "system": "slack",      "resource_class": "standard", "permission": "member",    "role_scope": ["risk-analyst"]},
-    "gh-perception-sdk-read":       {"label": "GitHub northbeam/perception-sdk (read)","system": "github",     "resource_class": "standard", "permission": "read", "repo": "northbeam/perception-sdk", "repo_tags": ["production"],       "role_scope": ["contract-engineer", "engineering-lead"]},
-    "aws-perception-prod-credentials": {"label": "AWS perception-prod credentials",    "system": "aws",        "resource_class": "production_credential", "permission": "read", "role_scope": ["engineering-lead"]}
+    "gh-perception-sdk-read":       {"label": "GitHub northbeam/perception-sdk (read)","system": "github",     "resource_class": "standard", "permission": "read", "repo": "northbeam/perception-sdk", "repo_tags": ["production"],       "role_scope": ["contract-engineer", "engineering-lead"], "teams": ["perception"]},
+    "aws-perception-prod-credentials": {"label": "AWS perception-prod credentials",    "system": "aws",        "resource_class": "production_credential", "permission": "read", "role_scope": ["engineering-lead"], "teams": ["perception"]}
   },
   "holdings": {
     "E-0007": [
