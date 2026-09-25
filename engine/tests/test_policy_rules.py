@@ -77,3 +77,27 @@ def test_acc_001_outside_baseline_is_not_allowed_by_this_rule(engine):
 def test_acc_001_without_a_role_record_allows_nothing(engine):
     v = decide(engine, grant(entitlement="gh-payments-api-read"), ANIL)  # role catalogue not loaded
     assert (v.verdict, v.rule_id) == ("REFUSE", "DEFAULT-DENY")
+
+
+# --- POL-ACC-002 (T063) ------------------------------------------------------------------------------------
+
+def mirrored(**target):
+    return grant(origin="same_as_peer", **target)
+
+
+def test_acc_002_peer_item_in_requesters_role_scope_is_allowed(engine):
+    v = decide(engine, mirrored(system="pagerduty", entitlement="pd-payments", role_scope=["payments-engineer"]),
+               ANIL)
+    assert (v.verdict, v.rule_id) == ("ALLOW", "POL-ACC-002")
+
+
+def test_acc_002_peer_item_outside_requesters_role_is_refused_with_clause(engine):
+    # Rahul (the peer) holds a risk-analytics dashboard; Anil's role does not cover it.
+    v = decide(engine, mirrored(system="looker", entitlement="looker-risk", role_scope=["risk-analyst"]), ANIL)
+    assert (v.verdict, v.rule_id) == ("REFUSE", "POL-ACC-002")
+    assert "receiving person's own role" in v.clause_text
+
+
+def test_acc_002_only_governs_mirrored_requests(engine):
+    v = decide(engine, grant(system="looker", entitlement="looker-risk", role_scope=["risk-analyst"]), ANIL)
+    assert v.rule_id != "POL-ACC-002"
