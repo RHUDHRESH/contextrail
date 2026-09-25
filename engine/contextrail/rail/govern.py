@@ -7,8 +7,10 @@ from `policy/engine.py` over the Subject record. Untrusted evidence is not an in
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 
-from contextrail.models import Action, Subject
+from contextrail.models import Action, Subject, Verdict, apply_verdict
+from contextrail.policy.engine import PolicyEngine, RuleOutcome
 from contextrail.rail.compile import CompileInputs
 
 _EVERYTHING = re.compile(r"\beverything\b", re.IGNORECASE)
@@ -38,3 +40,19 @@ def build_candidates(intent: str, request_text: str, subject: Subject, inputs: C
         return [_grant(i, e, catalog, subject, "onboarding") for i, e in enumerate(wanted, 1)]
     return []
 
+
+@dataclass(frozen=True)
+class Governed:
+    action: Action
+    verdict: Verdict
+    fired: tuple[RuleOutcome, ...]
+
+
+def evaluate(actions: list[Action], subject: Subject, engine: PolicyEngine, *, role: dict,
+             requested_by: str | None) -> list[Governed]:
+    """T096: every candidate through the policy engine; the verdict is stamped on the action once."""
+    out = []
+    for a in actions:
+        decision = engine.decide(a, subject, role=role, run={"requested_by": requested_by})
+        out.append(Governed(apply_verdict(a, decision.verdict), decision.verdict, decision.fired))
+    return out

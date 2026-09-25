@@ -1,3 +1,4 @@
+from collections import Counter
 from datetime import UTC, datetime
 
 import pytest
@@ -5,8 +6,11 @@ import pytest
 from contextrail.connectors.fixture import FixtureEntitlements, FixtureHRIS
 from contextrail.connectors.state import FixtureState
 from contextrail.fixtures import subject_from_record
+from contextrail.policy.engine import PolicyEngine
+from contextrail.policy.loader import load_rules
 from contextrail.rail.compile import gather_inputs
-from contextrail.rail.govern import build_candidates
+from contextrail.rail.govern import build_candidates, evaluate
+from contextrail.seed import approver_directory
 
 NOW = datetime(2026, 9, 26, 10, 0, tzinfo=UTC)
 
@@ -49,3 +53,30 @@ async def test_onboarding_without_everything_is_baseline_plus_sow(world):
     acts = build_candidates("onboarding", "Priya starts Monday", priya, inputs)
     assert [a.target["entitlement"] for a in acts] == ["slack-general", "gh-perception-sdk-read"]
 
+
+# --- evaluate through policy (T096) ------------------------------------------------------------------------
+
+@pytest.fixture
+def engine():
+    return PolicyEngine(load_rules(), approver_directory())
+
+
+async def test_anil_same_as_rahul_is_13_2_1_through_govern(world, engine):
+    anil, rahul, inputs = await _inputs(world, "E-1042", "E-0007")
+    acts = build_candidates("access.same_as_peer", "same as Rahul", anil, inputs, rahul)
+    gov = evaluate(acts, anil, engine, role=inputs.role, requested_by="p-anil")
+    assert Counter(g.verdict.verdict for g in gov) == {"ALLOW": 13, "HOLD": 2, "REFUSE": 1}
+    states = Counter(g.action.state for g in gov)
+    assert states == {"planned": 13, "awaiting": 2, "refused": 1}
+    assert all(g.action.rule_id and g.action.clause for g in gov)
+
+
+async def test_priya_everything_is_allow_hold_refuse_with_terminal_ctr_001(world, engine):
+    priya, _, inputs = await _inputs(world, "W-8841")
+    acts = build_candidates("onboarding", "give her everything", priya, inputs)
+    gov = {g.action.target["entitlement"]: g.verdict for g in evaluate(acts, priya, engine, role=inputs.role,
+                                                                       requested_by="p-marc")}
+    assert gov["slack-general"].verdict == "ALLOW"
+    assert (gov["gh-perception-sdk-read"].verdict, gov["gh-perception-sdk-read"].approver) == ("HOLD", "p-dana")
+    prod = gov["aws-perception-prod-credentials"]
+    assert (prod.verdict, prod.rule_id, prod.terminal) == ("REFUSE", "POL-CTR-001", True)
