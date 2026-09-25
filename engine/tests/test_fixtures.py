@@ -37,3 +37,24 @@ def test_two_people_named_rahul_for_the_ambiguity_demo():
 def test_subject_projection_drops_extra_hr_fields():
     s = subject_from_record(next(p for p in people() if p["source_id"] == "E-1042"))
     assert not hasattr(s, "previous_team")
+
+
+# --- GitHub (T075) -----------------------------------------------------------------------------------------
+
+def test_github_fixture_agrees_with_the_entitlement_catalogue():
+    gh, ents = load("github"), load("entitlements")
+    assert gh["_meta"]["mode"] == "FIXTURE"
+    for ent, target in ents["catalog"].items():
+        if target["system"] != "github":
+            continue
+        repo = gh["repos"][target["repo"]]
+        assert sorted(repo["tags"]) == sorted(target["repo_tags"]), ent  # policy reads the same tags GitHub has
+
+
+def test_github_state_matches_who_holds_what():
+    gh, ents = load("github"), load("entitlements")
+    rahul, anil = gh["logins"]["E-0007"], gh["logins"]["E-1042"]
+    rahul_repos = {ents["catalog"][e]["repo"] for e in ents["holdings"]["E-0007"]
+                   if ents["catalog"][e]["system"] == "github"}
+    assert rahul_repos == {r for r, v in gh["repos"].items() if rahul in v["collaborators"]}
+    assert not any(anil in v["collaborators"] for v in gh["repos"].values())  # Anil starts with no repo access

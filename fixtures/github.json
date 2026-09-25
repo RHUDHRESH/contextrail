@@ -1,0 +1,24 @@
+{
+  "_meta": {
+    "mode": "FIXTURE",
+    "system": "github",
+    "org": "northbeam",
+    "note": "Repository tags and collaborator permissions. The GitHub fixture connector writes grants here and reads them back to verify."
+  },
+  "logins": {
+    "E-1042": "anil-k-nb",
+    "E-0007": "rahulm-nb",
+    "E-0415": "rverma-nb",
+    "W-8841": "priya-r-contractor",
+    "E-0050": "dana-osei",
+    "E-0120": "marcliu"
+  },
+  "repos": {
+    "northbeam/payments-api":   {"tags": ["internal"],          "collaborators": {"rahulm-nb": "read"}},
+    "northbeam/ledger-service": {"tags": ["internal"],          "collaborators": {"rahulm-nb": "read"}},
+    "northbeam/payments-web":   {"tags": [],                    "collaborators": {"rahulm-nb": "read"}},
+    "northbeam/payments-core":  {"tags": ["production", "pci"], "collaborators": {"rahulm-nb": "read", "dana-osei": "admin"}},
+    "northbeam/perception-sdk": {"tags": ["production"],        "collaborators": {"marcliu": "admin"}},
+    "northbeam/payments-docs":  {"tags": [],                    "collaborators": {}}
+  }
+}
