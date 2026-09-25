@@ -8,10 +8,10 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 <!-- stats:start -->
 | Priority | Tasks | Done |
 |---|---|---|
-| P0 | 148 | 67 |
+| P0 | 148 | 68 |
 | P1 | 92 | 0 |
 | P2 | 10 | 0 |
-| **Total** | **250** | **67** |
+| **Total** | **250** | **68** |
 
 👤 human-owned tasks: 24
 <!-- stats:end -->
@@ -138,7 +138,7 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 - [ ] T100 `P0` Approve: create approval records; dispatch to Freshservice and the approver's doors.
 - [ ] T101 `P1` Approve: deadline and chase jobs (chase in the approver's preferred door).
 - [ ] T102 `P0` Approve: resume the run when a decision arrives from any door.
-- [ ] T103 `P0` Execute: connector dispatch with idempotency key and backoff on 429/5xx.
+- [x] T103 `P0` Execute: connector dispatch with idempotency key and backoff on 429/5xx.
 - [ ] T104 `P0` Execute: unknown outcome → reconcile before any retry.
 - [ ] T105 `P0` Verify: read back each action; set verified or failed.
 - [ ] T106 `P0` Finalize: status partial/done; trigger receipt generation.
