@@ -43,7 +43,7 @@ class Settings(BaseSettings):
     aws_region: str = "ap-south-1"
     bedrock_haiku_id: str = "global.anthropic.claude-haiku-4-5-20251001-v1:0"
     bedrock_sonnet_id: str = ""
-    bedrock_budget_usd: Decimal = Decimal("30")
+    bedrock_budget_usd: Decimal = Decimal(30)
     run_budget_usd: Decimal = Decimal("0.50")
     haiku_model: str = "claude-haiku-4-5-20251001"
     sonnet_model: str = "claude-sonnet-5"
