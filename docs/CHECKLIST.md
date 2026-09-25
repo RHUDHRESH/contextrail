@@ -8,10 +8,10 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 <!-- stats:start -->
 | Priority | Tasks | Done |
 |---|---|---|
-| P0 | 148 | 6 |
+| P0 | 148 | 7 |
 | P1 | 92 | 0 |
 | P2 | 10 | 0 |
-| **Total** | **250** | **6** |
+| **Total** | **250** | **7** |
 
 👤 human-owned tasks: 24
 <!-- stats:end -->
@@ -44,7 +44,7 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 - [x] T021 `P0` `.githooks/commit-msg`: enforce `<type>(<scope>): … [T###]`, matching `Task:`, `Priority:`, `Why:`, `Verified:`, `Mode:`.
 - [x] T022 `P0` `.githooks/pre-commit`: block `.env` files and credential shapes.
 - [x] T023 `P0` `.gitmessage` template + `scripts/setup-hooks.sh` (sets `core.hooksPath` and `commit.template`).
-- [ ] T024 `P0` `.github/pull_request_template.md` for per-section PRs.
+- [x] T024 `P0` `.github/pull_request_template.md` for per-section PRs.
 - [ ] T025 `P0` `scripts/buildlog.sh` generating `docs/BUILDLOG.md` from `git log`.
 - [ ] T026 `P0` `engine/pyproject.toml` with pinned deps: fastapi, uvicorn, pydantic v2, pydantic-settings, httpx, tenacity, structlog, psycopg[pool], anthropic[bedrock], mcp, slack_bolt, boto3, pyyaml, opentelemetry-sdk.
 - [ ] T027 `P0` `settings.py` (pydantic-settings) reading every variable in `.env.example`.
