@@ -1,0 +1,18 @@
+{
+  "_meta": {"mode": "FIXTURE", "system": "role_catalogue", "note": "Baseline entitlements per role (POL-ACC-001)."},
+  "roles": {
+    "payments-engineer": {
+      "title": "Payments Engineer",
+      "baseline": [
+        "okta-sso", "slack-general", "gh-payments-api-read", "gh-ledger-service-read", "gh-payments-web-read",
+        "gh-payments-core-read", "slack-payments", "slack-payments-oncall", "jira-pay", "confluence-pay",
+        "datadog-payments-viewer", "pagerduty-payments-responder", "sentry-payments",
+        "aws-payments-staging-readonly", "vault-payments-staging-read", "google-group-payments-eng",
+        "postman-enterprise-seat"
+      ]
+    },
+    "risk-analyst": {"title": "Risk Analyst", "baseline": ["okta-sso", "slack-general", "looker-risk-dashboards", "slack-risk-analytics"]},
+    "contract-engineer": {"title": "Contract Engineer", "baseline": ["slack-general"]},
+    "engineering-manager": {"title": "Engineering Manager", "baseline": ["okta-sso", "slack-general", "jira-pay", "confluence-pay"]}
+  }
+}
