@@ -8,10 +8,10 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 <!-- stats:start -->
 | Priority | Tasks | Done |
 |---|---|---|
-| P0 | 148 | 12 |
+| P0 | 148 | 13 |
 | P1 | 92 | 0 |
 | P2 | 10 | 0 |
-| **Total** | **250** | **12** |
+| **Total** | **250** | **13** |
 
 👤 human-owned tasks: 24
 <!-- stats:end -->
@@ -54,7 +54,7 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 - [ ] T031 `P0` `Caddyfile`: engine `/`, `/mcp`, `/slack/*`, `/api/teams/*`, `/a/*`; voice `/voice/*`; automatic TLS.
 - [ ] T032 `P0` `.env.example` with every key from CLAUDE.md §19.
 - [ ] T033 `P0` Makefile targets: `up`, `down`, `migrate`, `seed`, `reset`, `logs`, `fmt`.
-- [ ] T034 `P0` structlog JSON logging with `run_id`/`channel` context + problem+json error middleware with a request id.
+- [x] T034 `P0` structlog JSON logging with `run_id`/`channel` context + problem+json error middleware with a request id.
 - [ ] T035 `P1` CORS / allowed-origin config for the FDK app origin.
 - [ ] T036 `P0` `docs/DECISIONS.md`: Python engine, no LangGraph, Postgres job queue, fixtures labelled, doors never decide, Stage 1 kept as glass box.
 
