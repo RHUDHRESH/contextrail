@@ -1,6 +1,6 @@
 import pytest
 
-from contextrail.rail.discover import HeuristicExtractor, lookup
+from contextrail.rail.discover import HeuristicExtractor, discover, lookup
 
 # --- intent + mentions (T085, heuristic path) ---------------------------------------------------------------
 
@@ -66,3 +66,52 @@ async def test_hris_outage_is_not_mistaken_for_no_match():
 
     with pytest.raises(TimeoutError):
         await lookup(DownHRIS(), "W-8841")
+
+
+# --- needs_input instead of guessing (T087) ----------------------------------------------------------------
+
+H = HeuristicExtractor()
+
+
+async def test_single_exact_match_resolves(hris):
+    d = await discover("Priya starts Monday, give her everything she needs", H, hris)
+    assert d.status == "resolved" and d.subject.source_id == "W-8841" and d.subject.employment_type == "contractor"
+
+
+async def test_two_matches_ask_which_one_with_candidates(hris):
+    d = await discover("Rahul starts Monday", H, hris)
+    assert d.status == "needs_input" and d.subject is None
+    (need,) = d.needs
+    assert (need.role, need.reason, need.mention) == ("subject", "ambiguous", "Rahul")
+    assert {c.source_id: c.team for c in need.candidates} == {"E-0007": "payments", "E-0415": "risk-analytics"}
+
+
+async def test_no_match_asks_rather_than_guessing(hris):
+    d = await discover("Priyanka starts Monday", H, hris)
+    assert d.status == "needs_input" and d.needs[0].reason == "no_match" and d.needs[0].candidates == []
+
+
+async def test_request_with_no_named_person_asks(hris):
+    d = await discover("new starter on Monday, onboard them please", H, hris)
+    assert d.status == "needs_input" and d.needs[0].reason == "no_mention"
+
+
+async def test_paraphrase_never_yields_a_wrong_subject(hris):
+    # CLAUDE.md §18 test_paraphrase_identity: needs_input or the correct ID, never a wrong subject.
+    d = await discover("new contract engineer starting next week", H, hris)
+    assert d.status == "needs_input" or d.subject.source_id == "W-8841"
+
+
+async def test_pinned_id_from_a_candidate_pick_resolves(hris):
+    d = await discover("Rahul starts Monday", H, hris, subject_id="E-0415")
+    assert d.status == "resolved" and d.subject.display_name == "Rahul Verma"
+
+
+async def test_queries_do_not_require_a_subject(hris):
+    d = await discover("What happened to my access request?", H, hris)
+    assert d.status == "resolved" and d.subject is None
+
+
+async def test_an_unclassifiable_request_never_proceeds(hris):
+    d = await discover("make it so", H, hris)
+    assert d.status == "needs_input" and d.needs[0].reason == "unclear_request"

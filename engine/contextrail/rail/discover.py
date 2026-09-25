@@ -14,6 +14,8 @@ from typing import Literal, Protocol
 from pydantic import BaseModel, ConfigDict
 
 from contextrail.connectors.base import ConnectorError
+from contextrail.fixtures import subject_from_record
+from contextrail.models import Subject
 
 IntentName = Literal["access.same_as_peer", "onboarding", "access.request", "refund.outage", "query",
                      "approval_reply", "unknown"]
@@ -48,7 +50,8 @@ _SAME_AS = re.compile(
     rf"\b(?i:give|grant|set up|provision)\s+(?P<subject>{_ID}|{_NAME})\s+(?i:(?:the\s+)?same\s+access\s+as)\s+"
     rf"(?P<peer>{_ID}|{_NAME})")
 _ONBOARD = re.compile(rf"(?P<subject>{_ID}|{_NAME})\s+(?:starts|joins|is joining|begins|is starting)\b")
-_ONBOARD_WORDS = re.compile(r"\b(onboard|new (?:hire|starter|joiner)|everything (?:she|he|they) needs?)\b", re.IGNORECASE)
+_ONBOARD_WORDS = re.compile(r"\b(onboard|new (?:hire|starter|joiner)|everything (?:she|he|they) needs?|"
+                            r"new\b.{0,40}\b(?:starting|joining|starts|joins))\b", re.IGNORECASE)
 _REFUND = re.compile(r"\b(service credits?|refunds?|outage)\b", re.IGNORECASE)
 _APPROVAL = re.compile(r"^\s*(approve[ds]?|refuse[ds]?|reject(?:ed)?|yes|no)\b", re.IGNORECASE)
 _QUERY = re.compile(r"^\s*(what|why|status|how|when|where|who|is|has|did|can)\b|\?\s*$", re.IGNORECASE)
@@ -116,3 +119,69 @@ async def lookup(hris, mention: str) -> list[dict]:
         except ConnectorError:  # "no such record" is zero matches; an outage (anything else) must propagate
             return []
     return await hris.find_by_name(mention)
+
+
+# --- ambiguity -> needs_input (T087) ------------------------------------------------------------------------
+
+NeedReason = Literal["no_mention", "no_match", "ambiguous", "same_person", "unclear_request"]
+_NEEDS_SUBJECT = {"access.same_as_peer", "onboarding", "access.request"}
+
+
+class NeedsInput(BaseModel):
+    """A question for the requester's door: 'Two people named Rahul, which one?' (X1). Never answered by a guess."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    role: Literal["subject", "peer", "request"]
+    mention: str | None
+    reason: NeedReason
+    candidates: list[Candidate] = []
+
+
+class Discovery(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status: Literal["resolved", "needs_input"]
+    intent: Intent
+    subject: Subject | None = None
+    peer: Subject | None = None
+    subject_record: dict | None = None   # full record (e.g. previous_team) for code, never for policy
+    peer_record: dict | None = None
+    needs: list[NeedsInput] = []
+
+
+async def resolve_one(hris, mention: str | None, role: str, *, pinned_id: str | None = None
+                      ) -> tuple[dict | None, NeedsInput | None]:
+    """One person or one question. A pinned ID (from a candidate pick or a ticket requester) is still looked up."""
+    if pinned_id:
+        records = await lookup(hris, pinned_id)
+        mention = pinned_id
+    elif not mention:
+        return None, NeedsInput(role=role, mention=None, reason="no_mention")
+    else:
+        records = await lookup(hris, mention)
+    if len(records) == 1:
+        return records[0], None
+    reason = "no_match" if not records else "ambiguous"
+    return None, NeedsInput(role=role, mention=mention, reason=reason, candidates=[_candidate(r) for r in records])
+
+
+async def discover(text: str, extractor: IntentExtractor, hris, *, subject_id: str | None = None,
+                   peer_id: str | None = None) -> Discovery:
+    intent = await extractor.extract(text)
+    needs: list[NeedsInput] = []
+    if intent.kind == "request" and intent.intent == "unknown":
+        # A request nobody can classify never proceeds: ask what is wanted (and for whom) instead.
+        needs.append(NeedsInput(role="request", mention=None, reason="unclear_request"))
+    subject_record = None
+    if intent.intent in _NEEDS_SUBJECT or subject_id or intent.subject_mention:
+        subject_record, need = await resolve_one(hris, intent.subject_mention, "subject", pinned_id=subject_id)
+        if need and (intent.intent in _NEEDS_SUBJECT or intent.subject_mention):
+            needs.append(need)
+    return Discovery(
+        status="needs_input" if needs else "resolved",
+        intent=intent,
+        subject=subject_from_record(subject_record) if subject_record else None,
+        subject_record=subject_record,
+        needs=needs,
+    )
