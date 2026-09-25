@@ -8,6 +8,7 @@ The models carry principles, not just shapes:
 from __future__ import annotations
 
 from datetime import date, datetime
+from enum import StrEnum
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -83,3 +84,57 @@ class Evidence(_Model):
         if v.tzinfo is None:
             raise ValueError("retrieved_at must be timezone-aware (UTC)")
         return v
+
+
+class ActionState(StrEnum):
+    PLANNED = "planned"
+    AWAITING = "awaiting"
+    APPROVED = "approved"
+    REFUSED = "refused"
+    EXECUTED = "executed"
+    VERIFIED = "verified"
+    FAILED = "failed"
+    UNKNOWN = "unknown"      # a write timed out: reconcile before any retry (never blind-retry)
+
+
+_S = ActionState
+# Allowed moves. 'verified' only follows a read-back (P3); 'refused' and 'verified' are terminal.
+ACTION_TRANSITIONS: dict[ActionState, frozenset[ActionState]] = {
+    _S.PLANNED: frozenset({_S.AWAITING, _S.REFUSED, _S.EXECUTED, _S.UNKNOWN, _S.FAILED}),
+    _S.AWAITING: frozenset({_S.APPROVED, _S.REFUSED}),
+    _S.APPROVED: frozenset({_S.EXECUTED, _S.UNKNOWN, _S.FAILED}),
+    _S.EXECUTED: frozenset({_S.VERIFIED, _S.FAILED}),
+    _S.UNKNOWN: frozenset({_S.EXECUTED, _S.VERIFIED, _S.FAILED}),
+    _S.FAILED: frozenset(),
+    _S.REFUSED: frozenset(),
+    _S.VERIFIED: frozenset(),
+}
+
+
+class IllegalTransition(ValueError):
+    pass
+
+
+VerdictKind = Literal["ALLOW", "HOLD", "REFUSE"]
+
+
+class Action(_Model):
+    id: str
+    kind: str                        # 'grant' | 'revoke' | 'assign_asset' | 'refund' ...
+    target: dict
+    params_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    verdict: VerdictKind | None = None
+    rule_id: str | None = None
+    clause: str | None = None
+    approver: str | None = None
+    state: ActionState = ActionState.PLANNED
+    expires_at: datetime | None = None
+
+    def transition(self, to: ActionState | str) -> None:
+        """Move to a new state or raise. A REFUSE verdict may only ever become 'refused' (P4)."""
+        to = ActionState(to)
+        if self.verdict == "REFUSE" and to is not ActionState.REFUSED:
+            raise IllegalTransition(f"{self.id}: REFUSE is terminal; cannot move to {to} (P4)")
+        if to not in ACTION_TRANSITIONS[self.state]:
+            raise IllegalTransition(f"{self.id}: {self.state} -> {to} is not allowed")
+        self.state = to
