@@ -8,10 +8,10 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 <!-- stats:start -->
 | Priority | Tasks | Done |
 |---|---|---|
-| P0 | 148 | 14 |
+| P0 | 148 | 15 |
 | P1 | 92 | 0 |
 | P2 | 10 | 0 |
-| **Total** | **250** | **14** |
+| **Total** | **250** | **15** |
 
 👤 human-owned tasks: 24
 <!-- stats:end -->
@@ -56,7 +56,7 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 - [ ] T033 `P0` Makefile targets: `up`, `down`, `migrate`, `seed`, `reset`, `logs`, `fmt`.
 - [x] T034 `P0` structlog JSON logging with `run_id`/`channel` context + problem+json error middleware with a request id.
 - [ ] T035 `P1` CORS / allowed-origin config for the FDK app origin.
-- [ ] T036 `P0` `docs/DECISIONS.md`: Python engine, no LangGraph, Postgres job queue, fixtures labelled, doors never decide, Stage 1 kept as glass box.
+- [x] T036 `P0` `docs/DECISIONS.md`: Python engine, no LangGraph, Postgres job queue, fixtures labelled, doors never decide, Stage 1 kept as glass box.
 
 ## C. Database (6)
 
