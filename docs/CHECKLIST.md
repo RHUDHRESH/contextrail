@@ -8,10 +8,10 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 <!-- stats:start -->
 | Priority | Tasks | Done |
 |---|---|---|
-| P0 | 148 | 69 |
+| P0 | 148 | 70 |
 | P1 | 92 | 0 |
 | P2 | 10 | 0 |
-| **Total** | **250** | **69** |
+| **Total** | **250** | **70** |
 
 👤 human-owned tasks: 24
 <!-- stats:end -->
@@ -140,7 +140,7 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 - [ ] T102 `P0` Approve: resume the run when a decision arrives from any door.
 - [x] T103 `P0` Execute: connector dispatch with idempotency key and backoff on 429/5xx.
 - [x] T104 `P0` Execute: unknown outcome → reconcile before any retry.
-- [ ] T105 `P0` Verify: read back each action; set verified or failed.
+- [x] T105 `P0` Verify: read back each action; set verified or failed.
 - [ ] T106 `P0` Finalize: status partial/done; trigger receipt generation.
 - [ ] T107 `P0` `surfaces/door.py`: start_run, get_status, answer_query, decide (identity map, SoD, params_hash, first-wins, mirror to Freshservice), pick_candidate.
 - [ ] T108 `P0` `surfaces/presenter.py`: `RunView` (lamps, clause, approver, deadline, precedent, modes, replay flag) + cross-door message update.
