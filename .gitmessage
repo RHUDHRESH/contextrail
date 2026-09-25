@@ -1,0 +1,18 @@
+# <type>(<scope>): <imperative summary, header ≤ 100 chars> [T###]
+#
+# type : feat fix refactor docs chore build ci perf test
+# scope: repo policy rail db models fixtures llm fs slack email teams voice fdk mcp skills okf audit deploy dodo
+#
+# Why: the problem or principle this serves (cite CLAUDE.md §, e.g. §9 "rules decide, not the model")
+# What:
+# - concrete change 1
+# - concrete change 2
+# Verified: exact command + observed result, or "NOT VERIFIED: <reason>"
+# Mode: LIVE | FIXTURE | n/a
+#
+# Task: T###
+# Priority: P0 | P1 | P2
+# Refs: CLAUDE.md §x, docs/CHECKLIST.md
+#
+# Rules: one task per commit; tick its box in docs/CHECKLIST.md in the same commit;
+# never claim LIVE or verified for something you did not observe.
