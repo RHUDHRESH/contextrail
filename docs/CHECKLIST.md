@@ -8,10 +8,10 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 <!-- stats:start -->
 | Priority | Tasks | Done |
 |---|---|---|
-| P0 | 148 | 70 |
+| P0 | 148 | 71 |
 | P1 | 92 | 0 |
 | P2 | 10 | 0 |
-| **Total** | **250** | **70** |
+| **Total** | **250** | **71** |
 
 👤 human-owned tasks: 24
 <!-- stats:end -->
@@ -135,7 +135,7 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 - [x] T097 `P0` Plan: dependency ordering; add revoke actions for the old team.
 - [ ] T098 `P0` Plan: one-line explanations for HOLD and REFUSE (Sonnet).
 - [ ] T099 `P1` Handoff: per-team views (IT, Security) with digest verification.
-- [ ] T100 `P0` Approve: create approval records; dispatch to Freshservice and the approver's doors.
+- [x] T100 `P0` Approve: create approval records; dispatch to Freshservice and the approver's doors.
 - [ ] T101 `P1` Approve: deadline and chase jobs (chase in the approver's preferred door).
 - [ ] T102 `P0` Approve: resume the run when a decision arrives from any door.
 - [x] T103 `P0` Execute: connector dispatch with idempotency key and backoff on 429/5xx.
