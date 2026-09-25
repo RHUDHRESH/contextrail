@@ -10,6 +10,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from enum import StrEnum
 from typing import Literal
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -170,3 +171,33 @@ def apply_verdict(action: Action, v: Verdict) -> Action:
     elif v.verdict == "HOLD":
         action.transition(ActionState.AWAITING)
     return action
+
+
+class CaseFile(_Model):
+    """The sealed capsule: one object that carries the case through every stage and door, by value (P5)."""
+
+    run_id: UUID
+    request_text: str
+    intent: str
+    subject: Subject
+    peer: Subject | None = None                  # "same as <peer>" requests
+    evidence: list[Evidence] = Field(default_factory=list)
+    constraints: list[str] = Field(default_factory=list)
+    actions: list[Action] = Field(default_factory=list)
+    decisions: list[dict] = Field(default_factory=list)
+    open_blockers: list[str] = Field(default_factory=list)
+    digest: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+
+    @model_validator(mode="after")
+    def _unique_ids(self) -> CaseFile:
+        for name, ids in (("action", [a.id for a in self.actions]), ("evidence", [e.id for e in self.evidence])):
+            dupes = sorted({i for i in ids if ids.count(i) > 1})
+            if dupes:
+                raise ValueError(f"duplicate {name} ids in case file: {dupes}")
+        return self
+
+    def action(self, action_id: str) -> Action:
+        for a in self.actions:
+            if a.id == action_id:
+                return a
+        raise KeyError(action_id)

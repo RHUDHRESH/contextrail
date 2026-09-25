@@ -8,10 +8,10 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 <!-- stats:start -->
 | Priority | Tasks | Done |
 |---|---|---|
-| P0 | 148 | 25 |
+| P0 | 148 | 26 |
 | P1 | 92 | 0 |
 | P2 | 10 | 0 |
-| **Total** | **250** | **25** |
+| **Total** | **250** | **26** |
 
 👤 human-owned tasks: 24
 <!-- stats:end -->
@@ -73,7 +73,7 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 - [x] T044 `P0` `Evidence` model with `trust`: record / curated / untrusted.
 - [x] T045 `P0` `Action` model and state enum.
 - [x] T046 `P0` `Verdict` model (ALLOW / HOLD / REFUSE, rule_id, clause_text, approver).
-- [ ] T047 `P0` `CaseFile` model.
+- [x] T047 `P0` `CaseFile` model.
 - [ ] T048 `P0` Canonical JSON serializer (sorted keys, no whitespace, UTC) + `params_hash(action)`.
 - [ ] T049 `P0` Capsule seal: compute and store the digest.
 - [ ] T050 `P0` Capsule verify at every handoff; raise `DigestMismatch`.

@@ -1,3 +1,4 @@
+import uuid
 from datetime import UTC, datetime
 
 import pytest
@@ -7,6 +8,7 @@ from contextrail.models import (
     ACTION_TRANSITIONS,
     Action,
     ActionState,
+    CaseFile,
     Evidence,
     IllegalTransition,
     Subject,
@@ -152,3 +154,29 @@ def test_apply_verdict_sets_fields_and_first_state_once():
     assert ok.state is ActionState.PLANNED
     with pytest.raises(IllegalTransition, match="set once"):
         apply_verdict(a, Verdict(verdict="ALLOW", rule_id="X", clause_text="y"))  # no laundering a refusal
+
+
+# --- CaseFile (T047) ---------------------------------------------------------------------------------------
+
+def case(**kw):
+    base = {"run_id": uuid.uuid4(), "request_text": "Give Anil the same access as Rahul",
+            "intent": "access.same_as_peer", "subject": anil(),
+            "peer": anil(source_id="E-0007", display_name="Rahul Mehta", seniority="senior"),
+            "evidence": [ev()], "actions": [act(), act(id="A2")]}
+    return CaseFile(**(base | kw))
+
+
+def test_case_file_holds_subject_peer_evidence_actions():
+    c = case()
+    assert c.peer.display_name == "Rahul Mehta" and c.action("A2").id == "A2" and c.digest is None
+    with pytest.raises(KeyError):
+        c.action("nope")
+
+
+def test_case_file_rejects_duplicate_ids_and_unknown_fields():
+    with pytest.raises(ValidationError, match="duplicate action"):
+        case(actions=[act(), act()])
+    with pytest.raises(ValidationError, match="duplicate evidence"):
+        case(evidence=[ev(), ev()])
+    with pytest.raises(ValidationError):
+        case(salary_band="L5")
