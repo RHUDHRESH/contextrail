@@ -1,0 +1,11 @@
+id: POL-CTR-001
+title: Contractors never receive production credentials
+source: {okf: knowledge/policies/contractor-onboarding.md, clause: "§4"}
+# Verbatim from Stage 1 corpus ntn_contractor_onboarding §4 (src/lib/contextrail/data/corpus.ts).
+clause_text: "Contractors must never receive production credentials, production database access, or customer PII exports."
+applies_to: {employment_type: [contractor, vendor]}
+match:
+  kind: grant
+  target.resource_class: [production_credential, production_admin, production_db, customer_pii_export]
+verdict: REFUSE
+terminal: true

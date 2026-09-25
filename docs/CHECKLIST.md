@@ -8,10 +8,10 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 <!-- stats:start -->
 | Priority | Tasks | Done |
 |---|---|---|
-| P0 | 148 | 38 |
+| P0 | 148 | 39 |
 | P1 | 92 | 0 |
 | P2 | 10 | 0 |
-| **Total** | **250** | **38** |
+| **Total** | **250** | **39** |
 
 👤 human-owned tasks: 24
 <!-- stats:end -->
@@ -90,7 +90,7 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 - [x] T058 `P0` Precedence: terminal REFUSE > HOLD > explicit ALLOW; default deny for access actions.
 - [x] T059 `P0` Approver resolution: role/group → named person (fixture first, Freshservice group later).
 - [ ] T060 `P0` Verdict carries `rule_id` and the clause verbatim (clauses ported from `src/lib/contextrail/policy.ts`).
-- [ ] T061 `P0` POL-CTR-001: contractors never get production credentials (REFUSE, terminal).
+- [x] T061 `P0` POL-CTR-001: contractors never get production credentials (REFUSE, terminal).
 - [ ] T062 `P0` POL-ACC-001: role baseline entitlements ALLOW.
 - [ ] T063 `P0` POL-ACC-002: "same as peer" filtered by the requester's role, not the peer's.
 - [ ] T064 `P0` POL-ACC-003: admin rights only for senior roles.
