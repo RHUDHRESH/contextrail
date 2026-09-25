@@ -1,5 +1,5 @@
-from contextrail.models import Subject
-from contextrail.policy.matchers import MISSING, applies_to, resolve
+from contextrail.models import Action, Subject
+from contextrail.policy.matchers import MISSING, applies_to, matches, resolve
 from contextrail.policy.schema import Rule
 
 
@@ -48,3 +48,36 @@ def test_list_fields_match_on_overlap():
     sow = rule(applies_to={"sow_repos": ["northbeam/perception-sdk"]})
     assert applies_to(sow, person(sow_repos=["northbeam/perception-sdk", "northbeam/docs"]))
     assert not applies_to(sow, person(sow_repos=[]))
+
+
+# --- match (T056) ------------------------------------------------------------------------------------------
+
+def grant(**target):
+    return Action.create("A1", "grant", target)
+
+
+def test_match_on_kind_and_target_paths():
+    r = rule(match={"kind": "grant", "target.system": "github"})
+    assert matches(r, grant(system="github", repo="northbeam/payments-core"))
+    assert not matches(r, grant(system="aws"))
+    assert not matches(r, Action.create("A2", "revoke", {"system": "github"}))
+
+
+def test_list_expected_means_membership_and_list_actual_means_overlap():
+    prod = rule(match={"kind": ["grant"], "target.resource_class": ["production_credential", "production_admin"]})
+    assert matches(prod, grant(resource_class="production_admin"))
+    assert not matches(prod, grant(resource_class="standard"))
+    tagged = rule(match={"target.repo_tags": ["production"]})
+    assert matches(tagged, grant(repo_tags=["pci", "production"]))
+    assert not matches(tagged, grant(repo_tags=["internal"]))
+
+
+def test_nested_paths_and_missing_paths():
+    r = rule(match={"target.owner.team": "payments"})
+    assert matches(r, grant(owner={"team": "payments"}))
+    assert not matches(r, grant(owner={}))
+    assert not matches(r, grant())  # a missing field never matches (no accidental ALLOW)
+
+
+def test_empty_match_matches_every_action():
+    assert matches(rule(), grant(system="anything"))

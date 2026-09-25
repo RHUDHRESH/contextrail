@@ -8,10 +8,10 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 <!-- stats:start -->
 | Priority | Tasks | Done |
 |---|---|---|
-| P0 | 148 | 34 |
+| P0 | 148 | 35 |
 | P1 | 92 | 0 |
 | P2 | 10 | 0 |
-| **Total** | **250** | **34** |
+| **Total** | **250** | **35** |
 
 👤 human-owned tasks: 24
 <!-- stats:end -->
@@ -85,7 +85,7 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 - [x] T053 `P0` Rule schema (pydantic): id, title, source, clause_text, applies_to, match, conditions, verdict, approver, terminal, expires_after.
 - [x] T054 `P0` Rule loader for `policy/rules/*.yaml` with schema validation at startup.
 - [x] T055 `P0` `applies_to` matcher over Subject fields only.
-- [ ] T056 `P0` `match` matcher over action kind and target (dot paths, list membership).
+- [x] T056 `P0` `match` matcher over action kind and target (dot paths, list membership).
 - [ ] T057 `P0` Safe condition evaluator (`in`, `==`, `contains`, `>`, `<`); no `eval`.
 - [ ] T058 `P0` Precedence: terminal REFUSE > HOLD > explicit ALLOW; default deny for access actions.
 - [ ] T059 `P0` Approver resolution: role/group → named person (fixture first, Freshservice group later).

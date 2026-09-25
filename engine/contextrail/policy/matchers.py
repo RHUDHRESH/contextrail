@@ -51,3 +51,25 @@ def applies_to(rule: Rule, subject: Subject) -> bool:
         elif value not in allowed:
             return False
     return True
+
+
+def _value_matches(actual: Any, expected: Any) -> bool:
+    if actual is MISSING or actual is None:
+        return False
+    allowed = expected if isinstance(expected, list) else [expected]
+    if isinstance(actual, (list, tuple, set)):
+        return bool(set(actual) & set(allowed))      # e.g. repo_tags overlapping ['production']
+    return actual in allowed
+
+
+def matches(rule: Rule, action: Any) -> bool:
+    """True when the action's kind and every 'target.<path>' in rule.match hold.
+
+    Scalar expected values mean equality, lists mean membership; list-valued targets match on overlap.
+    A path the target does not have never matches.
+    """
+    for key, expected in rule.match.items():
+        actual = action.kind if key == "kind" else resolve(action.target, key.removeprefix("target."))
+        if not _value_matches(actual, expected):
+            return False
+    return True
