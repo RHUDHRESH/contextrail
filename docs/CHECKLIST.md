@@ -8,10 +8,10 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 <!-- stats:start -->
 | Priority | Tasks | Done |
 |---|---|---|
-| P0 | 148 | 59 |
+| P0 | 148 | 60 |
 | P1 | 92 | 0 |
 | P2 | 10 | 0 |
-| **Total** | **250** | **59** |
+| **Total** | **250** | **60** |
 
 👤 human-owned tasks: 24
 <!-- stats:end -->
@@ -123,7 +123,7 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 - [ ] T085 `P0` Discover: intent + mentions + request/query/approval-reply via the intent prompt (structured output).
 - [x] T086 `P0` Discover: resolve mentions to IDs by exact lookup only (HRIS / Freshservice requester).
 - [x] T087 `P0` Discover: ambiguity → `needs_input` with a candidate list.
-- [ ] T088 `P0` Discover: peer resolution for "same as X".
+- [x] T088 `P0` Discover: peer resolution for "same as X".
 - [ ] T089 `P0` Compile: parallel fetch of records, entitlements and policies (`asyncio.gather`).
 - [ ] T090 `P1` Compile: load OKF concepts by tags/rules.
 - [ ] T091 `P1` Compile: extract SOW constraints with cited spans.

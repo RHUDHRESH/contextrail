@@ -178,10 +178,20 @@ async def discover(text: str, extractor: IntentExtractor, hris, *, subject_id: s
         subject_record, need = await resolve_one(hris, intent.subject_mention, "subject", pinned_id=subject_id)
         if need and (intent.intent in _NEEDS_SUBJECT or intent.subject_mention):
             needs.append(need)
+    peer_record = None
+    if intent.intent == "access.same_as_peer":  # T088: the peer is resolved exactly like the subject
+        peer_record, need = await resolve_one(hris, intent.peer_mention, "peer", pinned_id=peer_id)
+        if need:
+            needs.append(need)
+        elif subject_record and peer_record["source_id"] == subject_record["source_id"]:
+            needs.append(NeedsInput(role="peer", mention=intent.peer_mention, reason="same_person"))
+            peer_record = None
     return Discovery(
         status="needs_input" if needs else "resolved",
         intent=intent,
         subject=subject_from_record(subject_record) if subject_record else None,
+        peer=subject_from_record(peer_record) if peer_record else None,
         subject_record=subject_record,
+        peer_record=peer_record,
         needs=needs,
     )

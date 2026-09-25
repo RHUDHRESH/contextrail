@@ -115,3 +115,35 @@ async def test_queries_do_not_require_a_subject(hris):
 async def test_an_unclassifiable_request_never_proceeds(hris):
     d = await discover("make it so", H, hris)
     assert d.status == "needs_input" and d.needs[0].reason == "unclear_request"
+
+
+# --- peer resolution for "same as X" (T088) ----------------------------------------------------------------
+
+async def test_same_as_peer_resolves_both_people_by_exact_lookup(hris):
+    d = await discover("Give Anil the same access as Rahul Mehta", H, hris)
+    assert d.status == "resolved"
+    assert (d.subject.source_id, d.peer.source_id) == ("E-1042", "E-0007")
+    assert d.subject_record["previous_team"] == "risk-analytics"  # full record kept for the Plan stage
+
+
+async def test_ambiguous_peer_asks_which_rahul(hris):
+    d = await discover("Give Anil the same access as Rahul", H, hris)
+    assert d.status == "needs_input" and d.subject.source_id == "E-1042" and d.peer is None
+    (need,) = d.needs
+    assert (need.role, need.reason, sorted(c.source_id for c in need.candidates)) == (
+        "peer", "ambiguous", ["E-0007", "E-0415"])
+
+
+async def test_peer_pick_resumes(hris):
+    d = await discover("Give Anil the same access as Rahul", H, hris, peer_id="E-0007")
+    assert d.status == "resolved" and d.peer.display_name == "Rahul Mehta"
+
+
+async def test_subject_and_peer_both_ambiguous_asks_both(hris):
+    d = await discover("Give Rahul the same access as Rahul", H, hris)
+    assert [n.role for n in d.needs] == ["subject", "peer"]
+
+
+async def test_same_access_as_themselves_is_refused_as_input(hris):
+    d = await discover("Give Anil the same access as Anil Kumar", H, hris)
+    assert d.status == "needs_input" and d.needs[0].reason == "same_person"
