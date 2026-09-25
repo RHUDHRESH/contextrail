@@ -38,7 +38,7 @@ commits="$(git log --reverse --no-merges --date=short \
     prio="$(printf '%s' "$line" | grep -Eo '`P[012]`' | tr -d '`' || true)"
     done_mark="$(printf '%s' "$line" | grep -q '^- \[x\]' && echo '✔' || echo '…')"
     # Strip backticks before truncating so a cut can never leave an unclosed code span.
-    title="$(printf '%s' "$line" | sed -E 's/^- \[[ x]\] T[0-9]{3} `P[012]` //; s/`//g; s/\|/\\|/g')"
+    title="$(printf '%s' "$line" | sed -E 's/^- \[[ x]\] T[0-9]{3} `P[012]` //; s/`//g; s/\|/\\|/g; s/</\&lt;/g; s/>/\&gt;/g')"
     [ "${#title}" -le 90 ] || title="${title:0:89}…"
     echo "| $task | ${prio:-?} | $done_mark | $hashes | $first | $last | $title |"
   done
