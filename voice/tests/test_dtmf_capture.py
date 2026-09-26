@@ -18,7 +18,7 @@ from languages import configure
 from llm import Conversation
 from tests.fake_sarvam import FakeSarvam
 from tests.fakes import FakeAnthropic, FakeWS
-from tests.test_approver_flow import FIGMA, HASH_A
+from tests.test_approver_flow import FIGMA
 from tests.test_caller_id import DANA_RAW, PUBLIC, START, World, signed
 
 NESTED_START = json.dumps({"sequenceNumber": 0, "event": "start",
@@ -89,7 +89,7 @@ def test_next_serves_a_one_digit_gather_when_a_key_is_wanted_and_hangs_up_otherw
     assert w.client.post("/next", data={"CallUUID": "call-1"}).status_code == 403
 
 
-async def test_a_pressed_key_is_decided_by_the_engine_and_the_stream_resumes_with_the_outcome():
+async def test_a_tampered_key_cannot_decide_and_the_stream_resumes_with_no_key():
     w = World()
     w.engine.pending["p-dana"] = [__import__("tests.fake_engine", fromlist=["run_view"]).run_view(rows=[FIGMA])]
     r = w.answer(DANA_RAW)
@@ -98,6 +98,10 @@ async def test_a_pressed_key_is_decided_by_the_engine_and_the_stream_resumes_wit
         ws.send_text(START)
         ws.receive_json()
     dialogue = w.app.state.calls.get("call-1").dialogue
+    # Simulate an in-flight pending approval from an older trusted session. The callback's signed URL
+    # does not authenticate Digits, InputType, or CallUUID, so the HTTP edge must still refuse a decision.
+    dialogue.caller = Caller(person_id="p-dana", display_name="Dana Osei")
+    dialogue.caller_phone = "+919990000150"
     await dialogue.on_utterance("approve my pending items")
     assert (await dialogue.on_utterance("yes")).control == "gather_dtmf"
 
@@ -106,16 +110,13 @@ async def test_a_pressed_key_is_decided_by_the_engine_and_the_stream_resumes_wit
 
     resumed = w.client.post("/dtmf", data={"CallUUID": "call-1", "Digits": "1", "InputType": "dtmf"},
                             headers=signed("/dtmf"))
-    [decision] = [q for q in w.engine.requests if q.url.path.endswith("/decisions")]
-    assert json.loads(decision.content) | {} == {"action_id": "a-figma", "params_hash": HASH_A, "channel": "voice",
-                                                 "actor_external_id": "+919990000150", "decision": "approved",
-                                                 "reason": None}
+    assert not [q for q in w.engine.requests if q.url.path.endswith("/decisions")]
     assert w.ws_path(resumed.text) == ws_path  # the same call's stream, resumed
     spoken = len(w.sarvam.tts)
     with w.client.websocket_connect(ws_path) as ws:
         ws.send_text(START)
         ws.receive_json()
-    assert w.sarvam.spoken()[spoken].startswith(dialogue.line("decided_approved"))
+    assert w.sarvam.spoken()[spoken].startswith(dialogue.line("no_key"))
 
 
 @pytest.mark.parametrize("path", ["/next", "/dtmf"])

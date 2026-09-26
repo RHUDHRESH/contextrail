@@ -1,5 +1,4 @@
-"""T200: caller ID -> identity_map.phone. Only a registered number, arriving on a Vobiz-signed answer callback, is
-treated as a known person; everyone else gets general policy questions only (CLAUDE.md §13.3 item 4, §16).
+"""T200: URL-only Vobiz signatures do not prove caller ID; all callers get general policy questions only.
 
 The signature is computed here independently from Vobiz's documented formula (vobiz.ai/docs/concepts/
 validating-callbacks): base64(HMAC-SHA256(auth_token, baseURL + "." + nonce)) in X-Vobiz-Signature-V3.
@@ -11,6 +10,7 @@ import hmac
 import json
 import logging
 import re
+import secrets
 
 import pytest
 from fastapi.testclient import TestClient
@@ -18,7 +18,7 @@ from starlette.websockets import WebSocketDisconnect
 
 from calls import normalize_phone
 from dialogue import Dialogue
-from engine_client import Caller, EngineClient
+from engine_client import EngineClient
 from languages import configure
 from llm import Conversation
 from server import create_app
@@ -32,7 +32,8 @@ DANA_RAW, STRANGER_RAW = "919990000150", "919876500000"
 START = json.dumps({"event": "start", "start": {"callId": "call-1", "streamId": "stream-1"}})
 
 
-def signed(path: str, token: str = AUTH_TOKEN, nonce: str = "12345678") -> dict:
+def signed(path: str, token: str = AUTH_TOKEN, nonce: str | None = None) -> dict:
+    nonce = nonce or secrets.token_hex(12)
     mac = hmac.new(token.encode(), f"{PUBLIC}{path}.{nonce}".encode(), hashlib.sha256).digest()
     return {"X-Vobiz-Signature-V3": base64.b64encode(mac).decode(), "X-Vobiz-Signature-V3-Nonce": nonce}
 
@@ -72,14 +73,32 @@ def test_caller_numbers_are_normalised_to_e164_or_not_trusted(raw, e164):
     assert normalize_phone(raw) == e164
 
 
-def test_a_registered_caller_is_known_to_the_dialogue():
+def test_signed_from_field_cannot_claim_a_registered_caller():
     w = World()
     first, dialogue = w.opening(DANA_RAW)
     resolve = [json.loads(r.content) for r in w.engine.requests if r.url.path == "/v1/identities/resolve"]
-    assert resolve == [{"channel": "voice", "external_id": "+919990000150"}]
-    assert dialogue.caller == Caller(person_id="p-dana", display_name="Dana Osei")
-    assert dialogue.caller_phone == "+919990000150"
-    assert first == dialogue.disclosed("menu")
+    assert resolve == []
+    assert dialogue.caller is None and dialogue.caller_phone is None
+    assert first == dialogue.disclosed("unregistered")
+
+
+def test_tampering_with_from_does_not_gain_the_registered_callers_identity():
+    w = World()
+    headers = signed("/answer")
+    r = w.answer(DANA_RAW, headers=headers)
+    assert r.status_code == 200
+    assert w.app.state.calls.get("call-1").caller is None
+    # A second call can also carry Dana's From field with a fresh valid URL signature; neither is trusted.
+    assert w.answer(DANA_RAW, call_uuid="call-2", headers=signed("/answer")).status_code == 200
+    assert w.app.state.calls.get("call-2").caller is None
+
+
+def test_replayed_signature_is_rejected_even_when_the_form_body_changes():
+    w = World()
+    headers = signed("/answer", nonce="one-time-nonce")
+    assert w.answer(STRANGER_RAW, headers=headers).status_code == 200
+    assert w.answer(DANA_RAW, call_uuid="call-2", headers=headers).status_code == 403
+    assert w.app.state.calls.get("call-2") is None
 
 
 def test_an_unknown_caller_is_told_they_get_policy_questions_only():

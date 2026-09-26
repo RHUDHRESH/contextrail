@@ -1,6 +1,6 @@
 """Live calls known to this voice service, keyed by Vobiz CallUUID.
 
-A call is registered by the signed answer callback, which is the only place the caller's number is trusted. The
+A call is registered by a signed answer callback, but Vobiz's URL signature does not protect the caller field. The
 media WebSocket then proves it belongs to that call with an unguessable per-call token in its URL, so neither a
 CallUUID seen elsewhere nor a forged socket can borrow a caller's identity. The Dialogue lives here, not on the
 socket, so the conversation survives the stream being stopped and restarted (DTMF capture, transfer).
@@ -36,7 +36,7 @@ def normalize_phone(raw: str | None) -> str | None:
 @dataclass
 class Call:
     call_uuid: str
-    caller: str | None  # E.164, set only when the answer callback was signed by Vobiz
+    caller: str | None  # E.164 only after independent provider-side call verification (currently unset)
     token: str = field(default_factory=lambda: secrets.token_urlsafe(24))
     started: float = field(default_factory=time.monotonic)
     dialogue: Dialogue | None = None

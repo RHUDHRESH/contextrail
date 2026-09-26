@@ -15,6 +15,8 @@ from __future__ import annotations
 import base64
 import hashlib
 import hmac
+import threading
+import time
 from collections.abc import Mapping
 from xml.sax.saxutils import escape
 
@@ -34,6 +36,29 @@ def signature_valid(url: str, headers: Mapping[str, str], auth_token: str) -> bo
             # a header may carry several comma-separated signatures while a token is being rotated
             return any(hmac.compare_digest(s.strip(), expected) for s in sent.split(","))
     return False
+
+
+class NonceCache:
+    """Single-process replay guard for signed callbacks; not an identity proof."""
+
+    def __init__(self, ttl_seconds: int = 300, max_entries: int = 10000):
+        self.ttl_seconds = ttl_seconds
+        self.max_entries = max_entries
+        self._seen: dict[str, float] = {}
+        self._lock = threading.Lock()
+
+    def accept(self, headers: Mapping[str, str]) -> bool:
+        nonce = (headers.get("X-Vobiz-Signature-V3-Nonce") or
+                 headers.get("X-Vobiz-Signature-V2-Nonce"))
+        if not nonce:
+            return False
+        now = time.monotonic()
+        with self._lock:
+            self._seen = {key: expiry for key, expiry in self._seen.items() if expiry > now}
+            if nonce in self._seen or len(self._seen) >= self.max_entries:
+                return False
+            self._seen[nonce] = now + self.ttl_seconds
+        return True
 
 
 def _doc(body: str) -> str:

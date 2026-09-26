@@ -2,8 +2,8 @@
 
 Adapted from vobiz-ai/Vobiz-Sarvam@ad44f49 server.py (MIT; see NOTICE). Changes from upstream:
 - create_app() builds the app from explicit dependencies, so tests run it offline with fakes;
-- every Vobiz callback must carry a valid Vobiz signature when VOBIZ_AUTH_TOKEN is set (vobiz.py); without it the
-  door runs in FIXTURE mode and trusts no caller ID, so every caller is unknown (policy questions only);
+- every Vobiz callback must carry a valid Vobiz URL signature and fresh nonce when VOBIZ_AUTH_TOKEN is set;
+  Vobiz does not sign form fields, so caller identity and phone decisions remain untrusted;
 - the answer callback registers the call and hands Vobiz a per-call, unguessable WebSocket URL; the caller's
   number never appears in XML, URLs or logs (CLAUDE.md §16);
 - the public URL comes from configuration (Caddy serves /voice/* here with the prefix stripped); the ngrok tunnel
@@ -25,7 +25,7 @@ from dialogue import Dialogue
 from engine_client import EngineClient, EngineError
 from languages import LanguageTable
 from llm import Conversation
-from vobiz import dial_xml, gather_xml, hangup_xml, signature_valid, stream_xml
+from vobiz import NonceCache, dial_xml, gather_xml, hangup_xml, signature_valid, stream_xml
 
 # Load the .env sitting next to this file, whatever the working directory is.
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
@@ -47,15 +47,18 @@ def create_app(*, public_url: str, vobiz_auth_token: str, engine: EngineClient, 
     app = FastAPI()
     calls = app.state.calls = CallRegistry()
     signed = bool(vobiz_auth_token)
+    nonces = NonceCache()
     if transfer_number and normalize_phone(transfer_number) != transfer_number:
         raise ValueError("HUMAN_TRANSFER_NUMBER must be an E.164 number")
-    transfer_number = transfer_number if signed else ""  # unsigned callbacks cannot authorize a paid transfer
+    # Transfer can incur call charges. URL-only signatures do not authenticate CallUUID or From.
+    transfer_number = ""  # enable only after provider-side call identity verification exists
     ws_base = public_url.replace("https://", "wss://").replace("http://", "ws://")
 
     async def vobiz_form(request: Request) -> dict:
         form = await request.form()
-        if signed and not signature_valid(f"{public_url}{request.url.path}", request.headers, vobiz_auth_token):
-            logger.warning(f"Refused an unsigned or forged Vobiz callback to {request.url.path}")
+        if signed and (not signature_valid(f"{public_url}{request.url.path}", request.headers, vobiz_auth_token)
+                       or not nonces.accept(request.headers)):
+            logger.warning(f"Refused an unsigned, forged, or replayed Vobiz callback to {request.url.path}")
             raise HTTPException(403, "invalid Vobiz signature")
         return dict(form)
 
@@ -73,9 +76,11 @@ def create_app(*, public_url: str, vobiz_auth_token: str, engine: EngineClient, 
         form = await vobiz_form(request)
         if not form.get("CallUUID"):
             raise HTTPException(400, "CallUUID is required")
-        caller = normalize_phone(form.get("From")) if signed else None
+        # Vobiz signs URL + nonce, not POST fields. From can be changed in transit while the signature stays valid.
+        # Until CallUUID/From can be confirmed through a provider-side call lookup, fail closed for identity.
+        caller = None
         call = calls.register(form.get("CallUUID", ""), caller)
-        logger.info(f"Answering call {call.call_uuid} (caller id {'verified' if caller else 'not trusted'})")
+        logger.info(f"Answering call {call.call_uuid} (caller id not trusted)")
         xml = stream_xml(f"{ws_base}/ws/{call.token}", f"{public_url}/stream-status",
                          f"{public_url}/next")
         return Response(content=xml, media_type="application/xml")
@@ -109,9 +114,9 @@ def create_app(*, public_url: str, vobiz_auth_token: str, engine: EngineClient, 
         call = calls.get(form.get("CallUUID", ""))
         if call is None or call.dialogue is None:
             return Response(content=hangup_xml(), media_type="application/xml")
-        # A signed Vobiz callback still must say it came from the DTMF gather. The dialogue only accepts one
-        # pending item, and the engine checks the named approver and params_hash again before recording anything.
-        digits = form.get("Digits", "") if form.get("InputType") == "dtmf" else ""
+        # Digits and InputType are not covered by Vobiz's URL + nonce signature. Never dispatch a live
+        # approval decision from a form field that could be changed after the callback was signed.
+        digits = ""
         await call.dialogue.on_dtmf(digits)
         return Response(content=stream_xml(f"{ws_base}/ws/{call.token}", f"{public_url}/stream-status",
                                            f"{public_url}/next"), media_type="application/xml")
@@ -156,6 +161,7 @@ def create_app(*, public_url: str, vobiz_auth_token: str, engine: EngineClient, 
                 "modes": {"vobiz_callbacks": "LIVE" if signed else "FIXTURE",
                           "sarvam": "LIVE" if agent.SARVAM_API_KEY else "FIXTURE", "llm": llm.mode,
                           "engine": "configured" if engine.configured else "unconfigured",
+                          "caller_identity": "UNVERIFIED", "phone_approvals": "DISABLED",
                           "human_transfer": "configured" if transfer_number else "unavailable"}}
 
     return app
