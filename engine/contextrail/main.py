@@ -10,6 +10,7 @@ from contextrail.logs import configure_logging
 from contextrail.policy.loader import load_rules
 from contextrail.settings import Settings, get_settings
 from contextrail.surfaces.rest import router as runs_router
+from contextrail.surfaces.slack_app import router as slack_router
 
 
 def create_app(settings: Settings | None = None, *, platform: Platform | None = None) -> FastAPI:
@@ -36,6 +37,8 @@ def create_app(settings: Settings | None = None, *, platform: Platform | None = 
 
     app.include_router(v1_router)
     app.include_router(runs_router)
+    if settings.slack_configured:  # the Slack door is LIVE only with its credentials (D-004)
+        app.include_router(slack_router)
     return app
 
 

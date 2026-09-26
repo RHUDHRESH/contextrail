@@ -183,21 +183,21 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 
 ## J. Slack door (18)
 
-- [ ] T139 `P0` Slack app manifest YAML in the repo (scopes, slash command, interactivity, assistant).
-- [ ] T140 `P0` Bolt app init (Socket Mode in dev, HTTP in prod).
-- [ ] T141 `P0` `/contextrail <request>` → `door.start_run`; ephemeral acknowledgement.
-- [ ] T142 `P0` Run status message updated in place per stage (`chat.update`).
+- [x] T139 `P0` Slack app manifest YAML in the repo (scopes, slash command, interactivity, assistant).
+- [x] T140 `P0` Bolt app init (Socket Mode in dev, HTTP in prod).
+- [x] T141 `P0` `/contextrail <request>` → `door.start_run`; ephemeral acknowledgement.
+- [x] T142 `P0` Run status message updated in place per stage (`chat.update`).
 - [ ] T143 `P1` Assistant pane: thread started → suggested prompts.
 - [ ] T144 `P1` Assistant pane: user message → start run; `set_status` per stage.
 - [ ] T145 `P1` Assistant pane: final summary blocks (granted / held / refused) with receipt link.
-- [ ] T146 `P0` Approval card Block Kit renderer from `RunView` (action, rule, risk, precedent, deadline, LIVE/FIXTURE).
+- [x] T146 `P0` Approval card Block Kit renderer from `RunView` (action, rule, risk, precedent, deadline, LIVE/FIXTURE).
 - [ ] T147 `P0` Deliver the card to the approver's DM (`users.lookupByEmail`); record in `door_messages`.
 - [ ] T148 `P0` Approve / Refuse handlers parsing `run_id|action_id|params_hash` → `door.decide`.
 - [ ] T149 `P0` On click: params_hash still matches and approver identity via the identity map.
 - [ ] T150 `P0` Update the card after a decision, including decisions made in another door.
 - [ ] T151 `P1` "Why refused?" button → explanation with clause.
 - [ ] T152 `P1` Refuse-with-reason modal (`views.open`).
-- [ ] T153 `P0` Seed identity map for demo Slack users.
+- [x] T153 `P0` Seed identity map for demo Slack users.
 - [ ] T154 `P0` Friendly `needs_input` message with candidate buttons.
 - [ ] T155 `P0` Candidate picker handler resumes the run with the chosen ID.
 - [ ] T156 `P1` Copy and design pass: consistent verbs, lamps (✅ 🟠 ⛔), short sentences.

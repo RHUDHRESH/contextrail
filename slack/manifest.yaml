@@ -1,0 +1,54 @@
+# ContextRail Slack app manifest (CLAUDE.md §13.1, checklist T139).
+# Create the app at https://api.slack.com/apps -> "From a manifest" and paste this file.
+#
+# Development: socket_mode_enabled is true, so Slack ignores the request URLs below and delivers over the
+# Socket Mode websocket (python -m contextrail.surfaces.slack_socket, needs SLACK_APP_TOKEN).
+# Production: set socket_mode_enabled to false and replace contextrail.example.com with the engine's public host.
+# Every request URL is the one route the engine mounts: POST /slack/events (only when SLACK_BOT_TOKEN and
+# SLACK_SIGNING_SECRET are set).
+_metadata:
+  major_version: 1
+  minor_version: 1
+display_information:
+  name: ContextRail
+  description: Ask for access in one sentence. Written policy decides; named people approve; every step is verified.
+  background_color: "#1f2933"
+features:
+  app_home:
+    home_tab_enabled: false
+    messages_tab_enabled: true
+    messages_tab_read_only_enabled: true   # approval cards arrive here; the door does not read DMs yet
+  bot_user:
+    display_name: ContextRail
+    always_online: true
+  slash_commands:
+    - command: /contextrail
+      url: https://contextrail.example.com/slack/events
+      description: Start a governed request (access, onboarding, refunds)
+      usage_hint: give Anil the same access as Rahul Mehta
+      should_escape: false
+  assistant_view:   # the AI assistant pane; its event handlers arrive with T143-T145
+    assistant_description: Start a request, follow it stage by stage, and ask why something was refused.
+    suggested_prompts:
+      - title: Same access as a teammate
+        message: Give Anil the same access as Rahul Mehta
+      - title: Onboard a new starter
+        message: Priya starts Monday, give her everything she needs
+      - title: Why was this refused?
+        message: Why was my production admin access refused?
+oauth_config:
+  scopes:
+    bot:
+      - commands            # /contextrail
+      - chat:write          # status message, approval cards, chat.update after a decision
+      - im:write            # conversations.open: approval cards go to the approver's DM
+      - users:read          # required alongside users:read.email
+      - users:read.email    # users.lookupByEmail: identity_map email -> Slack user
+      - assistant:write     # assistant pane status (P1)
+settings:
+  interactivity:
+    is_enabled: true
+    request_url: https://contextrail.example.com/slack/events
+  org_deploy_enabled: false
+  socket_mode_enabled: true
+  token_rotation_enabled: false
