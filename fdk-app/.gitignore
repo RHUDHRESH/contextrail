@@ -1,0 +1,10 @@
+# FDK local state and build output
+.fdk/
+.report.json
+log/
+dist/
+coverage/
+node_modules/
+test_data/
+# fdk run stores locally entered installation parameters here, including the secure engine token
+config/iparam_test_data.json

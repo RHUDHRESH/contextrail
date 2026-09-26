@@ -1,0 +1,18 @@
+{
+  "name": "contextrail-fdk-app",
+  "version": "0.1.0",
+  "private": true,
+  "description": "ContextRail Freshservice ticket-sidebar app (FDK 10, Platform 3.0). Test harness only; FDK builds the app.",
+  "scripts": {
+    "test": "vitest run --coverage",
+    "fdk-unit-test": "vitest run --coverage"
+  },
+  "dependencies": {
+    "@freshworks/crayons": "^4.2.0"
+  },
+  "devDependencies": {
+    "@vitest/coverage-v8": "~2.1.8",
+    "jsdom": "~26.1.0",
+    "vitest": "~2.1.8"
+  }
+}

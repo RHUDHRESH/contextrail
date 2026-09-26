@@ -1,0 +1,15 @@
+.cr-sidebar {
+  padding: 12px;
+}
+
+.cr-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.cr-title {
+  font-size: 14px;
+  font-weight: 600;
+}
