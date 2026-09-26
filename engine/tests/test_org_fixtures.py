@@ -114,3 +114,93 @@ def test_the_original_ten_records_are_byte_for_byte_unchanged():
     original = [p for p in people() if p["source_id"] in ORIGINAL_HRIS_IDS]
     assert [p["source_id"] for p in original] == list(ORIGINAL_HRIS_IDS)
     assert _digest(original) == "7b4ead4084f69fa8671823c7862c70c5ef4207e7ec155e1fcb1ff15166ca8bae"
+
+
+# --- roles and entitlements (T074) -------------------------------------------------------------------------
+
+SENIOR = {"senior", "lead", "principal"}
+CONTRACTOR_FORBIDDEN = {"production_credential", "production_admin", "production_db", "customer_pii_export"}
+
+
+def catalog():
+    return load("entitlements")["catalog"]
+
+
+def holdings():
+    return load("entitlements")["holdings"]
+
+
+def roles():
+    return load("roles")["roles"]
+
+
+def test_every_role_in_use_has_a_baseline_inside_its_own_scope():
+    in_use = {p["role"] for p in people()}
+    assert in_use <= set(roles()), in_use - set(roles())
+    for name, role in roles().items():
+        for ent in role["baseline"]:
+            assert name in catalog()[ent]["role_scope"], f"{name} baseline {ent} is outside the role's scope"
+
+
+def test_catalogue_spans_the_systems_a_mid_size_company_runs():
+    cat = catalog()
+    assert 60 <= len(cat) <= 80, len(cat)
+    systems = {t["system"] for t in cat.values()}
+    assert {"okta", "slack", "jira", "confluence", "aws", "datadog", "pagerduty", "sentry", "vault", "google",
+            "looker", "snowflake", "postman", "figma"} <= systems, systems
+    aws = {t["resource_class"] for t in cat.values() if t["system"] == "aws"}
+    assert {"standard", "admin", "production_admin", "production_credential"} <= aws, aws
+
+
+def test_snowflake_separates_raw_pii_from_masked_views():
+    snow = {e: t for e, t in catalog().items() if t["system"] == "snowflake"}
+    assert all(t["data_class"] in ("raw_pii", "masked", "internal") for t in snow.values())
+    raw = [e for e, t in snow.items() if t["data_class"] == "raw_pii"]
+    assert raw == ["snowflake-raw-pii"] and catalog()["snowflake-raw-pii"]["teams"] == ["data-analytics"]
+    assert any(t["data_class"] == "masked" for t in snow.values())
+
+
+def test_paid_seats_carry_their_cost():
+    paid = {e for e, t in catalog().items() if t.get("seat_cost_usd", 0) > 0}
+    assert {"postman-enterprise-seat", "figma-professional-seat", "looker-developer-seat"} <= paid
+    assert catalog()["figma-viewer"]["seat_cost_usd"] == 0  # a free viewer seat is not a paid seat
+
+
+def test_only_the_original_perception_items_are_team_scoped_to_perception():
+    # Govern adds team-scoped items for "everything" requests; Priya's outcome must not grow (T095 test).
+    scoped = sorted(e for e, t in catalog().items() if "perception" in t.get("teams", []))
+    assert scoped == ["aws-perception-prod-credentials", "gh-perception-sdk-read"]
+
+
+def test_everyone_has_a_holdings_entry_and_every_holding_is_catalogued():
+    assert set(holdings()) == {p["source_id"] for p in people()}
+    for pid, held in holdings().items():
+        assert set(held) <= set(catalog()), pid
+        assert len(held) == len(set(held)), f"{pid}: duplicate holding"
+
+
+def test_holdings_sit_inside_the_role_scope_unless_the_person_moved_team():
+    for p in people():
+        outside = [e for e in holdings()[p["source_id"]] if p["role"] not in catalog()[e]["role_scope"]]
+        if p.get("previous_team"):
+            assert outside, f"{p['source_id']} moved team and still holds old-team access to revoke"
+        else:
+            assert outside == [], f"{p['source_id']} holds {outside} outside role {p['role']}"
+
+
+def test_holdings_already_obey_the_written_rules():
+    for p in people():
+        for ent in holdings()[p["source_id"]]:
+            rc = catalog()[ent]["resource_class"]
+            if rc in ("admin", "production_admin"):  # POL-ACC-003
+                assert p["seniority"] in SENIOR, f"{p['source_id']} ({p['seniority']}) holds admin {ent}"
+            if p["employment_type"] in ("contractor", "vendor"):  # POL-CTR-001
+                assert rc not in CONTRACTOR_FORBIDDEN, f"{p['source_id']} holds {ent}"
+
+
+def test_the_original_holdings_and_role_baselines_are_unchanged():
+    assert _digest({k: holdings()[k] for k in ("E-0007", "E-1042", "E-0415", "W-8841")}) == (
+        "ed3e9ac98417cca7bc9308a051f2f3705f4ac85877d7fbe0869a06ad0dad09e1")
+    original = ("payments-engineer", "risk-analyst", "contract-engineer", "engineering-manager")
+    assert _digest({k: roles()[k] for k in original}) == (
+        "eb67960710266c02e8a7a8a82d92e7814f5b79114c1a2bca8fe7ece38f8a853f")
