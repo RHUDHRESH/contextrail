@@ -60,6 +60,10 @@ class FixtureTenant:
             ("GET", re.compile(r"^/api/v2/solutions/articles/(\d+)$"), self._article),
             ("POST", re.compile(r"^/api/v2/service_catalog/items/(\d+)/place_request$"), self._place_request),
             ("GET", re.compile(r"^/api/v2/tickets/(\d+)/requested_items$"), self._requested_items),
+            ("GET", re.compile(r"^/api/v2/objects$"), self._objects),
+            ("GET", re.compile(r"^/api/v2/objects/(\d+)$"), self._object),
+            ("GET", re.compile(r"^/api/v2/objects/(\d+)/records$"), self._records),
+            ("POST", re.compile(r"^/api/v2/objects/(\d+)/records$"), self._create_record),
             ("GET", re.compile(r"^/api/v2/tickets/(\d+)/approvals$"), self._approvals),
             ("GET", re.compile(r"^/api/v2/tickets/(\d+)/approvals/(\d+)$"), self._approval),
             ("POST", re.compile(r"^/api/v2/tickets/(\d+)/approvals$"), self._create_approval),
@@ -126,6 +130,46 @@ class FixtureTenant:
         if tid not in doc["tickets"]:
             return _error(404, f"ticket {tid} not found")
         return _ok({"requested_items": doc["requested_items"].get(tid, [])})
+
+    async def _objects(self, request: httpx.Request) -> httpx.Response:
+        listed = [{k: o[k] for k in ("id", "title", "description")} for o in self.state.load()["custom_objects"].values()]
+        return _page(request, listed, "custom_objects")
+
+    async def _object(self, request: httpx.Request, oid: str) -> httpx.Response:
+        o = self._record("custom_objects", oid)
+        return _ok({"custom_object": o}) if o else _error(404, f"custom object {oid} not found")
+
+    async def _records(self, request: httpx.Request, oid: str) -> httpx.Response:
+        doc = self.state.load()
+        if oid not in doc["custom_objects"]:
+            return _error(404, f"custom object {oid} not found")
+        records = doc["object_records"].get(oid, [])
+        query = request.url.params.get("query")
+        if query is not None:  # the fixture understands one condition: field : 'value'
+            m = re.fullmatch(r"(\w+) : '([^']*)'", query)
+            if m is None:
+                return _error(400, "Invalid query")
+            records = [r for r in records if str(r.get(m.group(1))) == m.group(2)]
+        size = int(request.url.params.get("page_size", 10))
+        return _ok({"records": [{"data": r} for r in records[:size]]})
+
+    async def _create_record(self, request: httpx.Request, oid: str) -> httpx.Response:
+        data = json.loads(request.content or b"{}").get("data") or {}
+
+        def apply(doc: dict) -> httpx.Response:
+            obj = doc["custom_objects"].get(oid)
+            if obj is None:
+                return _error(404, f"custom object {oid} not found")
+            unknown = sorted(set(data) - {f["name"] for f in obj["fields"]})
+            if unknown:
+                return _error(400, f"Validation failed: unknown fields {unknown}", field=unknown[0])
+            records = doc["object_records"].setdefault(oid, [])
+            record = {**data, "bo_display_id": len(records) + 1, "bo_created_at": _now(), "bo_updated_at": _now(),
+                      "bo_created_by": None, "bo_updated_by": None}
+            records.append(record)
+            return _ok({"custom_object": {"data": record}})
+
+        return await self.state.mutate(apply)
 
     async def _conversations(self, request: httpx.Request, tid: str) -> httpx.Response:
         doc = self.state.load()

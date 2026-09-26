@@ -58,10 +58,25 @@ SOURCES = {1: "email", 2: "portal", 3: "phone", 4: "chat", 5: "feedback_widget",
 ACCESS_REQUEST_ITEM = "Access request (ContextRail)"  # the catalog item an admin creates (T134)
 ACCESS_REQUEST_TEXT_FIELD = "request_text"  # that item's "request text" form field, as the API names it
 _EMAIL = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+# The receipts custom object an admin creates (T128). The API names a field after its label ("Receipt Key" ->
+# receipt_key); receipts_object() checks these names exist before anything is written.
+RECEIPTS_OBJECT = "ContextRail Receipts"
+RECEIPT_FIELDS = ("receipt_key", "run_id", "ticket_id", "status", "summary", "receipt_json", "audit_from",
+                  "audit_to", "mode")
+_QUERY_FIELD = re.compile(r"^[a-z0-9_]{1,64}$")
+_QUERY_VALUE = re.compile(r"^[A-Za-z0-9:_.@-]{1,120}$")  # no quotes or spaces: nothing can close the literal
 CATALOG_PAGE_SIZE = 30  # View List of Service Items: "per_page ... (default: 30, max: 30)"
 MAX_PAGES = 50          # a tenant that always answers rel="next" cannot keep us paging forever
 CONVERSATION_PAGE_SIZE = 30  # the documented default page size for a ticket's conversations
 _MARKER = re.compile(r"^[a-z0-9][a-z0-9:_-]{7,79}$")  # plain tokens survive Freshservice's HTML handling
+
+
+@dataclass(frozen=True)
+class RecordOutcome:
+    record: dict      # the custom object record's data (bo_display_id is its id)
+    replayed: bool    # a record with this receipt_key already existed; nothing was posted
+    confirmed: bool   # a re-query shows the record
 
 
 @dataclass(frozen=True)
@@ -188,6 +203,7 @@ class FreshserviceClient:
         self.base_url = base_url(domain)
         self.limiter = limiter
         self._access_item: dict | None = None
+        self._receipts_object: dict | None = None
         self.http = httpx.AsyncClient(
             base_url=self.base_url + "/",
             auth=httpx.BasicAuth(api_key, "X"),
@@ -390,6 +406,56 @@ class FreshserviceClient:
         path = f"solutions/articles/{fs_id(article_id)}"
         return _unwrap(await self.get(path), "article", path)
 
+    # --- custom object records: the full receipt (T128) ---------------------------------------------------------
+
+    async def list_custom_objects(self) -> list[dict]:
+        return await self.get_all("objects", "custom_objects", page_size=CATALOG_PAGE_SIZE)
+
+    async def get_custom_object(self, object_id: object) -> dict:
+        path = f"objects/{fs_id(object_id)}"
+        return _unwrap(await self.get(path), "custom_object", path)
+
+    async def create_record(self, object_id: object, data: dict) -> dict:
+        """POST /objects/{id}/records {"data": ...} -> the stored record's data (with bo_display_id)."""
+        path = f"objects/{fs_id(object_id)}/records"
+        return _unwrap(_unwrap(await self.post(path, {"data": data}), "custom_object", path), "data", path)
+
+    async def find_records(self, object_id: object, field: str, value: str, *, page_size: int = 10) -> list[dict]:
+        """GET /objects/{id}/records?query=<field : 'value'>. Field and value are plain tokens, so the query
+        language cannot be injected through them."""
+        if not _QUERY_FIELD.match(field) or not _QUERY_VALUE.match(value or ""):
+            raise ValueError(f"unsafe custom object query {field!r} : {value!r}")
+        path = f"objects/{fs_id(object_id)}/records"
+        records = _unwrap(await self.get(path, {"query": f"{field} : '{value}'", "page_size": page_size}),
+                          "records", path)
+        return [r["data"] for r in records]
+
+    async def receipts_object(self) -> dict:
+        """The 'ContextRail Receipts' object ({id, title}), found by exact title and checked for RECEIPT_FIELDS."""
+        if self._receipts_object is None:
+            found = [o for o in await self.list_custom_objects() if _norm(o.get("title", "")) == _norm(RECEIPTS_OBJECT)]
+            if len(found) != 1:
+                what = "no custom object" if not found else f"{len(found)} custom objects"
+                raise ConnectorError(f"{what} titled {RECEIPTS_OBJECT!r}; an admin must create exactly one (T128)")
+            names = {f.get("name") for f in (await self.get_custom_object(found[0]["id"])).get("fields", [])}
+            missing = [f for f in RECEIPT_FIELDS if f not in names]
+            if missing:
+                raise ConnectorError(f"{RECEIPTS_OBJECT!r} lacks fields {missing}; add them in admin (T128)")
+            self._receipts_object = {"id": found[0]["id"], "title": found[0]["title"]}
+        return dict(self._receipts_object)
+
+    async def add_receipt_record(self, record: dict, key: str) -> RecordOutcome:
+        """Store a receipt once under `key` (receipt_key), then query it back to confirm it exists."""
+        if not _QUERY_VALUE.match(key or ""):
+            raise ValueError(f"receipt key must be a plain token, got {key!r}")
+        obj = (await self.receipts_object())["id"]
+        existing = await self.find_records(obj, "receipt_key", key)
+        if existing:
+            return RecordOutcome(record=existing[0], replayed=True, confirmed=True)
+        stored = await self.create_record(obj, {**record, "receipt_key": key})
+        seen = await self.find_records(obj, "receipt_key", key)
+        return RecordOutcome(record=stored, replayed=False, confirmed=bool(seen))
+
     # --- private notes: receipts and decision mirrors (T127) ---------------------------------------------------
 
     async def create_note(self, ticket_id: object, body_html: str, *, private: bool = True) -> dict:
@@ -456,6 +522,20 @@ class FsNote(BaseModel):
     ticket_id: int
     note_id: int
     marker: str
+    replayed: bool
+    confirmed: bool
+    mode: Mode
+    fallback_reason: str | None = None
+
+
+class FsReceipt(BaseModel):
+    """Where a full receipt record lives (custom object + record id), whether it read back, and in which system."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    object_id: int
+    display_id: int | None
+    receipt_key: str
     replayed: bool
     confirmed: bool
     mode: Mode
@@ -566,6 +646,15 @@ class FreshserviceConnector:
         out, mode, why = await self._call("add_private_note", lambda c: c.add_private_note(tid, body_html, marker))
         return FsNote(ticket_id=tid, note_id=out.note["id"], marker=marker, replayed=out.replayed,
                       confirmed=out.confirmed, mode=mode, fallback_reason=why)
+
+    async def add_receipt_record(self, record: dict, key: str) -> FsReceipt:
+        async def op(c: FreshserviceClient) -> tuple[int, RecordOutcome]:
+            out = await c.add_receipt_record(record, key)
+            return (await c.receipts_object())["id"], out  # remembered by the first call: no extra request
+
+        (obj, out), mode, why = await self._call("add_receipt_record", op)
+        return FsReceipt(object_id=obj, display_id=out.record.get("bo_display_id"), receipt_key=key,
+                         replayed=out.replayed, confirmed=out.confirmed, mode=mode, fallback_reason=why)
 
     # --- the Connector protocol --------------------------------------------------------------------------------
 
