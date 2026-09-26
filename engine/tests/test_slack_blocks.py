@@ -143,6 +143,46 @@ def test_refused_card_quotes_the_reason():
     assert "⛔ *Refused* by Dana Osei in email" in text and "No production access &lt;this&gt; quarter" in text
 
 
+# --- T154: needs_input asks, with a button per candidate --------------------------------------------------------------
+
+RAHULS = [{"source_id": "E-0007", "display_name": "Rahul Mehta", "team": "payments", "role": "payments-engineer",
+           "employment_type": "employee"},
+          {"source_id": "E-0415", "display_name": "Rahul Verma", "team": "risk-analytics", "role": "risk-analyst",
+           "employment_type": "employee"}]
+
+
+def _needs_view(*needs: dict) -> RunView:
+    return _view(status="needs_input", stage="discover", rows=[], subject=None, peer=None, capsule_digest=None,
+                 counts={"allow": 0, "hold": 0, "refuse": 0, "verified": 0, "awaiting": 0, "failed": 0},
+                 request_text="Give Anil the same access as Rahul", needs=list(needs))
+
+
+def test_ambiguous_name_asks_which_one_with_a_button_per_candidate():
+    view = _needs_view({"role": "peer", "mention": "Rahul", "reason": "ambiguous", "candidates": RAHULS})
+    content = blocks.run_summary(view)
+    text = _all_text(content)
+    assert "I need one more detail" in text and "Which *Rahul* do you mean?" in text
+    [actions] = [b for b in content["blocks"] if b["type"] == "actions"]
+    labels = [e["text"]["text"] for e in actions["elements"]]
+    values = [e["value"] for e in actions["elements"]]
+    assert labels == ["Rahul Mehta · payments", "Rahul Verma · risk-analytics"]
+    assert values == [f"{RUN_ID}|peer|E-0007", f"{RUN_ID}|peer|E-0415"]
+    ids = [e["action_id"] for e in actions["elements"]]
+    assert len(set(ids)) == 2 and all(i.startswith("pick_candidate:") for i in ids)
+
+
+def test_questions_without_candidates_are_asked_in_words():
+    for need, fragment in [
+        ({"role": "peer", "mention": "Rahull", "reason": "no_match", "candidates": []}, "I couldn't find *Rahull*"),
+        ({"role": "subject", "mention": None, "reason": "no_mention", "candidates": []}, "Who is this for?"),
+        ({"role": "request", "mention": None, "reason": "unclear_request", "candidates": []}, "What should be done"),
+        ({"role": "peer", "mention": "Anil", "reason": "same_person", "candidates": []}, "Whose access should"),
+    ]:
+        content = blocks.run_summary(_needs_view(need))
+        assert fragment in _all_text(content), need["reason"]
+        assert "actions" not in [b["type"] for b in content["blocks"]]
+
+
 def test_run_summary_after_decisions_says_who_approved_and_who_refused():
     view = _view(status="partial", rows=[
         _row("a-github", "HOLD", "verified", approver_id="p-dana", approver_name="Dana Osei"),

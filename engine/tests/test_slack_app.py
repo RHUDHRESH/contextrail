@@ -256,3 +256,23 @@ async def test_no_slack_account_or_one_owned_by_someone_else_is_never_linked(doo
     async with door.db.connection() as c:
         row = await (await c.execute("select slack_user_id from identity_map where person_id = 'p-meera'")).fetchone()
     assert row["slack_user_id"] is None
+
+
+# --- T154 / T155: "which Rahul?" asked in the status message, answered with a button ------------------------------
+
+AMBIGUOUS = "Give Anil the same access as Rahul"
+
+
+def _pick_buttons(update: dict) -> list[dict]:
+    return [e for b in update["blocks"] if b["type"] == "actions" for e in b["elements"]]
+
+
+async def test_an_ambiguous_request_asks_which_one_in_the_status_message(door):
+    fake = FakeSlackClient()
+    slack = SlackDoor(door, client=fake, signing_secret=SIGNING_SECRET)
+    await slack.on_command(ack=Ack(door), command=_command(AMBIGUOUS))
+    [run] = await _runs(door)
+    assert run["status"] == "needs_input"
+    last = fake.called("chat.update")[-1]
+    assert "Which *Rahul* do you mean?" in _text(last)
+    assert [b["value"] for b in _pick_buttons(last)] == [f"{run['id']}|peer|E-0007", f"{run['id']}|peer|E-0415"]

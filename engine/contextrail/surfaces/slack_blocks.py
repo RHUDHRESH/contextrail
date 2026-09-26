@@ -180,8 +180,53 @@ def rejected_text(reason: str | None) -> str:
     return f"⛔ Not recorded: {esc(reason or 'the decision was rejected')}."
 
 
+# --- needs_input: ask, never guess (P1, X1) ----------------------------------------------------------------------
+
+EXAMPLE = "`/contextrail give Anil the same access as Rahul Mehta`"
+
+
+def pick_value(run_id: UUID, role: str, source_id: str) -> str:
+    return f"{run_id}|{role}|{source_id}"
+
+
+def _question(need: dict) -> str:
+    mention, reason = esc(need.get("mention")), need.get("reason")
+    if reason == "ambiguous":
+        return f"Which *{mention}* do you mean?"
+    if reason == "no_match":
+        return f"I couldn't find *{mention}*. Try again with their full name or employee ID."
+    if reason == "same_person":
+        return f"*{mention}* is the person this is for. Whose access should be copied?"
+    if reason == "unclear_request":
+        return f"What should be done, and for whom? For example: {EXAMPLE}"
+    return "Who is this for?" if need.get("role") == "subject" else "Whose access should be copied?"
+
+
+def _candidate_label(c: dict) -> str:
+    return f"{c['display_name']} · {c.get('team') or c.get('role') or c.get('employment_type')}"[:75]
+
+
+def needs_input_message(view: RunView) -> dict:
+    """The rail stopped rather than guess who someone is. One question per open need; a button per exact match.
+    Each button carries run|role|source_id, and the rail still looks the pick up by ID."""
+    body = [_section(f"{STATUS_LINE['needs_input']}\n“{esc(view.request_text)}”")]
+    for i, need in enumerate(view.needs):
+        body.append(_section(_question(need)))
+        candidates = need.get("candidates") or []
+        if candidates:
+            body.append({"type": "actions", "block_id": f"pick:{i}", "elements": [
+                {"type": "button", "action_id": f"pick_candidate:{j}", "text": {"type": "plain_text",
+                                                                                "text": _candidate_label(c)},
+                 "value": pick_value(view.run_id, need["role"], c["source_id"])}
+                for j, c in enumerate(candidates[:25])]})     # Slack allows 25 elements per actions block
+    body.append(_context(context_line(view)))
+    return {"text": f"I need one more detail: {view.request_text}", "blocks": body}
+
+
 def run_summary(view: RunView) -> dict:
     """When the rail pauses or ends: the whole RunView, every row with its lamp, refusals struck through (P4)."""
+    if view.status == "needs_input" and view.needs:
+        return needs_input_message(view)
     head = f"{STATUS_LINE.get(view.status, view.status)}\n“{esc(view.request_text)}”"
     who = f"*For:* {esc(view.subject)}" + (f" · same as {esc(view.peer)}" if view.peer else "") if view.subject else ""
     body = [_section(head + (f"\n{who}" if who else ""))]
