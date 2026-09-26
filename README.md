@@ -1,106 +1,119 @@
 # ContextRail
 
-**Ask for access in one sentence. ContextRail resolves the person, applies written policy, gets a named approval where needed, verifies permitted writes, and records an auditable receipt.**
+**A local demo that turns a plain-language access request into a Freshservice ticket, a policy-checked plan, an approval, and a verifiable record.**
 
-ContextRail is a business process automation system built for **The Great Agent Hackathon, Track 2: Platform Agent Skills & Knowledge**. Freshservice is its ticket base. A Python engine carries one sealed case file through every stage; the model can extract intent and explain evidence, while code resolves identity, applies policy, checks approvals, and verifies outcomes.
+## What it is
 
-![ContextRail eight-stage rail](public/brand/the-rail.svg)
+ContextRail is a governed request workflow for employee and contractor access. A person asks in one sentence; a manager can review pending work from a separate persona and approve through Slack. The demo keeps the request simple while showing the decision and next step.
 
-## How the rail works
+The local app has three personas: **Anil Kumar** (employee/requester), **Priya Raghunathan** (contractor/requester), and **Dana Osei** (manager/approver). They are fictional records used by the demo. Freshservice is the ticket system. The Python engine stores the workflow and its audit trail in a temporary local PostgreSQL database.
+
+### Business objective
+
+Replace scattered access requests and approvals with one traceable case: identify the exact person and target, apply written policy consistently, route exceptions to a named approver, create or update the help-desk ticket, and verify each permitted change before calling it complete.
+
+### In scope
+
+- Local browser demo with employee, contractor, and manager views.
+- Plain-language request intake and clarification when a person is ambiguous.
+- Freshservice ticket creation and read-back for the web request path.
+- Policy outcomes shown as allowed, awaiting approval, or refused.
+- Slack approval delivery and decision handling.
+- Fictional HRIS, entitlement, and access-system records for safe demonstrations.
+- English, Hindi, and Tamil voice-service language support in the voice code.
+
+### Out of scope
+
+- Production deployment to AWS. The requested demo runs locally.
+- Real account provisioning in GitHub, AWS, Slack, or other business systems. Those access connectors are fixtures in this demo.
+- Payments, Freshdesk, Freshworks Freddy AI or Agent Studio integration, and Databricks.
+- A completed phone conversation through Vobiz. Its current carrier route rejects the test destinations before they ring.
+
+## How a request moves
 
 ```mermaid
 flowchart LR
-  D[Discover] --> C[Compile]
-  C --> G[Govern]
-  G --> P[Plan]
-  P --> H[Handoff]
-  H --> A[Approve]
-  A --> E[Execute]
-  E --> V[Verify]
-  V --> R[Hash-chained receipt]
+  U[Employee or contractor] --> W[Local web app]
+  W --> E[Python ContextRail engine]
+  E --> L[Anthropic: extract intent or choose a read-only question tool]
+  L --> E
+  E --> I[Exact identity and HRIS lookup]
+  I --> P[Deterministic policy checks]
+  P -->|request record| F[Freshservice ticket]
+  P -->|approval needed| S[Slack approval card]
+  S -->|manager decision| E
+  P -->|fixture access action| X[Local connector fixture]
+  X -->|read-back| E
+  E --> A[PostgreSQL audit and run status]
+  A --> W
 ```
 
-Discover extracts intent and mentions; exact record lookup establishes the subject. Compile collects cited records and curated knowledge in a sealed case file. Govern returns **ALLOW**, **HOLD** for a named approver, or **REFUSE** with the deciding clause. Refused actions stay visible in the plan and cannot be approved into execution. Execute uses idempotency keys; Verify reads back connector state before calling an action complete. The PostgreSQL audit chain records the decisions and a printable receipt is available at `/r/{run_id}`. Writing that receipt back to a Freshservice ticket remains an integration task.
+Anthropic helps interpret the request and select bounded, read-only tools for questions. It does not decide policy, resolve a person to an account, approve a request, or grant access. Python code performs exact identity lookup and applies the policy rules. If model output does not pass validation, intent extraction can fall back to a deterministic parser; the run records which extractor it used. A verified fixture action is not a production access change.
 
-The engine in [`engine/`](engine/) is the decision and write authority: Python 3.12, FastAPI, PostgreSQL 16, Pydantic, a bounded Claude Haiku 4.5 router, deterministic policy rules, and LIVE/FIXTURE connectors. Its HTTP API, [MCP server](engine/contextrail/surfaces/mcp_server.py), and user doors call the same [door contract](engine/contextrail/surfaces/door.py). The [OKF bundle](knowledge/README.md) supplies curated knowledge; retrieved text is evidence, never an instruction or an identity source. The original [Next.js Command Center](src/app/) remains a separate Stage 1 fixture demonstration; its screens and metrics should not be read as evidence of a live tenant run.
+## Three demo scenarios
 
-## Five user doors
+The three scenarios below have live Freshservice tickets **#123, #124, and #126**, each read back from the tenant. A repeat Priya request created and read back ticket **#128**. Access-system actions remain fixture-only.
 
-| Door | Repository state | External setup still needed |
+1. **Same access as a colleague** — “Give Anil the same access as Rahul Mehta.” Live Freshservice ticket **#123** was created and read back. A live Anthropic T1 call extracted `access.same_as_peer`; the engine resolved Anil Kumar and Rahul Mehta by exact HRIS records. The initial policy plan verified 15 fixture actions, held two for Dana and Meera, and refused one. Dana then approved the payments-core read through Slack; the live audit now shows 16 verified, one still awaiting, and one refused. Nothing was provisioned in a real access system.
+
+2. **Contractor onboarding** — “Priya starts Monday, give her everything she needs.” Ticket **#124** initially showed one verified fixture action (`Slack #general`), one awaiting approval (read-only `northbeam/perception-sdk`), and one refusal (production credentials). Dana then approved the GitHub read through Slack; the latest audit shows two verified actions, none awaiting, and one refusal. The SOW runs through 2027-03-31 and excludes production credentials and customer data. A repeat ticket, **#128**, has zero new verified actions, one approval awaiting, and one refusal: it correctly omits `Slack #general` because ticket #124 already added it to Priya's holdings. An isolated probe of the updated intent extractor returns `llm:T1`, extracts the onboarding request, and resolves Priya Raghunathan (W-8841). The ticket-backed runs were made by a process that had not loaded this prompt update, so reload the engine before presenting this model behavior. No real GitHub or AWS permission changed.
+
+3. **Ambiguous colleague name** — “Give Anil the same access as Rahul.” Live Freshservice ticket **#126** was created and read back. ContextRail pauses and asks which Rahul: Rahul Mehta (payments) or Rahul Verma (risk analytics). Picking Rahul Mehta by candidate ID `E-0007` resumes the same run; it does not silently guess. The resumed plan first showed three verified fixture actions, two approvals waiting, and one refusal. Dana approved the payments-core read action; the run then showed four verified, one still awaiting, and one refused.
+
+## Integrations and current status
+
+`LIVE` means an external API call or decision was observed. `FIXTURE` means the demo reads or writes fictional local records. A configured credential alone does not make a connector live.
+
+| Service | Status in this demo | What it does here |
 | --- | --- | --- |
-| **Freshservice** | REST connector, signed webhook intake, and FDK ticket sidebar are implemented. The configured tenant passed live, read-only `GET /api/v2/agents/me` and ticket-list checks. | The same key receives `403` listing service catalog items. Resolve that permission, then create the catalog item and signed Workflow Automator delivery path; verify ticket creation, approvals, and receipt notes end to end. |
-| **Slack** | Slash command, status updates, approval cards, candidate picker, and Bolt handlers are implemented. | Install/configure the app and verify live Slack delivery. HTTP mode needs a signing secret; Socket Mode uses an app token. |
-| **Email** | Freshservice mailbox intake classification, SES outbound mail, signed approval links, receipt mail, and SNS bounce handling are implemented. `GET` on a decision link only displays confirmation; `POST` decides. | Configure the support mailbox, SES sender and recipient permissions, and public links. Freshservice requester acknowledgement remains open. |
-| **Microsoft Teams** | Identity fields and configuration are reserved. | Bot, Adaptive Cards, decision handler, and `ONE-WAY` Workflows fallback are planned; no working Teams door is claimed. |
-| **Voice** | Vobiz/Sarvam service code covers request, status, curated knowledge, signed DTMF approval, and optional human transfer flows. A ticket number is spoken only after a Freshservice read-back. | Attach and test a number, credentials, public Answer URL, and human transfer number. No real call or ticket write has been verified. |
+| **Freshworks / Freshservice** | **LIVE — ticket path verified** | The local web scenarios created and read back tickets **#123, #124, #126, and #128** in workspace 12; the tenant showed them open. This is Freshservice only. Service-catalog listing returned `403` for the current key, so catalog-based requests are not verified. |
+| **Freshworks / FDK** | **Code present; tenant install not verified** | A Freshservice ticket-sidebar app exists in `fdk-app/`. It is not part of the required local browser demo and has not been installed in the tenant. |
+| **Freshworks / Freshdesk, Freddy AI, Agent Studio** | **Not integrated** | These products are not used by the current demo. ContextRail has its own bearer-protected MCP server; that is not a Freshworks MCP service. |
+| **Anthropic Claude Haiku** | **LIVE — model call verified** | Direct Anthropic inference extracts intent and mentions and powers bounded read-only question handling. A same-text isolated probe after the prompt fix returned `llm:T1` and resolved Priya; the ticket-backed #124/#128 runs recorded heuristic fallback because their engine process had not loaded that update. Policy and access decisions stay in code. |
+| **Slack** | **LIVE — approval click verified** | Slack Socket Mode delivered approval cards for #123 and #124; Dana clicked both, and each audit records the Slack decision and verified fixture action. Slash-command ticket intake is implemented, but a live workspace command is not yet verified. |
+| **Sarvam** | **LIVE — speech components tested** | Speech-to-text and text-to-speech were exercised in English, Hindi, and Tamil. These tests were separate from a successful phone call. |
+| **Vobiz** | **BLOCKED BY CARRIER ROUTE** | The API accepted outbound attempts, then the carrier returned `UNALLOCATED_NUMBER` before either destination rang. There was no answered call or phone conversation. |
+| **GitHub, HRIS, entitlements, Slack evidence** | **FIXTURE** | Fictional identities, policy evidence, permissions, and read-back state drive the three access scenarios. They do not change real accounts. |
+| **AWS / Bedrock / SSM** | **Not used for this demo** | AWS is not hosting the app. AWS entitlements in the policy examples are fixture data; no AWS access was granted. |
+| **Dodo Payments** | **Planned for later** | The code is pinned to Dodo test mode. A checkout and usage-event flow has not been verified with a configured product/customer. |
+| **Databricks** | **Not integrated or used** | No Databricks connector, workspace, SQL endpoint, or data was involved. |
+| **Email / Amazon SES** | **Code present; live path unverified** | Signed decision links and SES delivery code exist, but no live end-to-end email approval was demonstrated. |
+| **Microsoft Teams** | **Planned** | A working Teams bot and approval path are not claimed. |
+| **ContextRail MCP server** | **Available in code** | The engine exposes its own Streamable HTTP MCP tools at `/mcp`. The browser persona demo calls the engine HTTP API directly. |
 
-Other agents can use the engine's bearer-protected Streamable HTTP MCP endpoint at `/mcp`; the five user doors above are distinct from that agent interface. The root [`skills/`](skills/) directory contains Agent Skills. The FDK sidebar lives in [`fdk-app/`](fdk-app/).
+## Run the local demo
 
-The separate Stage 1 fixture MCP server in [`mcp/server.ts`](mcp/server.ts) registers six rail tools: `search_enterprise_knowledge`, `compile_context_capsule`, `check_policy_and_permissions`, `generate_action_plan`, `handoff_to_specialist`, and `execute_and_verify`. Its additional `list_runs` tool is read-only. That fixture ships twelve policy rules and five skills for agents; for example, `POL-CTR-001` denies production credentials for contractors. These counts describe the fixture catalog, not live Freshservice actions.
+Use Python 3.12, [uv](https://docs.astral.sh/uv/), Node.js, and the ignored local `.env`. Keep the engine token on the server; never put it in browser code or commit `.env`.
 
-## Connector modes
-
-`GET /v1/connectors` reports the runtime mode; configuration alone is not proof that an external transaction succeeded. Each receipt and door should preserve its reported mode.
-
-| System | With local fixture data | With credentials/configuration |
-| --- | --- | --- |
-| Freshservice | `FIXTURE` ticket and requester state | `LIVE` REST path when `FS_DOMAIN` and `FS_API_KEY` are set. `agents/me` and ticket listing were verified; catalog listing returned `403`, and write flows remain unverified against the tenant. |
-| HRIS, entitlements, GitHub, Slack evidence corpus | `FIXTURE` | No live connector in this build. |
-| Slack door | No external delivery | Slack API delivery can run with its tokens; live app installation is not verified here. |
-| Email door | No SES delivery | SES outbound can run with an authorized sender; inbound still depends on the Freshservice mailbox. |
-| Teams door | Planned | Credentials alone do not create a bot or `ONE-WAY` fallback. |
-| Voice door | Local service flows | Vobiz/Sarvam credentials, a number, public call routing, and a configured transfer destination require end-to-end verification. |
-| Dodo Payments | `FIXTURE` | Any API path is pinned to **Dodo test mode**; no production payment claim. |
-| LLM | Heuristic intent extraction or recorded replay | Configured direct Anthropic tiers, then optional Bedrock; policy and identity still stay in code. |
-
-## Run locally
-
-Docker Compose is the repository's one-box setup. It starts PostgreSQL, the engine, and Caddy; the voice service is opt-in. Docker and TLS behavior must be checked on the target machine. From the repository root:
-
-```sh
-cp .env.example .env
-# Set ENGINE_TOKEN and DECISION_LINK_SECRET to distinct strong values in .env.
-# Leave optional integration credentials empty for fixture-backed work.
-docker compose build engine
-docker compose up -d postgres
-docker compose run --rm engine python -m contextrail.seed
-docker compose up -d engine caddy
-```
-
-The engine health endpoint is `/health` behind Caddy at `https://localhost/health` with the default `CR_HOST=localhost`; Caddy uses a local certificate authority there. For a public host, set `CR_HOST`, `PUBLIC_URL`, DNS and credentials before exposing the service. The default Compose network does not publish PostgreSQL to the host. [`Makefile`](Makefile) provides `up`, `down`, `logs`, `migrate`, `seed`, `reset`, `lint`, and `test` targets where GNU Make is available. `seed` applies migrations and resets fixture connector state; it does not erase the audit database.
-
-For an EC2 host, store the complete production `.env` as one SSM SecureString parameter and give the instance role `ssm:GetParameter` for that parameter and `kms:Decrypt` for its key. Then run `./scripts/ssm-env.sh /contextrail/prod/dotenv` on the host. The loader writes `.env` with mode `600` and leaves an existing file intact if retrieval or validation fails. Set `PUBLIC_URL=https://<public-host>` and `CR_HOST=<public-host>`; point DNS at the host and allow inbound 80/443 so Caddy can obtain TLS. Start the voice service explicitly with `docker compose --profile voice up -d --build`, verify `https://<public-host>/health` and `https://<public-host>/voice/health`, then configure Vobiz's Answer URL as `https://<public-host>/voice/answer`. A real phone call also requires an assigned Vobiz number and reachable callbacks. Do not infer call readiness from passing local tests.
-
-For engine tests, install Python 3.12 and [uv](https://docs.astral.sh/uv/), then run:
-
-```sh
-uv sync --project engine --frozen
-uv run --project engine pytest -q
-```
-
-The main web screen runs with `npm ci && npm run dev` at `http://localhost:3100` and uses sample data. To check a browser request against the actual Python engine on Windows, use two PowerShell terminals from the repository root (with a non-placeholder `ENGINE_TOKEN` in the ignored `.env`):
+Start the temporary engine and local PostgreSQL from the repository root:
 
 ```powershell
-# Terminal 1: temporary PostgreSQL, seeded identities, Python engine on 127.0.0.1:8000
 uv sync --project engine --group dev --frozen
-uv run --project engine python scripts/voice-pilot-local.py
+uv run --project engine python scripts/voice-pilot-local.py --freshservice --port 8000
 ```
 
+`--freshservice` enables the configured Freshservice tenant for ticket creation. Without it, Freshservice remains a fixture. The temporary database is deleted when the engine stops.
+
+In another PowerShell terminal, start the browser app:
+
 ```powershell
-# Terminal 2: local browser app on 127.0.0.1:3100
 $env:DEMO_ENGINE_URL = 'http://127.0.0.1:8000'
+$env:ENGINE_TOKEN = '<the local engine token>'
 npm ci
 npm run dev -- --hostname 127.0.0.1
 ```
 
-Open `http://127.0.0.1:3100/engine-demo` and submit the prefilled access request. The page shows the Python engine's actual run ID, policy outcome, verified actions, and LIVE/FIXTURE mode per connector. This pilot uses a temporary database and sample access systems; stopping Terminal 1 removes that state. The route is development-only, localhost-only, and uses the server-side `ENGINE_TOKEN`; never put the token in browser code or commit `.env`. The call preference on the main screen is still a fixture preference, not a phone call.
+Open [http://127.0.0.1:3100/engine-demo](http://127.0.0.1:3100/engine-demo). Switch personas, submit one request, review its outcome, then view the manager’s approvals. When running with `--freshservice`, a new web request can create a real ticket in the configured tenant.
 
-See [`.env.example`](.env.example) for variable names, including `FS_DOMAIN` and `FS_API_KEY` for Freshservice.
+The sample data and access connectors are fixtures. Stopping the engine removes its temporary run history; the Freshservice ticket remains in the tenant. No AWS deployment is required for this demo.
 
-## Integrations and project trail
+## Project map
 
-The build uses Freshworks/Freshservice, Anthropic Claude, AWS PostgreSQL hosting/Bedrock/SES, Slack, Microsoft Teams, Vobiz × Sarvam, and Dodo Payments test mode at different levels of completion described above. Presence in this stack does not imply a deployed tenant or a verified external account.
-
-Start with [`docs/CHECKLIST.md`](docs/CHECKLIST.md) for task IDs and acceptance state, then [`docs/DECISIONS.md`](docs/DECISIONS.md) for design choices and open questions. Git commits use `[T###]` headers plus `Task`, `Priority`, `Why`, `Verified`, and `Mode` trailers; a task's checklist box belongs in its implementation commit. [`docs/BUILDLOG.md`](docs/BUILDLOG.md) maps tasks to commits. Section branches are merged with merge commits so the task-level history stays readable; see [CLAUDE.md §24](CLAUDE.md) for the exact format. The older [Stage 1 submission](docs/SUBMISSION.md) and [storyboard](public/storyboard.html) document the prototype, not current live connector status.
+- [`engine/`](engine/) — Python API, identity and policy workflow, connectors, audit, and MCP server.
+- [`src/app/engine-demo/`](src/app/engine-demo/) — local three-persona demo UI.
+- [`fdk-app/`](fdk-app/) — Freshservice ticket-sidebar app source.
+- [`voice/`](voice/) — Vobiz and Sarvam voice service.
+- [`knowledge/`](knowledge/) — policies, system notes, and cited knowledge.
+- [`docs/CHECKLIST.md`](docs/CHECKLIST.md) and [`docs/DECISIONS.md`](docs/DECISIONS.md) — task status and design record.
 
 MIT licensed; see [LICENSE](LICENSE).
