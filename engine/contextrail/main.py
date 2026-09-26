@@ -9,9 +9,9 @@ from contextrail.errors import install_error_handlers
 from contextrail.logs import configure_logging
 from contextrail.policy.loader import load_rules
 from contextrail.settings import Settings, get_settings
+from contextrail.surfaces.decision_page import router as decision_page_router
 from contextrail.surfaces.rest import router as runs_router
 from contextrail.surfaces.slack_app import router as slack_router
-from contextrail.surfaces.decision_page import router as decision_page_router
 
 
 def create_app(settings: Settings | None = None, *, platform: Platform | None = None) -> FastAPI:
