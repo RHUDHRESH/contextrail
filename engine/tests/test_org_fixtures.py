@@ -204,3 +204,56 @@ def test_the_original_holdings_and_role_baselines_are_unchanged():
     original = ("payments-engineer", "risk-analyst", "contract-engineer", "engineering-manager")
     assert _digest({k: roles()[k] for k in original}) == (
         "eb67960710266c02e8a7a8a82d92e7814f5b79114c1a2bca8fe7ece38f8a853f")
+
+
+# --- GitHub (T075) -----------------------------------------------------------------------------------------
+
+def github():
+    return load("github")
+
+
+def _repo_access(pid: str) -> dict[str, str]:
+    """What the entitlement holdings say this person can do in GitHub: {repo: permission}."""
+    return {catalog()[e]["repo"]: catalog()[e]["permission"] for e in holdings()[pid]
+            if catalog()[e]["system"] == "github"}
+
+
+def test_about_fifteen_repositories_tagged_production_pci_or_internal():
+    repos = github()["repos"]
+    assert 14 <= len(repos) <= 16, len(repos)
+    tags = [t for r in repos.values() for t in r["tags"]]
+    assert set(tags) <= {"production", "pci", "internal", "pii"}
+    assert {"production", "pci", "internal"} <= set(tags)
+    assert all(name.startswith("northbeam/") for name in repos)
+
+
+def test_every_login_belongs_to_one_person():
+    logins = github()["logins"]
+    assert set(logins) <= set(by_id())
+    assert len(set(logins.values())) == len(logins)
+
+
+def test_collaborators_are_exactly_what_the_holdings_say_for_everyone():
+    logins, repos = github()["logins"], github()["repos"]
+    for p in people():
+        expected = _repo_access(p["source_id"])
+        login = logins.get(p["source_id"])
+        if login is None:
+            assert expected == {}, f"{p['source_id']} holds repo access but has no GitHub login"
+            continue
+        actual = {name: r["collaborators"][login] for name, r in repos.items() if login in r["collaborators"]}
+        assert actual == expected, p["source_id"]
+    known = set(logins.values())
+    assert {c for r in repos.values() for c in r["collaborators"]} <= known
+
+
+def test_contractors_only_read_the_repositories_in_their_sow():
+    for p in people():
+        if p["employment_type"] != "employee":
+            access = _repo_access(p["source_id"])
+            assert set(access) <= set(p["sow_repos"]) and set(access.values()) <= {"read"}, p["source_id"]
+
+
+def test_the_demo_subjects_can_be_granted_repository_access():
+    # Execute writes GitHub grants by login; a missing login would fail the demo runs' GitHub rows.
+    assert {"E-1042", "E-0641", "E-0698", "E-0462", "W-8841"} <= set(github()["logins"])
