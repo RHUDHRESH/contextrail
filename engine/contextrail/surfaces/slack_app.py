@@ -22,12 +22,14 @@ from slack_sdk.errors import SlackApiError
 from slack_sdk.web.async_client import AsyncWebClient
 
 from contextrail import repo
+from contextrail.logs import get_logger
 from contextrail.models import RunStatus, StageEvent
 from contextrail.surfaces import slack_blocks as blocks
 from contextrail.surfaces.door import Door
 
 EVENTS_PATH = "/slack/events"
 COMMAND = "/contextrail"
+log = get_logger("contextrail.slack")
 
 
 class SlackDoor:
@@ -80,6 +82,34 @@ class SlackDoor:
             dm = (await self.client.conversations_open(users=user))["channel"]["id"]
             resp = await self.client.chat_postMessage(channel=dm, **blocks.starting_message(text))
         return resp["channel"], resp["ts"]
+
+    # --- identity: person -> Slack user, for delivering cards ---------------------------------------------------
+
+    async def slack_user_for(self, person_id: str) -> str | None:
+        """The Slack user to DM for a person: identity_map.slack_user_id, else Slack's users.lookupByEmail on the
+        mapped email. An email match is written back (only where empty) so the Door can map that person's clicks
+        back to them. A Slack account already mapped to someone else is never linked, and never messaged."""
+        async with self.door.db.connection() as c:
+            row = await (await c.execute("select slack_user_id, email from identity_map where person_id = %s",
+                                         (person_id,))).fetchone()
+        if row is None or row["slack_user_id"] or not row["email"]:
+            return row["slack_user_id"] if row else None
+        try:
+            uid = (await self.client.users_lookupByEmail(email=row["email"]))["user"]["id"]
+        except SlackApiError as e:
+            if e.response.get("error") == "users_not_found":
+                return None
+            raise
+        async with self.door.db.transaction() as c:
+            owner = await (await c.execute("select person_id from identity_map where slack_user_id = %s",
+                                           (uid,))).fetchone()
+            if owner is None:
+                await c.execute("update identity_map set slack_user_id = %s where person_id = %s "
+                                "and slack_user_id is null", (uid, person_id))
+        if owner is not None and owner["person_id"] != person_id:
+            log.warning("slack_identity_conflict", person_id=person_id, owner=owner["person_id"])
+            return None
+        return uid
 
     # --- stage events -> the status message, edited in place ---------------------------------------------------
 

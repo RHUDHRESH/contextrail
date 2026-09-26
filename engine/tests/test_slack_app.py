@@ -210,8 +210,49 @@ async def test_status_goes_to_the_requesters_dm_when_the_bot_is_not_in_the_chann
     assert {u["channel"] for u in fake.called("chat.update")} == {dm}
 
 
-async def test_runs_from_other_doors_do_not_touch_slack(door):
+async def test_runs_from_other_doors_do_not_touch_slack_status(door):
     fake = FakeSlackClient()
     SlackDoor(door, client=fake, signing_secret=SIGNING_SECRET)
     view = await door.start_run(REQUEST, channel="teams", actor_external_id="00000000-0000-4000-8000-000000001042")
     assert view.status == "awaiting_approval" and fake.calls == []
+
+
+# --- T153: the identity map works for the Slack door, both ways ----------------------------------------------------
+
+async def _set(door, sql: str, *params) -> None:
+    async with door.db.connection() as c:
+        await c.execute(sql, params)
+
+
+async def test_seeded_demo_users_resolve_both_ways_without_calling_slack(door):
+    fake = FakeSlackClient()
+    slack = SlackDoor(door, client=fake, signing_secret=SIGNING_SECRET)
+    seeded = [(p["person_id"], p["slack_user_id"]) for p in load("identity")["people"] if p["slack_user_id"]]
+    assert len(seeded) >= 8 and {"p-dana", "p-meera", "p-anil"} <= {pid for pid, _ in seeded}
+    for pid, sid in seeded:
+        assert (await door.resolve_actor("slack", sid))["person_id"] == pid     # a click maps to the person
+        assert await slack.slack_user_for(pid) == sid                          # a card finds the person
+    assert fake.calls == []
+
+
+async def test_email_lookup_links_an_approver_who_has_no_slack_id_yet(door):
+    await _set(door, "update identity_map set slack_user_id = null where person_id = 'p-dana'")
+    fake = FakeSlackClient(emails={"dana.osei@northbeam.example": "U0NEWDANA"})
+    slack = SlackDoor(door, client=fake, signing_secret=SIGNING_SECRET)
+    assert await slack.slack_user_for("p-dana") == "U0NEWDANA"
+    assert await slack.slack_user_for("p-dana") == "U0NEWDANA"                 # linked: no second lookup
+    assert fake.called("users.lookupByEmail") == [{"email": "dana.osei@northbeam.example"}]
+    assert (await door.resolve_actor("slack", "U0NEWDANA"))["person_id"] == "p-dana"
+
+
+async def test_no_slack_account_or_one_owned_by_someone_else_is_never_linked(door):
+    await _set(door, "update identity_map set slack_user_id = null where person_id in ('p-meera', 'p-ravi')")
+    fake = FakeSlackClient(emails={"meera.iyer@northbeam.example": "U0DANA050"})   # Dana's Slack account
+    slack = SlackDoor(door, client=fake, signing_secret=SIGNING_SECRET)
+    assert await slack.slack_user_for("p-meera") is None                       # would DM the wrong person
+    assert await slack.slack_user_for("p-ravi") is None                        # users_not_found
+    assert await slack.slack_user_for("p-nobody") is None                      # not in the identity map
+    assert (await door.resolve_actor("slack", "U0DANA050"))["person_id"] == "p-dana"
+    async with door.db.connection() as c:
+        row = await (await c.execute("select slack_user_id from identity_map where person_id = 'p-meera'")).fetchone()
+    assert row["slack_user_id"] is None
