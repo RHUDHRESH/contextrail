@@ -60,6 +60,8 @@ class FixtureTenant:
             ("GET", re.compile(r"^/api/v2/solutions/articles/(\d+)$"), self._article),
             ("POST", re.compile(r"^/api/v2/service_catalog/items/(\d+)/place_request$"), self._place_request),
             ("GET", re.compile(r"^/api/v2/tickets/(\d+)/requested_items$"), self._requested_items),
+            ("GET", re.compile(r"^/api/v2/assets/(\d+)$"), self._asset),
+            ("PUT", re.compile(r"^/api/v2/assets/(\d+)$"), self._update_asset),
             ("GET", re.compile(r"^/api/v2/objects$"), self._objects),
             ("GET", re.compile(r"^/api/v2/objects/(\d+)$"), self._object),
             ("GET", re.compile(r"^/api/v2/objects/(\d+)/records$"), self._records),
@@ -130,6 +132,33 @@ class FixtureTenant:
         if tid not in doc["tickets"]:
             return _error(404, f"ticket {tid} not found")
         return _ok({"requested_items": doc["requested_items"].get(tid, [])})
+
+    async def _asset(self, request: httpx.Request, did: str) -> httpx.Response:
+        a = self._record("assets", did)
+        return _ok({"asset": a}) if a else _error(404, f"asset {did} not found")
+
+    async def _update_asset(self, request: httpx.Request, did: str) -> httpx.Response:
+        fields = json.loads(request.content or b"{}")
+        allowed = {"name", "description", "asset_tag", "impact", "usage_type", "user_id", "location_id",
+                   "department_id", "agent_id", "group_id", "assigned_on"}
+
+        def apply(doc: dict) -> httpx.Response:
+            asset = doc["assets"].get(did)
+            if asset is None:
+                return _error(404, f"asset {did} not found")
+            unknown = sorted(set(fields) - allowed)
+            if unknown:
+                return _error(400, f"Validation failed: unknown fields {unknown}", field=unknown[0])
+            if fields.get("user_id") is not None and str(fields["user_id"]) not in {
+                    *doc["requesters"], *doc["agents"]}:
+                return _error(400, "Validation failed: no such user", field="user_id")
+            asset.update(fields)
+            if "user_id" in fields:
+                asset["assigned_on"] = _now()
+            asset["updated_at"] = _now()
+            return _ok({"asset": asset})
+
+        return await self.state.mutate(apply)
 
     async def _objects(self, request: httpx.Request) -> httpx.Response:
         listed = [{k: o[k] for k in ("id", "title", "description")} for o in self.state.load()["custom_objects"].values()]

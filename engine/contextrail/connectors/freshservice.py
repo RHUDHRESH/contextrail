@@ -406,6 +406,18 @@ class FreshserviceClient:
         path = f"solutions/articles/{fs_id(article_id)}"
         return _unwrap(await self.get(path), "article", path)
 
+    # --- assets: laptop assignment for onboarding (T130) --------------------------------------------------------
+
+    async def get_asset(self, display_id: object) -> dict:
+        """GET /assets/{display_id} -> `asset`. `user_id` is who uses it ("Used By")."""
+        path = f"assets/{fs_id(display_id)}"
+        return _unwrap(await self.get(path), "asset", path)
+
+    async def update_asset(self, display_id: object, fields: dict) -> dict:
+        """PUT /assets/{display_id} with only the given fields -> `asset`."""
+        path = f"assets/{fs_id(display_id)}"
+        return _unwrap(await self.put(path, fields), "asset", path)
+
     # --- custom object records: the full receipt (T128) ---------------------------------------------------------
 
     async def list_custom_objects(self) -> list[dict]:
@@ -542,6 +554,19 @@ class FsReceipt(BaseModel):
     fallback_reason: str | None = None
 
 
+class FsAsset(BaseModel):
+    """An asset assignment: who the asset is with after the call, and whether a read-back showed it (P3)."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    display_id: int
+    user_id: int | None
+    replayed: bool   # it was already with this person; nothing was written
+    verified: bool   # a read after the write shows the asset with this person
+    mode: Mode
+    fallback_reason: str | None = None
+
+
 def _approval(ticket_id: int, a: dict, mode: Mode, why: str | None, replayed: bool = False) -> FsApproval:
     return FsApproval(ticket_id=ticket_id, approval_id=a["id"], approver_id=a["approver_id"],
                       status=approval_status(a).name.lower(), replayed=replayed, mode=mode, fallback_reason=why)
@@ -646,6 +671,26 @@ class FreshserviceConnector:
         out, mode, why = await self._call("add_private_note", lambda c: c.add_private_note(tid, body_html, marker))
         return FsNote(ticket_id=tid, note_id=out.note["id"], marker=marker, replayed=out.replayed,
                       confirmed=out.confirmed, mode=mode, fallback_reason=why)
+
+    async def get_asset(self, display_id: object) -> FsRead:
+        did = fs_id(display_id)
+        return await self._read("get_asset", lambda c: c.get_asset(did))
+
+    async def assign_asset(self, display_id: object, user_id: object) -> FsAsset:
+        """Give the asset to `user_id` ("Used By"): read first (already theirs -> replayed, nothing written), else
+        PUT, then read back. Setting the same user twice is harmless, but the read comes first all the same."""
+        did, uid = fs_id(display_id), fs_id(user_id)
+
+        async def op(c: FreshserviceClient) -> tuple[dict, bool]:
+            before = await c.get_asset(did)
+            if before.get("user_id") == uid:
+                return before, True
+            await c.update_asset(did, {"user_id": uid})
+            return await c.get_asset(did), False
+
+        (asset, replayed), mode, why = await self._call("assign_asset", op)
+        return FsAsset(display_id=did, user_id=asset.get("user_id"), replayed=replayed,
+                       verified=asset.get("user_id") == uid, mode=mode, fallback_reason=why)
 
     async def add_receipt_record(self, record: dict, key: str) -> FsReceipt:
         async def op(c: FreshserviceClient) -> tuple[int, RecordOutcome]:

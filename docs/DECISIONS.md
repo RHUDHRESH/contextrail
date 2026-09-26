@@ -19,6 +19,7 @@ Append-only. Each entry records what we chose, why, and what would change our mi
 | D-012 | — | Teams SDK: Microsoft 365 Agents SDK vs Bot Framework SDK | Open (T240) |
 | D-015 | 2026-09-26 | Freshservice approvals: the API cannot approve or reject, so decisions are mirrored as ticket notes | Accepted |
 | D-016 | — | Freshservice webhook: Workflow Automator cannot sign an HMAC; a signing hop or a weaker scheme | Open |
+| D-017 | 2026-09-26 | Freshservice assets: classic `/assets/{display_id}` built; newer (ITAM) tenants document no user assignment | Accepted |
 
 ---
 
@@ -179,3 +180,15 @@ engine call therefore cannot pass this check as it stands.
    lowers the bar the brief set, so it needs an explicit yes.
 **Not done.** Option 2 was not implemented unasked: it is a security trade-off for the lead or security to make.
 Until then, T135/T136 (Workflow Automator setup, human tasks) cannot pass end to end without option 1.
+
+## D-017 — Freshservice assets: two API generations
+**Found** (api.freshservice.com, read 2026-09-26). `GET/PUT /api/v2/assets/[display_id]` (the brief's §12 row) "is
+valid for Freshservice signups before March 31, 2026". Newer signups use the Freshservice ITAM API:
+`GET /api/v2/itam/assets/{id}` (no envelope) and `PUT /api/v2/itam/assets/` with `asset_id` in the body. Its
+update attributes (type, service_level, state, building, serial_no, ...) include **no user or "Used By"
+field**.
+**Decision.** T130 implements the classic endpoints (`user_id` = "Used By"), with read-first reconciliation and
+read-back verification, and the FIXTURE tenant. A trial tenant created now is likely an ITAM tenant. There, the
+classic call is expected to fail and the result is the labelled FIXTURE fallback, never a LIVE claim.
+**Revisit if.** The trial tenant turns out to be a classic tenant (then T130 is LIVE as built), or Freshservice
+documents user assignment on ITAM assets.
