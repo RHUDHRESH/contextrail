@@ -100,6 +100,37 @@ def _row_sections(rows: list[RowView]) -> list[dict]:
     return sections + ([_section(chunk)] if chunk else [])
 
 
+# --- the approval card (the approver's DM) -----------------------------------------------------------------------
+
+def decision_value(view: RunView, row: RowView) -> str:
+    """What both buttons carry back: the exact action and the exact parameters the approver saw (P0-5)."""
+    return f"{view.run_id}|{row.action_id}|{row.params_hash}"
+
+
+def _card_body(view: RunView, row: RowView) -> list[dict]:
+    lines = [f"*{esc(view.subject or 'Unknown subject')}* · requested: “{esc(view.request_text)}”",
+             f"*Action:* {esc(row.kind)} · {esc(row.label)}",
+             f"*Rule:* {esc(row.rule_id)} — {esc(row.clause)}",
+             f"*Approver:* {esc(row.approver_name or row.approver_id)}"]
+    if row.explanation:
+        lines.append(f"*Why:* {esc(row.explanation)}")
+    return [{"type": "header", "text": {"type": "plain_text", "text": f"Approval needed · {row.label}"[:150]}},
+            _section("\n".join(lines)),
+            _context(f"{context_line(view)} · this action: {row.connector_mode}")]
+
+
+def approval_card(view: RunView, row: RowView) -> dict:
+    """Header, who and what, the deciding rule and its clause verbatim, the named approver, the explanation, the
+    honest modes, and Approve / Refuse bound to (run_id, action_id, params_hash)."""
+    value = decision_value(view, row)
+    buttons = [{"type": "button", "action_id": "approve", "style": "primary", "value": value,
+                "text": {"type": "plain_text", "text": "Approve"}},
+               {"type": "button", "action_id": "refuse", "style": "danger", "value": value,
+                "text": {"type": "plain_text", "text": "Refuse"}}]
+    return {"text": f"Approval needed: {row.label} for {view.subject or 'a request'}",
+            "blocks": [*_card_body(view, row), {"type": "actions", "block_id": "decision", "elements": buttons}]}
+
+
 def run_summary(view: RunView) -> dict:
     """When the rail pauses or ends: the whole RunView, every row with its lamp, refusals struck through (P4)."""
     head = f"{STATUS_LINE.get(view.status, view.status)}\n“{esc(view.request_text)}”"
