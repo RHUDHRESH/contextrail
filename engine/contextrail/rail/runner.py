@@ -35,6 +35,7 @@ from contextrail.rail import approve, execute, finalize, govern, plan
 from contextrail.rail import compile as compile_
 from contextrail.rail import discover as discover_
 from contextrail.rail import verify as verify_
+from contextrail.rail.constraints import ConstraintExtractor, sow_document
 from contextrail.rail.events import EventBus
 from contextrail.rail.store import load_case, save_case
 
@@ -53,6 +54,7 @@ class RailDeps:
     backoff: Callable[[int], float] = execute.default_backoff
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep
     knowledge: compile_.KnowledgeSource | None = None  # the OKF bundle (section L); None = not configured
+    constraints: ConstraintExtractor = field(default_factory=ConstraintExtractor)  # no router = record-derived only
 
 
 class Runner:
@@ -140,17 +142,20 @@ class Runner:
         messages = await compile_.retrieve_messages(
             self.d.registry.get("slack_corpus"), compile_.search_terms(found.subject, found.peer, found.intent.intent))
         concepts = compile_.load_concepts(self.d.knowledge, found.subject, found.intent.intent, self.d.rules)
-        evidence, blockers = compile_.mark_stale(inputs.evidence + concepts.evidence + messages)
+        sow = sow_document(found.subject)
+        evidence, blockers = compile_.mark_stale(inputs.evidence + concepts.evidence + ([sow] if sow else [])
+                                                 + messages)
+        extracted = await self.d.constraints.extract(found.subject, sow)
         case = CaseFile(run_id=run_id, request_text=row["request_text"], intent=found.intent.intent,
                         subject=found.subject, peer=found.peer, evidence=evidence,
-                        constraints=compile_.subject_constraints(found.subject), open_blockers=blockers)
+                        constraints=extracted.constraints, open_blockers=blockers)
         async with self.d.db.transaction() as c:
             case = await save_case(c, case, stage=Stage.COMPILE)
             await self._audit(c, run_id, "stage.compile", {
                 "evidence": len(evidence), "untrusted": len(messages), "blockers": blockers,
                 "okf": {"configured": concepts.configured, "loaded": [e.uri for e in concepts.evidence],
                         "missing_sources": concepts.missing_sources},
-                "digest": case.digest, "ms": _ms(t0)})
+                "constraints": extracted.audit(), "digest": case.digest, "ms": _ms(t0)})
         await self._emit(run_id, Stage.COMPILE, RunStatus.RUNNING,
                          f"Case file sealed: {len(evidence)} pieces of evidence, {len(messages)} untrusted", case)
 
