@@ -12,6 +12,8 @@ from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 
 from contextrail.fixtures import load
+from contextrail.knowledge import query as knowledge_query
+from contextrail.knowledge.okf import Bundle
 from contextrail.models import Evidence, Subject
 from contextrail.policy.schema import Rule
 
@@ -25,6 +27,7 @@ class CompileInputs:
     catalog: dict[str, dict]
     role: dict
     evidence: list[Evidence] = field(default_factory=list)
+    blockers: list[str] = field(default_factory=list)   # missing policy text: a blocker, not an assumption (§8)
 
 
 def _record_evidence(record: dict, now: datetime) -> Evidence:
@@ -42,9 +45,28 @@ def _policy_evidence(rule: Rule, now: datetime) -> Evidence:
         excerpt=rule.clause_text, retrieved_at=now, trust="curated")
 
 
+def _missing_policy(rule: Rule) -> str:
+    return (f"Policy text missing: {rule.id} cites {rule.source.okf} {rule.source.clause}, but that page does not "
+            f"carry the rule's clause text. Restore the page before acting.")
+
+
+def _knowledge_evidence(knowledge: Bundle, rules: list[Rule], now: datetime) -> tuple[list[Evidence], list[str]]:
+    """T177: each rule's clause from its curated page (dated, so freshness can be judged) and the precedent pages
+    linked to the rules. A clause missing from its page keeps the rule-file text as evidence and opens a blocker."""
+    evidence, blockers = [], []
+    for r in rules:
+        ev = knowledge_query.rule_evidence(knowledge, r, now)
+        if ev is None:
+            ev = _policy_evidence(r, now)
+            blockers.append(_missing_policy(r))
+        evidence.append(ev)
+    return evidence + knowledge_query.precedent_evidence(knowledge, [r.id for r in rules], now), blockers
+
+
 async def gather_inputs(subject_record: dict, peer_record: dict | None, *, entitlements, rules: list[Rule],
-                        now: datetime | None = None) -> CompileInputs:
-    """T089: fetch records, holdings, catalogue, role and policy text concurrently."""
+                        now: datetime | None = None, knowledge: Bundle | None = None) -> CompileInputs:
+    """T089: fetch records, holdings, catalogue, role and policy text concurrently. With the OKF bundle (T177), the
+    policy text comes from the curated pages the rules cite."""
     now = now or datetime.now(UTC)
 
     async def holdings(record: dict | None) -> list[str]:
@@ -60,9 +82,14 @@ async def gather_inputs(subject_record: dict, peer_record: dict | None, *, entit
     evidence = [_record_evidence(subject_record, now)]
     if peer_record:
         evidence.append(_record_evidence(peer_record, now))
-    evidence += [_policy_evidence(r, now) for r in rules]
+    blockers: list[str] = []
+    if knowledge is None:
+        evidence += [_policy_evidence(r, now) for r in rules]
+    else:
+        policy, blockers = _knowledge_evidence(knowledge, rules, now)
+        evidence += policy
     return CompileInputs(subject_holdings=subject_h, peer_holdings=peer_h, catalog=catalog["catalog"], role=role,
-                         evidence=evidence)
+                         evidence=evidence, blockers=blockers)
 
 
 def subject_constraints(subject: Subject) -> list[str]:

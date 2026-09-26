@@ -220,17 +220,17 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 
 ## L. Knowledge layer (OKF + LLM wiki) (11)
 
-- [ ] T170 `P1` `knowledge/SCHEMA.md`: frontmatter conventions and ingest/lint rules.
-- [ ] T171 `P1` Root and per-folder `index.md`.
-- [ ] T172 `P1` `log.md` with ISO-dated entries.
-- [ ] T173 `P1` `policies/contractor-onboarding.md` + `policies/access-control-standard.md`, linked to their rules.
-- [ ] T174 `P1` `roles/payments-engineer.md` + `systems/github.md` + `systems/freshservice.md`.
-- [ ] T175 `P1` `precedents/github-readonly-contractors.md` + `runbooks/emergency-access.md`.
-- [ ] T176 `P1` OKF loader: frontmatter parser + link graph.
-- [ ] T177 `P1` Query by tags/rules for Compile and `door.answer_query`.
+- [x] T170 `P1` `knowledge/SCHEMA.md`: frontmatter conventions and ingest/lint rules.
+- [x] T171 `P1` Root and per-folder `index.md`.
+- [x] T172 `P1` `log.md` with ISO-dated entries.
+- [x] T173 `P1` `policies/contractor-onboarding.md` + `policies/access-control-standard.md`, linked to their rules.
+- [x] T174 `P1` `roles/payments-engineer.md` + `systems/github.md` + `systems/freshservice.md`.
+- [x] T175 `P1` `precedents/github-readonly-contractors.md` + `runbooks/emergency-access.md`.
+- [x] T176 `P1` OKF loader: frontmatter parser + link graph.
+- [x] T177 `P1` Query by tags/rules for Compile and `door.answer_query`.
 - [ ] T178 `P2` Ingest: Solutions article → `raw/` copy → drafted page update in `drafts/`.
-- [ ] T179 `P1` Lint: contradictions, stale pages, broken links, orphans; report without overwriting.
-- [ ] T180 `P2` Precedent updater after each run + draft Solutions article for publish-back.
+- [x] T179 `P1` Lint: contradictions, stale pages, broken links, orphans; report without overwriting.
+- [x] T180 `P2` Precedent updater after each run + draft Solutions article for publish-back.
 
 ## M. MCP server and Agent Skills (13)
 
