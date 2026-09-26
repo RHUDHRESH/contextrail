@@ -156,7 +156,7 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 - [ ] T115 `P0` Cost calculator per model; write every call to `llm_calls`.
 - [ ] T116 `P0` Per-run budget enforcement.
 - [ ] T117 `P0` Structured-output helper: pydantic model → tool schema → validated object.
-- [ ] T118 `P1` Prompt caching on the system prompt and policy text.
+- [x] T118 `P1` Prompt caching on the system prompt and policy text.
 - [ ] T119 `P0` Prompts `intent.md`, `explain_verdict.md`, `approval_card.md` (cites capsule fields only).
 - [ ] T120 `P1` Prompt `extract_constraints.md`.
 - [ ] T121 `P1` Prompts `team_brief.md`, `mismatch_explain.md`, `audit_answer.md` (receipts only, cites audit seq numbers).

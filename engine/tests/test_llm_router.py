@@ -29,6 +29,11 @@ def _message_json(text: str = "Hello") -> dict:
     return message(text, input_tokens=12, output_tokens=3).model_dump(mode="json")
 
 
+def _cached(system: str) -> list[dict]:
+    """How the router sends a system prompt (T118): one text block carrying the cache breakpoint."""
+    return [{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}]
+
+
 # --- T110: Tier 1 and Tier 2 direct clients ---------------------------------------------------------------
 
 def test_one_direct_client_per_configured_key():
@@ -53,8 +58,8 @@ async def test_first_tier_serves_haiku_and_is_reported():
     assert (r.tier, r.model, r.text, r.input_tokens, r.output_tokens) == (
         "T1", "claude-haiku-4-5-20251001", "Hello", 12, 3)
     assert (r.replay, r.label) == (False, "llm:T1")
-    assert t1.calls == [{"model": "claude-haiku-4-5-20251001", "system": "You are terse.", "messages": USER,
-                         "max_tokens": 50}]
+    assert t1.calls == [{"model": "claude-haiku-4-5-20251001", "system": _cached("You are terse."),
+                         "messages": USER, "max_tokens": 50}]
     assert t2.calls == []
 
 
@@ -114,8 +119,8 @@ async def test_real_direct_client_request_shape():
     (req,) = seen
     assert req.url.host == "api.anthropic.com" and req.url.path == "/v1/messages"
     assert req.headers["x-api-key"] == "test-key-a"
-    assert json.loads(req.content) == {"model": "claude-haiku-4-5-20251001", "system": "sys", "messages": USER,
-                                       "max_tokens": 40, "temperature": 0}
+    assert json.loads(req.content) == {"model": "claude-haiku-4-5-20251001", "system": _cached("sys"),
+                                       "messages": USER, "max_tokens": 40, "temperature": 0}
 
 
 def test_the_sdk_does_not_retry_behind_the_routers_back():

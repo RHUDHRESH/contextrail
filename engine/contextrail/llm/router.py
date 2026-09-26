@@ -117,8 +117,10 @@ class LLMResponse(BaseModel):
     replay: bool = False
     content: list[dict]
     stop_reason: str | None = None
-    input_tokens: int = 0
+    input_tokens: int = 0       # uncached input, as the API reports it
     output_tokens: int = 0
+    cache_write_tokens: int = 0  # usage.cache_creation_input_tokens
+    cache_read_tokens: int = 0   # usage.cache_read_input_tokens
     latency_ms: int = 0
 
     @property
@@ -164,8 +166,10 @@ class Router:
         self.clients = dict(clients)
 
     async def call(self, *, system: str, messages: list[MessageParam], max_tokens: int, model: str | None = None,
-                   tools: list[dict] | None = None, tool_choice: dict | None = None, thinking: dict | None = None,
-                   temperature: float | None = None) -> LLMResponse:
+                   policy_text: str | None = None, tools: list[dict] | None = None, tool_choice: dict | None = None,
+                   thinking: dict | None = None, temperature: float | None = None) -> LLMResponse:
+        """`system` is the stable prompt; `policy_text` (optional) is stable reference text such as policy clauses.
+        Both go in the cached prefix (T118). Anything that varies per call belongs in `messages`."""
         if model is not None:
             self.config.check_model(model)
         if max_tokens > self.config.max_tokens_cap:
@@ -174,8 +178,8 @@ class Router:
         if not chain:
             raise NoTierAvailable(f"no enabled tier can serve {self.config.model}")
         tier = chain[0]
-        request: dict[str, Any] = {"model": tier.model, "system": system, "messages": messages,
-                                   "max_tokens": max_tokens}
+        request: dict[str, Any] = {"model": tier.model, "system": system_blocks(system, policy_text),
+                                   "messages": messages, "max_tokens": max_tokens}
         optional = {"tools": tools, "tool_choice": tool_choice, "thinking": thinking}
         request.update({k: v for k, v in optional.items() if v is not None})
         if temperature is not None:
@@ -184,8 +188,21 @@ class Router:
             request["extra_body"] = {"temperature": temperature}
         t0 = time.perf_counter()
         msg = await asyncio.to_thread(self.clients[tier.tier].messages.create, **request)
+        u = msg.usage
         return LLMResponse(
             tier=tier.tier, model=request["model"], stop_reason=msg.stop_reason,
             content=[b.model_dump(mode="json", exclude_none=True) for b in msg.content],
-            input_tokens=msg.usage.input_tokens, output_tokens=msg.usage.output_tokens,
+            input_tokens=u.input_tokens, output_tokens=u.output_tokens,
+            cache_write_tokens=u.cache_creation_input_tokens or 0, cache_read_tokens=u.cache_read_input_tokens or 0,
             latency_ms=int((time.perf_counter() - t0) * 1000))
+
+
+def system_blocks(system: str, policy_text: str | None = None) -> list[dict]:
+    """The system prompt (then the policy text, when given) as text blocks, with one ephemeral cache breakpoint on
+    the last block (T118). Block-level, because the legacy Bedrock integration rejects top-level cache_control.
+    Haiku 4.5 caches only prefixes of 4096+ tokens; below that the request is simply uncached, at no premium."""
+    blocks = [{"type": "text", "text": system}]
+    if policy_text:
+        blocks.append({"type": "text", "text": policy_text})
+    blocks[-1] = {**blocks[-1], "cache_control": {"type": "ephemeral"}}
+    return blocks
