@@ -1,0 +1,13 @@
+# Tool configuration only; the service installs from requirements.txt (see Dockerfile).
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+asyncio_mode = "auto"
+
+[tool.ruff]
+line-length = 110
+target-version = "py312"
+
+[tool.ruff.lint.per-file-ignores]
+# Upstream's blind excepts (T194 copy) keep a live call alive through any provider error; removed as adapted.
+"agent.py" = ["BLE001"]

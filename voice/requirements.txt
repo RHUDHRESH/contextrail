@@ -1,0 +1,11 @@
+# Voice door runtime (Python 3.12: the audio path uses audioop, removed in 3.13).
+# Exactly what the service imports, pinned. Versions shared with engine/ use the engine's pins.
+fastapi==0.141.1
+uvicorn[standard]==0.54.0
+httpx==0.28.1
+pydantic==2.13.5
+python-dotenv==1.2.3
+# Vobiz posts form-encoded callbacks; Starlette's request.form() needs this (upstream never listed it)
+python-multipart==0.0.32
+websockets==17.1
+anthropic==1.8.0
