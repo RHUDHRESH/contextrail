@@ -258,7 +258,7 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 - [x] T199 `P1` Language config (`hi-IN` default; `en-IN`, `ta-IN`, `kn-IN`) with a speaker per language.
 - [x] T200 `P1` Caller ID → `identity_map.phone` (registered numbers only; unknown callers get policy Q&A only).
 - [x] T201 `P1` Request flow: listen → read the request back → start the run → speak the ticket number.
-- [ ] T202 `P1` Query flow: speak only verified receipt facts and curated OKF answers.
+- [x] T202 `P1` Query flow: speak only verified receipt facts and curated OKF answers.
 - [ ] T203 `P1` Approver flow: list pending items → spoken confirm → DTMF 1/2; high-risk items also need a Slack/Teams tap.
 - [ ] T204 `P1` Transfer-to-human fallback.
 - [ ] T205 `P1` 👤 Vobiz application: Answer URL → `https://<host>/voice/answer`; attach the number; record a backup call.

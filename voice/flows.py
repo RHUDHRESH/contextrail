@@ -58,3 +58,18 @@ async def _confirm_request(text: str, d: Dialogue, answer: str) -> list[str]:
     except EngineError:
         return [d.line("engine_down")]
     return [d.line("started").format(ref=spoken_ref(view.run_id)), *summary(d, view)]
+
+
+# --- status and policy questions: the engine's words only (T202) ---------------------------------------------
+
+async def query_flow(d: Dialogue, text: str) -> list[str]:
+    """Answered by the engine from receipts and curated OKF policy. The caller hears a fixed preface and the engine's
+    text as returned: not rephrased, not translated (a translation could change a fact), never a model's guess.
+    An unknown caller's question carries no identity (caller_phone is None)."""
+    try:
+        answer = await d.engine.answer_query(text, actor=d.caller_phone)
+    except EngineError:
+        return [d.line("engine_down")]
+    if not answer.text.strip():
+        return [d.line("no_answer")]
+    return [d.line("from_records"), answer.text]

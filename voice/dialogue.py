@@ -45,7 +45,8 @@ async def _conversation_flow(dialogue: Dialogue, text: str) -> list[str]:
 
 FLOW_NAMES = ("request", "status", "policy", "approve", "human")
 REGISTERED_ONLY = frozenset({"request", "status", "approve"})  # unknown callers: policy questions (and a person)
-DOOR_FLOWS: dict[str, Flow] = {"request": door_flows.request_flow}
+DOOR_FLOWS: dict[str, Flow] = {"request": door_flows.request_flow, "status": door_flows.query_flow,
+                               "policy": door_flows.query_flow}
 
 
 class Dialogue:

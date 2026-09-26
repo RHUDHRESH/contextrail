@@ -58,6 +58,8 @@ SUPPORTED: dict[str, Language] = {
         engine_down="अभी मैं कॉन्टेक्स्टरेल से जुड़ नहीं पा रहा हूँ। कृपया थोड़ी देर बाद फिर कोशिश करें।",
         st_running="जारी है", st_needs_input="और जानकारी का इंतज़ार", st_awaiting_approval="मंज़ूरी का इंतज़ार",
         st_partial="आंशिक रूप से पूरा", st_done="पूरा", st_failed="विफल",
+        from_records="कॉन्टेक्स्टरेल के रिकॉर्ड के अनुसार:",
+        no_answer="इसका कोई दर्ज जवाब कॉन्टेक्स्टरेल के पास नहीं है।",
     ),
     "en-IN": _lang(
         "en-IN", "English", "priya",
@@ -79,6 +81,8 @@ SUPPORTED: dict[str, Language] = {
         engine_down="I can't reach ContextRail right now. Please try again in a little while.",
         st_running="in progress", st_needs_input="waiting for more details", st_awaiting_approval="waiting for approval",
         st_partial="partly done", st_done="done", st_failed="failed",
+        from_records="Here is what ContextRail's records say:",
+        no_answer="ContextRail has no recorded answer to that.",
     ),
     "ta-IN": _lang(
         "ta-IN", "Tamil", "kavitha", ("tamil", "तमिल", "தமிழ்", "ತಮಿಳು"),
@@ -101,6 +105,8 @@ SUPPORTED: dict[str, Language] = {
         st_running="நடந்து கொண்டிருக்கிறது", st_needs_input="கூடுதல் விவரங்களுக்காகக் காத்திருக்கிறது",
         st_awaiting_approval="ஒப்புதலுக்காகக் காத்திருக்கிறது", st_partial="பகுதியாக முடிந்தது",
         st_done="முடிந்தது", st_failed="தோல்வியடைந்தது",
+        from_records="ContextRail பதிவுகளின்படி:",
+        no_answer="அதற்கு ContextRail-இடம் பதிவு செய்யப்பட்ட பதில் இல்லை.",
     ),
     "kn-IN": _lang(
         "kn-IN", "Kannada", "roopa", ("kannada", "कन्नड़", "कन्नड", "கன்னடம்", "ಕನ್ನಡ"),
@@ -122,6 +128,8 @@ SUPPORTED: dict[str, Language] = {
         st_running="ನಡೆಯುತ್ತಿದೆ", st_needs_input="ಹೆಚ್ಚಿನ ವಿವರಗಳಿಗಾಗಿ ಕಾಯುತ್ತಿದೆ",
         st_awaiting_approval="ಅನುಮೋದನೆಗಾಗಿ ಕಾಯುತ್ತಿದೆ", st_partial="ಭಾಗಶಃ ಮುಗಿದಿದೆ", st_done="ಮುಗಿದಿದೆ",
         st_failed="ವಿಫಲವಾಗಿದೆ",
+        from_records="ContextRail ದಾಖಲೆಗಳ ಪ್ರಕಾರ:",
+        no_answer="ಅದಕ್ಕೆ ContextRail ನಲ್ಲಿ ದಾಖಲಾದ ಉತ್ತರವಿಲ್ಲ.",
     ),
 }
 
