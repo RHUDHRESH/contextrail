@@ -1,6 +1,7 @@
 """FastAPI entry point: `uvicorn contextrail.main:app`."""
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from contextrail import __version__
 from contextrail.api import router as v1_router
@@ -29,6 +30,7 @@ def create_app(settings: Settings | None = None, *, platform: Platform | None = 
     app.state.rules = platform.rules
     app.state.registry = platform.registry
     install_error_handlers(app)
+    _install_cors(app, settings.cors_allowed_origins)
 
     @app.get("/health", tags=["ops"])
     async def health() -> dict:
@@ -37,6 +39,18 @@ def create_app(settings: Settings | None = None, *, platform: Platform | None = 
     app.include_router(v1_router)
     app.include_router(runs_router)
     return app
+
+
+def _install_cors(app: FastAPI, origins: list[str]) -> None:
+    """T035: browsers on the configured origins (the FDK app, the glass box) may call the API; nobody else may.
+    Added after the error handlers, so it is the outermost middleware and error answers carry the header too."""
+    if not origins:
+        return
+    if "*" in origins:
+        raise ValueError("CORS_ALLOWED_ORIGINS must list explicit origins; '*' would let any web page call the engine")
+    app.add_middleware(CORSMiddleware, allow_origins=origins, allow_methods=["GET", "POST"],
+                       allow_headers=["Authorization", "Content-Type", "Last-Event-ID", "X-Request-ID"],
+                       expose_headers=["X-Request-ID", "Location"])
 
 
 app = create_app()
