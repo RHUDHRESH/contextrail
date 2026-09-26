@@ -5,6 +5,7 @@ import { extractFacts, type Facts } from "./facts";
 import { resolveIntent } from "./intent";
 import { fetchAnchor, searchCorpus } from "./retrieval";
 import { evaluatePolicies, type GovernanceResult } from "./policy";
+import { listRuns } from "./store";
 import type { ContextCapsule, Decision, Evidence } from "./types";
 
 /* ------------------------------------------------------------------ *
@@ -20,7 +21,13 @@ export const REQUESTERS: Record<string, { id: string; name: string; role: string
 
 let seq = 24_080;
 export function nextRequestId(): string {
-  seq += 1;
+  // The web and MCP processes share a file store. A restarted process must advance
+  // past IDs already persisted there instead of replacing an older demo run.
+  const persisted = listRuns().reduce((max, run) => {
+    const match = /^REQ-(\d+)$/.exec(run.id);
+    return match ? Math.max(max, Number(match[1])) : max;
+  }, 24_080);
+  seq = Math.max(seq, persisted) + 1;
   return `REQ-${seq}`;
 }
 

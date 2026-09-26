@@ -3,6 +3,7 @@ import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { getRun, listRuns, resetStore, saveRun } from "./store";
+import { nextRequestId } from "./capsule";
 import type { Run } from "./types";
 
 /* ------------------------------------------------------------------ *
@@ -43,6 +44,11 @@ describe("store", () => {
   it("round-trips a run", () => {
     saveRun(stubRun("REQ-1"));
     expect(getRun("REQ-1")?.id).toBe("REQ-1");
+  });
+
+  it("allocates past persisted IDs after a server restart", () => {
+    saveRun(stubRun("REQ-999999"));
+    expect(Number(nextRequestId().slice(4))).toBeGreaterThan(999999);
   });
 
   it("sees a run written to the file by another process", () => {
