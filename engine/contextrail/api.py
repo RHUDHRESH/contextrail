@@ -11,6 +11,7 @@ from contextrail.surfaces.webhooks import MAX_BODY_BYTES, TOLERANCE_SECONDS
 from contextrail.surfaces.webhooks import router as webhooks_router
 
 router = APIRouter(prefix="/v1")
+well_known_router = APIRouter()
 
 
 @router.get("")
@@ -24,8 +25,7 @@ async def connectors(request: Request) -> dict:
     return request.app.state.registry.describe(request.app.state.settings)
 
 
-@router.get("/capabilities")
-async def capabilities(request: Request) -> dict:
+async def build_capability_manifest(request: Request) -> dict:
     """Describe only capabilities present in this app instance, without publishing credentials."""
     app = request.app
     settings = app.state.settings
@@ -62,6 +62,17 @@ async def capabilities(request: Request) -> dict:
         "policy_rules": sorted(rule.id for rule in app.state.rules),
         "limits": limits,
     }
+
+
+@router.get("/capabilities")
+async def capabilities(request: Request) -> dict:
+    return await build_capability_manifest(request)
+
+
+@well_known_router.get("/.well-known/agent.json")
+async def agent_card(request: Request) -> dict:
+    """The same runtime manifest for clients that discover agents at the well-known path."""
+    return await build_capability_manifest(request)
 
 
 router.include_router(webhooks_router)  # /v1/webhooks/freshservice (T132)

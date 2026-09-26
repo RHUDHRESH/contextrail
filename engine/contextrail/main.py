@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from contextrail import __version__
 from contextrail.api import router as v1_router
+from contextrail.api import well_known_router
 from contextrail.app_state import Platform, build_platform
 from contextrail.errors import install_error_handlers
 from contextrail.logs import configure_logging
@@ -44,6 +45,7 @@ def create_app(settings: Settings | None = None, *, platform: Platform | None = 
         return {"status": "ok", "version": __version__}
 
     app.include_router(v1_router)
+    app.include_router(well_known_router)
     app.include_router(runs_router)
     if settings.slack_configured:  # the Slack door is LIVE only with its credentials (D-004)
         app.include_router(slack_router)

@@ -14,9 +14,13 @@ def test_capabilities_report_built_connectors_and_registered_tools():
     settings = Settings(_env_file=None, engine_token="test-engine-token", fs_api_key="test-secret",
                         fs_domain="example.freshservice.com", worker_in_process=False)
     app = create_app(settings)
-    response = TestClient(app).get("/v1/capabilities")
+    client = TestClient(app)
+    response = client.get("/v1/capabilities")
+    agent_card = client.get("/.well-known/agent.json")
 
     assert response.status_code == 200
+    assert agent_card.status_code == 200
+    assert agent_card.json() == response.json()
     body = response.json()
     assert body["connectors"] == app.state.registry.describe(settings)["connectors"]
     assert {tool["name"] for tool in body["tools"]} == {
@@ -35,9 +39,11 @@ def test_capabilities_report_built_connectors_and_registered_tools():
 def test_unconfigured_doors_are_not_advertised_as_available():
     settings = Settings(_env_file=None, engine_token="change-me", worker_in_process=False)
     app = create_app(settings)
-    body = TestClient(app).get("/v1/capabilities").json()
+    client = TestClient(app)
+    body = client.get("/v1/capabilities").json()
 
     assert not engine_token_configured(settings)
+    assert client.get("/.well-known/agent.json").json() == body
     assert body["doors"] == []
     assert all(not tool["enabled"] for tool in body["tools"])
     assert all(connector["status"] == "built" for connector in body["connectors"])
