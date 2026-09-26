@@ -148,7 +148,7 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 ## H. LLM router and prompts (13)
 
 - [x] T109 `P0` Router config from env (tiers, model IDs, budgets).
-- [ ] T110 `P0` Tier 1 and Tier 2 `Anthropic` clients.
+- [x] T110 `P0` Tier 1 and Tier 2 `Anthropic` clients.
 - [ ] T111 `P0` Tier 3 `AnthropicBedrock` client (ap-south-1, global inference IDs).
 - [ ] T112 `P0` Tier 4 replay store: record and replay modes keyed by prompt hash; responses flagged `replay=true`.
 - [ ] T113 `P0` Failover classifier: 429, 529, 5xx, timeout, credit-exhausted (no failover on other 400s).
