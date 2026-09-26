@@ -55,6 +55,22 @@
     {"id": 9000000002, "display_id": 2, "name": "Software Request", "category_id": 9100000001, "deleted": false, "item_type": 1, "visibility": 2, "workspace_id": 2},
     {"id": 9000000041, "display_id": 41, "name": "Access request (ContextRail)", "category_id": 9100000002, "deleted": false, "item_type": 1, "visibility": 2, "workspace_id": 2}
   ],
+  "solution_articles": {
+    "50001234": {
+      "id": 50001234,
+      "title": "Contractor Onboarding Policy",
+      "description": "<h2>§1 Scope</h2><p>Applies to every contractor and vendor engaged by Northbeam.</p><h2>§4 Production access</h2><p>Contractors must never receive production credentials, production database access, or customer PII exports.</p>",
+      "article_type": 1,
+      "status": 2,
+      "approval_status": null,
+      "folder_id": 9200000001,
+      "category_id": 9300000001,
+      "tags": ["access", "contractors", "security"],
+      "keywords": ["contractor", "production"],
+      "created_at": "2026-09-01T09:00:00Z",
+      "updated_at": "2026-09-20T09:00:00Z"
+    }
+  },
   "approvals": {"4412": []},
   "conversations": {"4412": []}
 }

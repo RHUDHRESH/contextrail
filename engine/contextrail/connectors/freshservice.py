@@ -93,6 +93,14 @@ class ApprovalStatus(IntEnum):
     CANCELLED = 3
 
 
+ARTICLE_STATUSES = {1: "draft", 2: "published"}  # Solution Article attribute `status`
+
+
+def article_status(article: dict) -> str:
+    """'published' or 'draft'. Knowledge ingest treats only published articles as policy (CLAUDE.md §10)."""
+    return ARTICLE_STATUSES.get(article.get("status"), "unknown")
+
+
 def approval_status(approval: dict) -> ApprovalStatus:
     """The status of an approval record, read from `approval_status.id` (the display name may vary)."""
     return ApprovalStatus(int(approval["approval_status"]["id"]))
@@ -337,6 +345,13 @@ class FreshserviceClient:
         return await self.create_approval(ticket_id, who, approval_type=approval_type,
                                           email_content=email_content), False
 
+    # --- solution articles: the policy source for knowledge ingest (T129) --------------------------------------
+
+    async def get_solution_article(self, article_id: object) -> dict:
+        """GET /solutions/articles/{id} -> `article` (HTML `description`, `status` 1 draft / 2 published)."""
+        path = f"solutions/articles/{fs_id(article_id)}"
+        return _unwrap(await self.get(path), "article", path)
+
     # --- private notes: receipts and decision mirrors (T127) ---------------------------------------------------
 
     async def create_note(self, ticket_id: object, body_html: str, *, private: bool = True) -> dict:
@@ -479,6 +494,10 @@ class FreshserviceConnector:
     async def list_approvals(self, ticket_id: object) -> FsRead:
         tid = fs_id(ticket_id)
         return await self._read("list_approvals", lambda c: c.list_approvals(tid))
+
+    async def get_solution_article(self, article_id: object) -> FsRead:
+        aid = fs_id(article_id)
+        return await self._read("get_solution_article", lambda c: c.get_solution_article(aid))
 
     async def get_approval(self, ticket_id: object, approval_id: object) -> FsApproval:
         tid, aid = fs_id(ticket_id), fs_id(approval_id)

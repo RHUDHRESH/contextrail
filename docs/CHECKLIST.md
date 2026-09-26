@@ -170,7 +170,7 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 - [x] T126 `P0` POST approval on a ticket + read approval state (approvals list or activities).
 - [x] T127 `P0` POST private note (receipt).
 - [ ] T128 `P1` Receipts custom object in admin; POST receipt records.
-- [ ] T129 `P1` GET Solutions article (policy source for OKF ingest).
+- [x] T129 `P1` GET Solutions article (policy source for OKF ingest).
 - [ ] T130 `P2` GET/PUT asset (laptop assignment for onboarding).
 - [ ] T131 `P1` Catalog place_request (tickets for Slack/Teams/voice-originated requests).
 - [x] T132 `P0` `/v1/webhooks/freshservice` with HMAC signature check.

@@ -57,6 +57,7 @@ class FixtureTenant:
             ("GET", re.compile(r"^/api/v2/agents/(\d+)$"), self._agent),
             ("GET", re.compile(r"^/api/v2/agents$"), self._agents),
             ("GET", re.compile(r"^/api/v2/service_catalog/items$"), self._catalog),
+            ("GET", re.compile(r"^/api/v2/solutions/articles/(\d+)$"), self._article),
             ("GET", re.compile(r"^/api/v2/tickets/(\d+)/approvals$"), self._approvals),
             ("GET", re.compile(r"^/api/v2/tickets/(\d+)/approvals/(\d+)$"), self._approval),
             ("POST", re.compile(r"^/api/v2/tickets/(\d+)/approvals$"), self._create_approval),
@@ -101,6 +102,10 @@ class FixtureTenant:
 
     async def _catalog(self, request: httpx.Request) -> httpx.Response:
         return _page(request, self.state.load()["service_items"], "service_items")
+
+    async def _article(self, request: httpx.Request, aid: str) -> httpx.Response:
+        a = self._record("solution_articles", aid)
+        return _ok({"article": a}) if a else _error(404, f"solution article {aid} not found")
 
     async def _approvals(self, request: httpx.Request, tid: str) -> httpx.Response:
         doc = self.state.load()
