@@ -12,6 +12,7 @@ import hashlib
 import hmac
 import time
 
+from slack_sdk.web.async_base_client import AsyncBaseClient
 from slack_sdk.web.async_client import AsyncWebClient
 
 SIGNING_SECRET = "fake-signing-secret"
@@ -56,6 +57,16 @@ class FakeSlackClient(AsyncWebClient):
 
     def called(self, method: str) -> list[dict]:
         return [a for m, a in self.calls if m == method]
+
+
+def forbid_real_slack_calls(monkeypatch) -> None:
+    """Make any real Slack Web API client fail loudly. Bolt builds a fresh AsyncWebClient per request (since
+    slack_bolt 1.15), so a handler or middleware that used it instead of the door's client would reach slack.com."""
+
+    async def _no_network(self, *, http_verb, api_url, req_args):
+        raise AssertionError(f"real Slack API call attempted in a test: {http_verb} {api_url}")
+
+    monkeypatch.setattr(AsyncBaseClient, "_request", _no_network)
 
 
 def signed_headers(body: str, *, secret: str = SIGNING_SECRET, timestamp: int | None = None,

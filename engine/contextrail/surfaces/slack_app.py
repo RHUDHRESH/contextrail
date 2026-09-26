@@ -14,6 +14,7 @@ from __future__ import annotations
 from fastapi import APIRouter, FastAPI, HTTPException, Request
 from slack_bolt.adapter.fastapi.async_handler import AsyncSlackRequestHandler
 from slack_bolt.async_app import AsyncApp
+from slack_bolt.authorization import AuthorizeResult
 from slack_sdk.web.async_client import AsyncWebClient
 
 from contextrail.surfaces.door import Door
@@ -27,9 +28,19 @@ class SlackDoor:
     def __init__(self, door: Door, *, client: AsyncWebClient, signing_secret: str,
                  process_before_response: bool = False) -> None:
         self.door, self.client = door, client
+        auth: list[AuthorizeResult] = []
+
+        async def authorize() -> AuthorizeResult:
+            # Bolt builds a fresh AsyncWebClient for every request (slack_bolt >= 1.15). Authorizing here keeps
+            # auth.test on the door's own client, once per process, like single-workspace authorization would.
+            if not auth:
+                auth.append(AuthorizeResult.from_auth_test_response(bot_token=client.token,
+                                                                    auth_test_response=await client.auth_test()))
+            return auth[0]
+
         # process_before_response=False (default): Bolt returns the ack to Slack at once, within its 3 s deadline,
         # and the handler carries on. Tests set it True so a signed request finishes its work before the response.
-        self.app = AsyncApp(name="contextrail", client=client, signing_secret=signing_secret,
+        self.app = AsyncApp(name="contextrail", client=client, authorize=authorize, signing_secret=signing_secret,
                             process_before_response=process_before_response)
         self.http = AsyncSlackRequestHandler(self.app)
 

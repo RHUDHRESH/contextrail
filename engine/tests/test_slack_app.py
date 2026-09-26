@@ -8,7 +8,7 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 from slack_bolt.adapter.socket_mode.async_handler import AsyncSocketModeHandler
-from slack_fake import BOT_TOKEN, SIGNING_SECRET, FakeSlackClient, signed_headers
+from slack_fake import BOT_TOKEN, SIGNING_SECRET, FakeSlackClient, forbid_real_slack_calls, signed_headers
 
 from contextrail.fixtures import load
 from contextrail.main import create_app
@@ -27,6 +27,11 @@ def _settings(**kw) -> Settings:
 
 def _configured() -> Settings:
     return _settings(slack_bot_token=BOT_TOKEN, slack_signing_secret=SIGNING_SECRET)
+
+
+@pytest.fixture(autouse=True)
+def _no_network(monkeypatch):
+    forbid_real_slack_calls(monkeypatch)
 
 
 @pytest.fixture
@@ -83,6 +88,20 @@ async def test_socket_mode_handler_is_built_without_connecting(door):
         assert fake.calls == []
     finally:
         await handler.close_async()  # releases the aiohttp session; nothing was connected
+
+
+async def test_authorization_goes_through_the_door_client_once(no_slack_env, door):
+    """Bolt builds a fresh AsyncWebClient per request; auth.test must still use the door's client, and only once."""
+    app = create_app(_configured())
+    fake = FakeSlackClient()
+    app.state.slack = SlackDoor(door, client=fake, signing_secret=SIGNING_SECRET, process_before_response=True)
+    body = str(httpx.QueryParams({"command": "/not-ours", "text": "x", "user_id": "U0ANIL001", "team_id": "T0NORTH01",
+                                  "channel_id": "C0ACCESS1"}))
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://engine") as h:
+        statuses = [(await h.post("/slack/events", content=body, headers=signed_headers(body))).status_code
+                    for _ in range(2)]
+    assert statuses == [404, 404]              # authorized, then no listener for this command
+    assert [m for m, _ in fake.calls] == ["auth.test"]
 
 
 def test_socket_entrypoint_refuses_to_start_without_tokens(capsys):
