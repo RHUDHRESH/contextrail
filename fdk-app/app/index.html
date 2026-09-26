@@ -8,12 +8,14 @@
   <script async nomodule src="https://cdn.jsdelivr.net/npm/@freshworks/crayons@v4/dist/crayons/crayons.js"></script>
   <script src="{{{appclient}}}"></script>
   <link rel="stylesheet" href="styles/style.css" />
+  <script src="scripts/view.js" defer></script>
   <script src="scripts/app.js" defer></script>
 </head>
 <body>
   <main class="cr-sidebar">
     <header class="cr-header">
       <span class="cr-title">ContextRail</span>
+      <div id="cr-status" class="cr-status-slot"></div>
     </header>
     <section id="cr-body" class="cr-body" aria-live="polite">
       <fw-spinner size="small"></fw-spinner>
