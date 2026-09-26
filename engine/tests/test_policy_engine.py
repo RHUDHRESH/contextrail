@@ -1,7 +1,10 @@
 import inspect
+from datetime import UTC, datetime, timedelta
+
+import pytest
 
 from contextrail.models import Action, Subject
-from contextrail.policy.engine import DEFAULT_DENY_ID, PolicyEngine
+from contextrail.policy.engine import DEFAULT_DENY_ID, PolicyEngine, apply_decision
 from contextrail.policy.schema import Rule
 
 CL = "A clause long enough to be quoted verbatim: {}."
@@ -88,3 +91,33 @@ def test_disabled_rules_are_held_out_for_policy_studio():
 def test_engine_cannot_be_given_evidence():
     params = set(inspect.signature(PolicyEngine.decide).parameters)
     assert not params & {"evidence", "capsule", "messages", "documents", "llm", "model_output"}
+
+
+# --- time boxes: expires_after -> Decision.expires_after -> Action.expires_at (T068) --------------------------
+
+NOW = datetime(2026, 9, 26, 10, 0, tzinfo=UTC)
+
+
+def test_the_strictest_time_box_among_granting_rules_applies_even_if_another_rule_decides():
+    rules = [R("POL-TST-001", verdict="HOLD", approver="manager", expires_after="4h"),
+             R("POL-TST-002", verdict="HOLD", approver="security-oncall"),          # decides: more senior
+             R("POL-TST-003", expires_after="90m")]
+    d = PolicyEngine(rules).decide(grant(), ANIL)
+    assert (d.verdict.verdict, d.verdict.rule_id) == ("HOLD", "POL-TST-002")
+    assert d.expires_after == timedelta(minutes=90)
+
+
+def test_no_time_box_without_expires_after_or_on_a_refusal():
+    assert PolicyEngine([R("POL-TST-001")]).decide(grant(), ANIL).expires_after is None
+    refused = PolicyEngine([R("POL-TST-001", expires_after="4h"), R("POL-TST-002", verdict="REFUSE")])
+    assert refused.decide(grant(), ANIL).expires_after is None
+
+
+def test_apply_decision_stamps_the_verdict_and_the_expiry_once():
+    d = PolicyEngine([R("POL-TST-001", expires_after="2d")]).decide(grant(), ANIL)
+    a = apply_decision(grant(), d, now=NOW)
+    assert (a.verdict, a.rule_id, a.state, a.expires_at) == ("ALLOW", "POL-TST-001", "planned", NOW + timedelta(days=2))
+    plain = apply_decision(grant(), PolicyEngine([R("POL-TST-001")]).decide(grant(), ANIL), now=NOW)
+    assert plain.expires_at is None
+    with pytest.raises(ValueError, match="timezone-aware"):
+        apply_decision(grant(), d, now=datetime(2026, 9, 26, 10, 0))  # noqa: DTZ001 -- naive on purpose

@@ -30,6 +30,7 @@ changes it.
 from __future__ import annotations
 
 import re
+from datetime import timedelta
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -48,6 +49,13 @@ _DURATION_RE = re.compile(r"^\d+[mhd]$")
 
 def path_root(path: str) -> str:
     return path.split(".", 1)[0]
+
+
+def duration(text: str) -> timedelta:
+    """'30m' / '4h' / '90d' -> timedelta (the `expires_after` format)."""
+    if not _DURATION_RE.match(text):
+        raise ValueError(f"not a duration: {text!r}; expected like '30m', '4h', '90d'")
+    return timedelta(**{{"m": "minutes", "h": "hours", "d": "days"}[text[-1]]: int(text[:-1])})
 
 
 def check_path(path: str, where: str) -> str:

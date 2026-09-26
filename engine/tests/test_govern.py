@@ -1,11 +1,12 @@
 from collections import Counter
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
 from contextrail.connectors.fixture import FixtureEntitlements, FixtureHRIS
 from contextrail.connectors.state import FixtureState
 from contextrail.fixtures import subject_from_record
+from contextrail.models import Action
 from contextrail.policy.engine import PolicyEngine
 from contextrail.policy.loader import load_rules
 from contextrail.rail.compile import gather_inputs
@@ -80,3 +81,13 @@ async def test_priya_everything_is_allow_hold_refuse_with_terminal_ctr_001(world
     assert (gov["gh-perception-sdk-read"].verdict, gov["gh-perception-sdk-read"].approver) == ("HOLD", "p-dana")
     prod = gov["aws-perception-prod-credentials"]
     assert (prod.verdict, prod.rule_id, prod.terminal) == ("REFUSE", "POL-CTR-001", True)
+
+
+async def test_govern_stamps_the_rule_time_box_on_the_action(world, engine):
+    anil, _, inputs = await _inputs(world, "E-1042")
+    incident = Action.create("A01", "grant", {"origin": "incident", "incident_id": "INC-4412", "system": "datadog",
+                                              "permission": "viewer", "entitlement": "datadog-payments-viewer"})
+    baseline = Action.create("A02", "grant", {**inputs.catalog["jira-pay"], "entitlement": "jira-pay"})
+    gov = evaluate([incident, baseline], anil, engine, role=inputs.role, requested_by="p-anil", now=NOW)
+    assert (gov[0].action.rule_id, gov[0].action.expires_at) == ("POL-EMG-001", NOW + timedelta(hours=4))
+    assert (gov[1].action.verdict, gov[1].action.expires_at) == ("ALLOW", None)  # no rule time-boxes a baseline grant

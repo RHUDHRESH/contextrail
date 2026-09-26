@@ -78,7 +78,7 @@ class Runner:
             await repo.upsert_action(
                 conn, case.run_id, id=a.id, kind=a.kind, target=a.target, params_hash=a.params_hash,
                 verdict=a.verdict, rule_id=a.rule_id, clause=a.clause, approver=a.approver, state=a.state,
-                idempotency_key=idempotency_key(case.run_id, a.id, a.params_hash))
+                idempotency_key=idempotency_key(case.run_id, a.id, a.params_hash), expires_at=a.expires_at)
 
     # --- first pass: discover -> finalize --------------------------------------------------------------------
 
