@@ -18,7 +18,7 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any, Literal
 
-from anthropic import Anthropic
+from anthropic import Anthropic, AnthropicBedrock
 from anthropic.types import MessageParam
 from pydantic import BaseModel, ConfigDict
 
@@ -138,10 +138,19 @@ class LLMResponse(BaseModel):
 
 def build_clients(s: Settings, config: RouterConfig) -> dict[Tier, Any]:
     """One SDK client per enabled live tier. `max_retries=0`: the SDK would otherwise retry 429/5xx twice on its
-    own, and the router must own retries and failover (T113) so the tier it logs is the tier that answered."""
+    own, and the router must own retries and failover (T113) so the tier it logs is the tier that answered.
+
+    T3 (T111) signs with the AWS default credential chain (env, profile, instance role); no AWS secret is read
+    from Settings. The Bedrock model is the global Haiku 4.5 inference profile (TierConfig.model)."""
     keys = {"T1": s.anthropic_key_a, "T2": s.anthropic_key_b}
-    return {t.tier: Anthropic(api_key=keys[t.tier].get_secret_value(), max_retries=0, timeout=config.timeout_s)
-            for t in config.tiers if t.provider == "anthropic" and t.enabled}
+    clients: dict[Tier, Any] = {}
+    for t in config.chain():
+        if t.provider == "anthropic":
+            clients[t.tier] = Anthropic(api_key=keys[t.tier].get_secret_value(), max_retries=0,
+                                        timeout=config.timeout_s)
+        elif t.provider == "bedrock":
+            clients[t.tier] = AnthropicBedrock(aws_region=s.aws_region, max_retries=0, timeout=config.timeout_s)
+    return clients
 
 
 # --- the router ----------------------------------------------------------------------------------------------

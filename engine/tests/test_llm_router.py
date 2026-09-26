@@ -8,7 +8,14 @@ import httpx2
 import pytest
 from llm_fakes import FakeClient, api_error, config, message, settings
 
-from contextrail.llm.router import ModelNotAllowed, NoTierAvailable, Router, RouterConfig, build_clients
+from contextrail.llm.router import (
+    HAIKU_BEDROCK_ID,
+    ModelNotAllowed,
+    NoTierAvailable,
+    Router,
+    RouterConfig,
+    build_clients,
+)
 
 USER = [{"role": "user", "content": "hi"}]
 
@@ -130,3 +137,57 @@ def test_the_sdk_does_not_retry_behind_the_routers_back():
 def test_fake_errors_are_the_sdks_own_classes():
     assert type(api_error(429)) is anthropic.RateLimitError and type(api_error(529)) is anthropic.OverloadedError
     assert type(api_error(503)) is anthropic.InternalServerError and type(api_error(400)) is anthropic.BadRequestError
+
+
+# --- T111: Tier 3 Bedrock (Claude Haiku 4.5 global inference profile, ap-south-1) ---------------------------
+
+@pytest.fixture
+def fake_aws_env(monkeypatch):
+    """SigV4 needs credentials to sign; these are obviously fake and never leave the process (MockTransport)."""
+    monkeypatch.setenv("AWS_ACCESS_KEY_ID", "test-access-key")
+    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "test-secret-key")
+    monkeypatch.setenv("AWS_EC2_METADATA_DISABLED", "true")
+    for k in ("AWS_SESSION_TOKEN", "AWS_PROFILE", "AWS_BEARER_TOKEN_BEDROCK"):
+        monkeypatch.delenv(k, raising=False)
+
+
+def test_bedrock_client_is_anthropic_bedrock_in_ap_south_1():
+    s = settings(bedrock_enabled=True)
+    t3 = build_clients(s, RouterConfig.from_settings(s))["T3"]
+    assert type(t3) is anthropic.AnthropicBedrock
+    assert t3.aws_region == "ap-south-1" and str(t3.base_url) == "https://bedrock-runtime.ap-south-1.amazonaws.com"
+    assert (t3.max_retries, t3.timeout) == (0, 30)
+
+
+def test_bedrock_is_off_unless_enabled():
+    s = settings(anthropic_key_a="test-key-a")
+    assert "T3" not in build_clients(s, RouterConfig.from_settings(s))
+
+
+async def test_bedrock_tier_sends_the_global_haiku_profile():
+    t3 = FakeClient(message("ok"))
+    r = await Router(config(keys="", bedrock=True), {"T3": t3}).call(system="s", messages=USER, max_tokens=10)
+    assert (r.tier, r.model, r.label) == ("T3", HAIKU_BEDROCK_ID, "llm:T3")
+    assert t3.calls[0]["model"] == "global.anthropic.claude-haiku-4-5-20251001-v1:0"
+
+
+async def test_real_bedrock_client_signs_and_invokes_the_haiku_profile(fake_aws_env):
+    seen: list[httpx2.Request] = []
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        seen.append(request)
+        return httpx2.Response(200, json=_message_json("Namaste"))
+
+    s = settings(bedrock_enabled=True)
+    cfg = RouterConfig.from_settings(s)
+    t3 = _mocked(build_clients(s, cfg)["T3"], handler)
+    r = await Router(cfg, {"T3": t3}).call(system="sys", messages=USER, max_tokens=40, temperature=0)
+    assert (r.text, r.tier) == ("Namaste", "T3")
+    (req,) = seen
+    assert req.url.host == "bedrock-runtime.ap-south-1.amazonaws.com"
+    assert req.url.path == "/model/global.anthropic.claude-haiku-4-5-20251001-v1:0/invoke"
+    assert req.headers["authorization"].startswith("AWS4-HMAC-SHA256 Credential=test-access-key/")
+    assert "/ap-south-1/bedrock/aws4_request" in req.headers["authorization"]
+    body = json.loads(req.content)
+    assert "model" not in body and body["anthropic_version"].startswith("bedrock-")
+    assert (body["max_tokens"], body["temperature"]) == (40, 0)
