@@ -31,7 +31,7 @@ from contextrail.models import (
 )
 from contextrail.policy.engine import PolicyEngine
 from contextrail.policy.schema import Rule
-from contextrail.rail import approve, execute, finalize, govern, plan
+from contextrail.rail import approve, execute, finalize, govern, handoff, plan
 from contextrail.rail import compile as compile_
 from contextrail.rail import discover as discover_
 from contextrail.rail import verify as verify_
@@ -199,17 +199,27 @@ class Runner:
         try:
             async with self.d.db.connection() as c:
                 case = await load_case(c, run_id)
+            views = handoff.hand_over(case)  # each team's allow-listed view, by value, verified on receipt (T099)
+        except handoff.ViewMismatch as e:
+            return await self._halt(run_id, "handoff.view_mismatch",
+                                    {"team": e.team, "expected": e.expected, "actual": e.actual},
+                                    f"Halted: the {e.team} view did not match the sealed case file")
         except DigestMismatch as e:
-            async with self.d.db.transaction() as c:
-                await self._audit(c, run_id, "capsule.digest_mismatch", {"expected": e.expected, "actual": e.actual})
-                await self._status(c, run_id, RunStatus.FAILED)
-            await self._emit(run_id, Stage.HANDOFF, RunStatus.FAILED, "Halted: the case file was altered")
-            return None
+            return await self._halt(run_id, "capsule.digest_mismatch", {"expected": e.expected, "actual": e.actual},
+                                    "Halted: the case file was altered")
         async with self.d.db.transaction() as c:
             await repo.set_stage(c, run_id, stage=Stage.HANDOFF)
-            await self._audit(c, run_id, "stage.handoff", {"digest": case.digest, "verified": True})
-        await self._emit(run_id, Stage.HANDOFF, RunStatus.RUNNING, "Handoff: case file seal verified", case)
+            await self._audit(c, run_id, "stage.handoff", {
+                "digest": case.digest, "verified": True, "views": {t: v.view_digest for t, v in views.items()}})
+        await self._emit(run_id, Stage.HANDOFF, RunStatus.RUNNING,
+                         f"Handoff: case file seal verified; views for {', '.join(views)} verified", case)
         return case
+
+    async def _halt(self, run_id: UUID, event: str, payload: dict, message: str) -> None:
+        async with self.d.db.transaction() as c:
+            await self._audit(c, run_id, event, payload)
+            await self._status(c, run_id, RunStatus.FAILED)
+        await self._emit(run_id, Stage.HANDOFF, RunStatus.FAILED, message)
 
     # --- approve -> execute -> verify -> finalize (first pass and every resume) ------------------------------
 

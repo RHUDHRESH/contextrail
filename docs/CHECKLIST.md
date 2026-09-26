@@ -134,7 +134,7 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 - [x] T096 `P0` Govern: evaluate every candidate through the policy engine.
 - [x] T097 `P0` Plan: dependency ordering; add revoke actions for the old team.
 - [ ] T098 `P0` Plan: one-line explanations for HOLD and REFUSE (Sonnet).
-- [ ] T099 `P1` Handoff: per-team views (IT, Security) with digest verification.
+- [x] T099 `P1` Handoff: per-team views (IT, Security) with digest verification.
 - [x] T100 `P0` Approve: create approval records; dispatch to Freshservice and the approver's doors.
 - [ ] T101 `P1` Approve: deadline and chase jobs (chase in the approver's preferred door).
 - [x] T102 `P0` Approve: resume the run when a decision arrives from any door.
