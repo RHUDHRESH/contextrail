@@ -14,6 +14,7 @@ from llm_fakes import (
     api_error,
     config,
     connection_error,
+    make_router,
     message,
     timeout_error,
 )
@@ -24,7 +25,7 @@ USER = [{"role": "user", "content": "hi"}]
 
 
 def _router(clients: dict, sleeps: Sleeps | None = None, **cfg) -> Router:
-    return Router(config(**{"keys": "AB", "bedrock": True, **cfg}), clients, sleep=sleeps or Sleeps())
+    return make_router(config(**{"keys": "AB", "bedrock": True, **cfg}), clients, sleep=sleeps or Sleeps())
 
 
 async def _call(router: Router):
@@ -128,7 +129,7 @@ async def test_every_tier_failing_is_no_tier_available():
 
 
 async def test_live_failures_fall_through_to_replay(tmp_path):
-    recorder = Router(config(keys="A", replay="record", llm_replay_dir=str(tmp_path)),
+    recorder = make_router(config(keys="A", replay="record", llm_replay_dir=str(tmp_path)),
                       {"T1": FakeClient(message("recorded"))})
     await _call(recorder)
     r = await _call(_router({"T1": FakeClient(api_error(529)), "T2": FakeClient(timeout_error()),

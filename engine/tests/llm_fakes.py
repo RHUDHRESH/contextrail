@@ -11,7 +11,7 @@ import anthropic
 import httpx2
 from anthropic.types import Message
 
-from contextrail.llm.router import RouterConfig
+from contextrail.llm.router import Router, RouterConfig
 from contextrail.settings import Settings
 
 _REQ = httpx2.Request("POST", "https://api.anthropic.com/v1/messages")
@@ -32,7 +32,7 @@ def config(*, keys: str = "AB", bedrock: bool = False, replay: str = "off", **kw
 
 def message(text: str | None = "ok", *, tool: str | None = None, tool_input: dict | None = None,
             input_tokens: int = 100, output_tokens: int = 20, model: str = "claude-haiku-4-5-20251001",
-            **usage) -> Message:
+            stop_reason: str | None = None, **usage) -> Message:
     content: list[dict] = []
     if text is not None:
         content.append({"type": "text", "text": text})
@@ -40,7 +40,7 @@ def message(text: str | None = "ok", *, tool: str | None = None, tool_input: dic
         content.append({"type": "tool_use", "id": "toolu_fake", "name": tool, "input": tool_input or {}})
     return Message.model_validate({
         "id": "msg_fake", "type": "message", "role": "assistant", "model": model, "content": content,
-        "stop_reason": "tool_use" if tool else "end_turn", "stop_sequence": None,
+        "stop_reason": stop_reason or ("tool_use" if tool else "end_turn"), "stop_sequence": None,
         "usage": {"input_tokens": input_tokens, "output_tokens": output_tokens, **usage}})
 
 
@@ -76,6 +76,22 @@ class Sleeps:
 
     async def __call__(self, seconds: float) -> None:
         self.waits.append(seconds)
+
+
+class MemoryLedger:
+    """The llm_calls ledger in memory, for router tests that do not need Postgres (tests/test_llm_ledger.py covers
+    the real table)."""
+
+    def __init__(self) -> None:
+        self.rows: list[dict] = []
+
+    async def record(self, **row) -> None:
+        self.rows.append(row)
+
+
+def make_router(cfg: RouterConfig, clients: dict, **kw) -> Router:
+    """A Router whose every call lands in an in-memory ledger (pass ledger=... to inspect it)."""
+    return Router(cfg, clients, ledger=kw.pop("ledger", None) or MemoryLedger(), **kw)
 
 
 class FakeClient:
