@@ -224,7 +224,7 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 - [ ] T171 `P1` Root and per-folder `index.md`.
 - [ ] T172 `P1` `log.md` with ISO-dated entries.
 - [ ] T173 `P1` `policies/contractor-onboarding.md` + `policies/access-control-standard.md`, linked to their rules.
-- [ ] T174 `P1` `roles/payments-engineer.md` + `systems/github.md` + `systems/freshservice.md`.
+- [x] T174 `P1` `roles/payments-engineer.md` + `systems/github.md` + `systems/freshservice.md`.
 - [ ] T175 `P1` `precedents/github-readonly-contractors.md` + `runbooks/emergency-access.md`.
 - [x] T176 `P1` OKF loader: frontmatter parser + link graph.
 - [ ] T177 `P1` Query by tags/rules for Compile and `door.answer_query`.
