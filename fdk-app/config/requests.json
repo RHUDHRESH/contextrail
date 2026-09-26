@@ -1,0 +1,46 @@
+{
+  "getRunByTicket": {
+    "schema": {
+      "protocol": "https",
+      "method": "GET",
+      "host": "<%= iparam.engine_url %>",
+      "path": "/v1/runs/by-ticket/<%= context.ticket_id %>",
+      "headers": {
+        "Authorization": "Bearer <%= iparam.engine_token %>",
+        "Content-Type": "application/json"
+      }
+    },
+    "options": {
+      "maxAttempts": 2,
+      "retryDelay": 500
+    }
+  },
+  "startRun": {
+    "schema": {
+      "protocol": "https",
+      "method": "POST",
+      "host": "<%= iparam.engine_url %>",
+      "path": "/v1/runs",
+      "headers": {
+        "Authorization": "Bearer <%= iparam.engine_token %>",
+        "Content-Type": "application/json"
+      }
+    }
+  },
+  "getReceipt": {
+    "schema": {
+      "protocol": "https",
+      "method": "GET",
+      "host": "<%= iparam.engine_url %>",
+      "path": "/v1/runs/<%= context.run_id %>/receipt",
+      "headers": {
+        "Authorization": "Bearer <%= iparam.engine_token %>",
+        "Content-Type": "application/json"
+      }
+    },
+    "options": {
+      "maxAttempts": 2,
+      "retryDelay": 500
+    }
+  }
+}
