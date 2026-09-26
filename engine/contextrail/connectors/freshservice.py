@@ -421,8 +421,8 @@ class FreshserviceConnector:
 
     def __init__(self, settings: Settings | None = None, *, state: FixtureState | None = None,
                  transport: httpx.AsyncBaseTransport | None = None, limiter: TokenBucket | None = None) -> None:
-        self.fixture = FreshserviceClient(FIXTURE_DOMAIN, "fixture",
-                                          transport=FixtureTenant(state or FixtureState("freshservice")).transport)
+        self.fixture_state = state or FixtureState("freshservice")
+        self.fixture = FreshserviceClient(FIXTURE_DOMAIN, "fixture", transport=FixtureTenant(self.fixture_state).transport)
         self.live: FreshserviceClient | None = None
         if settings is not None and settings.freshservice_configured:
             self.live = FreshserviceClient(settings.fs_domain, settings.fs_api_key.get_secret_value(),
