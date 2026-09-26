@@ -313,13 +313,12 @@ export function RunConsole({ initialRun, autoStart }: { initialRun?: Run; autoSt
         </div>
 
         {/* impact strip */}
-        <StatStrip className="mt-3 grid-cols-2 sm:grid-cols-3 lg:grid-cols-6">
+        <StatStrip className="mt-3 grid-cols-2 sm:grid-cols-3 lg:grid-cols-5">
           <Stat label="systems touched" value={m?.sources_touched ?? new Set(state.evidence.map((e) => e.system)).size} hint="evidence sources" />
           <Stat label="evidence" value={state.evidence.length} hint="cited sources" />
           <Stat label="actions" value={`${completed}/${state.plan?.actions.length ?? 0}`} hint="executed / planned" />
           <Stat label="blocked by policy" value={blocked} tone={blocked ? "stop" : "text"} hint="violations prevented" />
           <Stat label="handoffs" value={state.handoffs.length} tone="rail" hint="context preserved" />
-          <Stat label="time saved" value={m?.minutes_saved ?? state.plan?.estimated_minutes_saved ?? 0} unit="min" hint="vs manual path" />
         </StatStrip>
       </header>
 

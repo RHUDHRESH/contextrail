@@ -13,7 +13,6 @@ export const dynamic = "force-dynamic";
 const CONNECTED = ["notion", "gdocs", "slack", "freshservice", "crm", "github", "linear", "hris"] as const;
 
 export default function CommandCenter() {
-  const freshserviceConfigured = Boolean(process.env.FRESHSERVICE_DOMAIN && process.env.FRESHSERVICE_API_KEY);
   const runs = listRuns();
   const pending = runs.flatMap((r) => r.approvals.filter((a) => a.state === "pending").map((a) => ({ a, r })));
 
@@ -22,10 +21,9 @@ export default function CommandCenter() {
       actions: acc.actions + r.metrics.actions_total,
       done: acc.done + r.metrics.actions_completed,
       blocked: acc.blocked + r.metrics.policy_violations_prevented,
-      minutes: acc.minutes + r.metrics.minutes_saved,
       handoffs: acc.handoffs + r.metrics.handoffs,
     }),
-    { actions: 0, done: 0, blocked: 0, minutes: 0, handoffs: 0 },
+    { actions: 0, done: 0, blocked: 0, handoffs: 0 },
   );
 
   const rate = totals.actions ? Math.round((totals.done / totals.actions) * 100) : 0;
@@ -54,12 +52,11 @@ export default function CommandCenter() {
       </header>
 
       {/* ── impact ── */}
-      <StatStrip className="mt-6 grid-cols-2 sm:grid-cols-3 lg:grid-cols-5">
+      <StatStrip className="mt-6 grid-cols-2 lg:grid-cols-4">
         <Stat label="workflows run" value={runs.length} hint="this tenant" />
         <Stat label="completion rate" value={`${rate}%`} hint={`${totals.done}/${totals.actions} actions`} />
         <Stat label="violations prevented" value={totals.blocked} tone={totals.blocked ? "stop" : "text"} hint="refused with citation" />
         <Stat label="context handoffs" value={totals.handoffs} tone="rail" hint="zero re-derivation" />
-        <Stat label="time saved" value={totals.minutes} unit="min" hint="vs manual path" wideOnMobile />
       </StatStrip>
 
       <div className="mt-7 grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
@@ -175,15 +172,13 @@ export default function CommandCenter() {
           </section>
 
           <section>
-            <SectionHead title="Source adapters" note={freshserviceConfigured ? "1 configured · 7 fixtures" : "8 fixtures"} />
+            <SectionHead title="Source adapters" note="8 fixtures" />
             <div className="panel mt-3 divide-y divide-line">
               {CONNECTED.map((s) => (
                 <div key={s} className="flex items-center gap-2.5 px-3 py-2">
                   <span className="size-1.5 rounded-full" style={{ background: SYSTEM_COLOR[s] }} />
                   <span className="flex-1 text-[12px] text-text">{SYSTEM_LABEL[s]}</span>
-                  <span className={`font-mono text-[9.5px] uppercase tracking-[0.1em] ${s === "freshservice" && freshserviceConfigured ? "text-caution" : "text-dim"}`}>
-                    {s === "freshservice" && freshserviceConfigured ? "configured" : "fixture"}
-                  </span>
+                  <span className="font-mono text-[9.5px] uppercase tracking-[0.1em] text-dim">fixture</span>
                 </div>
               ))}
             </div>
