@@ -127,6 +127,7 @@ class Platform:
                 self.slack = SlackDoor(
                     self.door, client=AsyncWebClient(token=self.settings.slack_bot_token.get_secret_value()),
                     signing_secret=self.settings.slack_signing_secret.get_secret_value() or secrets.token_urlsafe(32))
+                self.slack.platform = self
             if worker:
                 load_handlers()
                 self.worker = Worker(self.db, self)

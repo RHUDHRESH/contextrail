@@ -35,6 +35,7 @@ async def _serve(settings: Settings) -> None:
     signing_secret = settings.slack_signing_secret.get_secret_value() or secrets.token_urlsafe(32)
     slack = SlackDoor(platform.door, client=AsyncWebClient(token=settings.slack_bot_token.get_secret_value()),
                       signing_secret=signing_secret)
+    slack.platform = platform
     platform.slack = slack
     handler = build_handler(slack, app_token=settings.slack_app_token.get_secret_value())
     async with platform.serving(worker=True):

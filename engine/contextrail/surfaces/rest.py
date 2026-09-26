@@ -30,13 +30,12 @@ from fastapi.sse import EventSourceResponse, ServerSentEvent
 from pydantic import BaseModel, ConfigDict, Field
 
 from contextrail import repo
-from contextrail.connectors.base import ConnectorError, UnknownOutcome
-from contextrail.connectors.freshservice import ACCESS_REQUEST_TEXT_FIELD, FreshserviceHTTPError, fs_id
-from contextrail.intake import TICKET_CHANNELS, advisory_lock, find_ticket_run, run_lock, ticket_lock
+from contextrail.intake import TICKET_CHANNELS, find_ticket_run, run_lock, ticket_lock
 from contextrail.metrics import Metrics, collect
 from contextrail.surfaces.door import Answer, Channel, DecisionResult
 from contextrail.surfaces.presenter import RunView
 from contextrail.surfaces.sse import stage_events
+from contextrail.surfaces.ticket_requests import VoiceRequestResult, VoiceTicket, start_ticket_request
 
 _PLACEHOLDER_TOKEN = "change-me"
 _bearer = HTTPBearer(auto_error=False)
@@ -130,17 +129,6 @@ class WebRequest(BaseModel):
     request_text: str = Field(min_length=1, max_length=1000)
     actor_external_id: str = Field(pattern=r"^p-[a-z0-9-]{1,60}$")
     source_ref: str = Field(min_length=1, max_length=128)  # client-generated UUID, reused for safe retries
-
-
-class VoiceTicket(BaseModel):
-    status: Literal["attempted", "verified", "unverified", "unknown", "blocked"]
-    ticket_id: int | None = None
-    mode: Literal["LIVE", "FIXTURE"]
-
-
-class VoiceRequestResult(BaseModel):
-    run: RunView
-    ticket: VoiceTicket
 
 
 def _platform(request: Request):
@@ -256,91 +244,17 @@ async def start_voice_request(body: VoiceRequest, request: Request) -> VoiceRequ
     Freshservice has no idempotency key for place_request. Persist the attempt *before* that POST. A crash or an
     uncertain response therefore requires reconciliation; it can never silently create a duplicate ticket.
     """
-    return await _start_ticket_request(body, request, channel="voice", source="voice")
+    return await start_ticket_request(_platform(request), request_text=body.request_text,
+                                      actor_external_id=body.actor_external_id, source_ref=body.source_ref,
+                                      channel="voice", source="voice")
 
 
 @router.post("/web/requests", response_model=VoiceRequestResult)
 async def start_web_request(body: WebRequest, request: Request) -> VoiceRequestResult:
     """Start a persona-mapped demo request and create/read back its real Freshservice ticket."""
-    return await _start_ticket_request(body, request, channel="mcp", source="mcp", ticket_tag="web")
-
-
-async def _start_ticket_request(body: VoiceRequest | WebRequest, request: Request, *, channel: str,
-                                source: str, ticket_tag: str | None = None) -> VoiceRequestResult:
-    p = _platform(request)
-    actor = await p.door.resolve_actor(channel, body.actor_external_id)
-    if actor is None or not actor.get("email"):
-        raise HTTPException(403, "a registered demo persona with an email is required")
-    async with advisory_lock(p.db, f"{source}:{body.source_ref}") as c:
-        existing = await (await c.execute(
-            "select id, requested_by, request_text from runs where source = %s and source_ref = %s "
-            "order by created_at limit 1",
-            (source, body.source_ref))).fetchone()
-        if existing and (existing["requested_by"] != actor["person_id"] or
-                         existing["request_text"] != body.request_text):
-            raise HTTPException(409, "this call reference belongs to a different request")
-        view = (await p.door.get_status(existing["id"]) if existing else
-                await p.door.start_run(body.request_text, channel=channel,
-                                       actor_external_id=body.actor_external_id, source_ref=body.source_ref))
-
-    fs = p.registry.get("freshservice")
-    async with advisory_lock(p.db, f"{source}-ticket:{view.run_id}") as c:
-        row = await (await c.execute(
-            "select ref from door_messages where run_id = %s and action_id = '' and channel = 'freshservice'",
-            (view.run_id,))).fetchone()
-        if row:
-            return VoiceRequestResult(run=view, ticket=VoiceTicket.model_validate(row["ref"]))
-        # This transaction commits before the external POST. If the process dies afterward, the next call sees
-        # 'attempted' and refuses to place another request whose outcome is unknown.
-        await repo.upsert_door_message(c, view.run_id, "freshservice",
-                                       {"status": "attempted", "mode": fs.mode})
-
-    try:
-        direct = False
-        try:
-            placed = await fs.place_access_request(actor["email"], body.request_text)
-        except FreshserviceHTTPError as e:
-            if e.status != 403 or fs.mode != "LIVE":
-                raise
-            direct = True
-            placed = await fs.create_incident_ticket(
-                email=actor["email"], subject=f"[ContextRail {ticket_tag or source}] Request {view.run_id}",
-                description=body.request_text)
-        ticket_id = fs_id(placed.data["id"])
-        try:
-            seen = await fs.get_ticket(ticket_id)
-            if direct:
-                description = str(seen.data.get("description_text") or seen.data.get("description") or "")
-                workspace_id = getattr(getattr(fs, "live", None), "workspace_id", None)
-                verified = (seen.mode == placed.mode and seen.data.get("id") == ticket_id and
-                            (workspace_id is None or seen.data.get("workspace_id") == workspace_id) and
-                            seen.data.get("subject") == f"[ContextRail {ticket_tag or source}] Request {view.run_id}" and
-                            body.request_text in description)
-            else:
-                items = await fs.get_requested_items(ticket_id)
-                verified = (seen.mode == placed.mode and items.mode == placed.mode and
-                            seen.data.get("id") == ticket_id and any(
-                                item.get("custom_fields", {}).get(ACCESS_REQUEST_TEXT_FIELD) == body.request_text
-                                for item in items.data))
-        except ConnectorError:
-            verified = False
-        ticket = VoiceTicket(status="verified" if verified else "unverified", ticket_id=ticket_id,
-                             mode=placed.mode)
-    except UnknownOutcome:
-        ticket = VoiceTicket(status="unknown", mode=fs.mode)
-    except (ConnectorError, KeyError, TypeError, ValueError):
-        ticket = VoiceTicket(status="blocked", mode=fs.mode)
-
-    async with p.db.transaction() as c:
-        await repo.upsert_door_message(c, view.run_id, "freshservice", ticket.model_dump(exclude_none=True))
-        if ticket.status == "verified":
-            actions = await repo.list_actions(c, view.run_id)
-            for action in actions:
-                if action["state"] == "awaiting":
-                    await repo.enqueue_job(c, "approval.dispatch",
-                                           {"run_id": str(view.run_id), "action_id": action["id"]},
-                                           dedupe_key=f"approval.dispatch:ticket:{view.run_id}:{action['id']}")
-    return VoiceRequestResult(run=view, ticket=ticket)
+    return await start_ticket_request(_platform(request), request_text=body.request_text,
+                                      actor_external_id=body.actor_external_id, source_ref=body.source_ref,
+                                      channel="mcp", source="mcp", ticket_tag="web")
 
 
 @router.post("/runs/{run_id}/pick", response_model=RunView)

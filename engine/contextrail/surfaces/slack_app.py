@@ -39,6 +39,7 @@ class SlackDoor:
     def __init__(self, door: Door, *, client: AsyncWebClient, signing_secret: str,
                  process_before_response: bool = False) -> None:
         self.door, self.client = door, client
+        self.platform = None  # set by the HTTP/Socket Mode host so request intake can create a Freshservice ticket
         auth: list[AuthorizeResult] = []
 
         async def authorize() -> AuthorizeResult:
@@ -75,8 +76,24 @@ class SlackDoor:
         await ack(text=blocks.ack_text(text), response_type="ephemeral")
         channel, ts = await self._post_status(command["channel_id"], command["user_id"], text)
         self._askers[(channel, ts)] = command["user_id"]
-        await self.door.start_run(text, channel="slack", actor_external_id=command["user_id"],
-                                  source_ref=f"{channel}:{ts}")
+        if self.platform is None:  # lightweight adapter tests and legacy isolated door use
+            await self.door.start_run(text, channel="slack", actor_external_id=command["user_id"],
+                                      source_ref=f"{channel}:{ts}")
+            return
+        from contextrail.surfaces.ticket_requests import start_ticket_request
+
+        result = await start_ticket_request(
+            self.platform, request_text=text, actor_external_id=command["user_id"],
+            channel="slack", source="slack", source_ref=f"{channel}:{ts}", ticket_tag="slack",
+            idempotency_key=f"{command.get('team_id', '')}:{command.get('trigger_id', '')}")
+        ticket = result.ticket
+        if ticket.status == "verified":
+            message = f"Freshservice {ticket.mode} ticket #{ticket.ticket_id} created and verified."
+        elif ticket.ticket_id is not None:
+            message = f"Freshservice {ticket.mode} ticket #{ticket.ticket_id} was created but could not be verified."
+        else:
+            message = f"Freshservice request status: {ticket.status} ({ticket.mode})."
+        await self.client.chat_postEphemeral(channel=channel, user=command["user_id"], text=message)
 
     # --- "which Rahul?" -> Door.pick_candidate ----------------------------------------------------------------
 
@@ -281,5 +298,6 @@ def attach(app: FastAPI, door: Door, *, client: AsyncWebClient | None = None) ->
         raise RuntimeError("Slack is not configured: set SLACK_BOT_TOKEN and SLACK_SIGNING_SECRET")
     slack = SlackDoor(door, client=client or AsyncWebClient(token=settings.slack_bot_token.get_secret_value()),
                       signing_secret=settings.slack_signing_secret.get_secret_value())
+    slack.platform = app.state.platform
     app.state.slack = slack
     return slack

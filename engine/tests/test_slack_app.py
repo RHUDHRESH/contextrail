@@ -3,6 +3,7 @@ client records every call, and HTTP requests are signed with a fake signing secr
 
 import json
 import time
+from types import SimpleNamespace
 
 import httpx
 import pytest
@@ -148,6 +149,31 @@ async def test_slash_command_acks_ephemerally_then_starts_the_run(door):
     assert ack.runs_at_ack == [0]                      # acknowledged before any run existed
     [run] = await _runs(door)
     assert (run["source"], run["requested_by"], run["status"]) == ("slack", "p-anil", "awaiting_approval")
+
+
+async def test_slash_command_uses_shared_ticket_intake_and_returns_ticket_number(monkeypatch, door):
+    fake = FakeSlackClient()
+    slack = SlackDoor(door, client=fake, signing_secret=SIGNING_SECRET)
+    slack.platform = platform = object()
+    observed = {}
+
+    async def start_ticket_request(actual_platform, **kwargs):
+        observed.update(platform=actual_platform, **kwargs)
+        return SimpleNamespace(ticket=SimpleNamespace(status="verified", ticket_id=9021, mode="LIVE"))
+
+    monkeypatch.setattr("contextrail.surfaces.ticket_requests.start_ticket_request", start_ticket_request)
+    ack = Ack(door)
+    await slack.on_command(ack=ack, command=_command(REQUEST))
+
+    assert ack.calls[0]["response_type"] == "ephemeral"
+    assert observed == {
+        "platform": platform, "request_text": REQUEST, "actor_external_id": ANIL_SLACK,
+        "channel": "slack", "source": "slack", "source_ref": f"{CHANNEL}:1790000000.000001",
+        "ticket_tag": "slack", "idempotency_key": "T0NORTH01:13345224609.738474920.8088930838d",
+    }
+    [confirmation] = fake.called("chat.postEphemeral")
+    assert confirmation["user"] == ANIL_SLACK
+    assert "LIVE ticket #9021" in confirmation["text"] and "verified" in confirmation["text"]
 
 
 async def test_empty_command_shows_usage_and_starts_nothing(door):
