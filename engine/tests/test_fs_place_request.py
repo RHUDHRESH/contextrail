@@ -10,7 +10,7 @@ import httpx
 import pytest
 from _fs_mock import API_KEY, DOMAIN, FakeTenant, ok
 
-from contextrail.connectors.base import ConnectorError, UnknownOutcome
+from contextrail.connectors.base import ConnectorError, TransientError, UnknownOutcome
 from contextrail.connectors.freshservice import (
     ACCESS_REQUEST_TEXT_FIELD,
     FreshserviceClient,
@@ -60,6 +60,25 @@ async def test_a_timed_out_request_is_an_unknown_outcome_and_is_not_resent():
         with pytest.raises(UnknownOutcome):
             await fs.place_access_request(ANIL, "Give Anil the same access as Rahul Mehta")
     assert sum(r.method == "POST" for r in tenant.requests) == 1  # a second ticket would be a duplicate request
+
+
+@pytest.mark.parametrize("status", [500, 502, 504])
+async def test_a_5xx_after_placing_is_unknown_because_nothing_can_reconcile_it(status):
+    """Approvals, notes and records are found again by a read before any retry; a placed request is not (no key,
+    no search by form value). A gateway error after the POST may mean the ticket exists, so it is not retryable."""
+    tenant = FakeTenant({ITEMS: CATALOG, PLACE: httpx.Response(status)})
+    async with client(tenant) as fs:
+        with pytest.raises(UnknownOutcome):
+            await fs.place_access_request(ANIL, "Give Anil the same access as Rahul Mehta")
+
+
+@pytest.mark.parametrize("answer", [httpx.Response(429, headers={"Retry-After": "3"}), httpx.ConnectError("down")])
+async def test_a_request_that_was_refused_or_never_sent_stays_retryable(answer):
+    tenant = FakeTenant({ITEMS: CATALOG, PLACE: answer})
+    async with client(tenant) as fs:
+        with pytest.raises(TransientError) as e:
+            await fs.place_access_request(ANIL, "x")
+    assert not isinstance(e.value, UnknownOutcome)
 
 
 @pytest.mark.parametrize("bad", ["", "anil", "anil kumar@northbeam.example"])

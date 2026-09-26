@@ -161,6 +161,15 @@ class FreshserviceHTTPError(ConnectorError):
         self.status = status
 
 
+class ServerError(TransientError):
+    """5xx from Freshservice. Retryable where a read-first reconcile exists; a write without one must treat it as
+    an UnknownOutcome, because a gateway error can follow a write that landed."""
+
+    def __init__(self, status: int, message: str) -> None:
+        super().__init__(message)
+        self.status = status
+
+
 class RateLimited(TransientError):
     """429 from Freshservice. `retry_after` is the server's Retry-After in seconds, when it sent one."""
 
@@ -250,7 +259,7 @@ class FreshserviceClient:
             after = _retry_after(r)
             raise RateLimited(f"{what}: 429 rate limited (retry after {after}s)", after)
         if r.status_code >= 500:
-            raise TransientError(f"{what}: {r.status_code} {_describe(r)}".rstrip())
+            raise ServerError(r.status_code, f"{what}: {r.status_code} {_describe(r)}".rstrip())
         if r.status_code >= 300:
             raise FreshserviceHTTPError(r.status_code, f"{what}: {r.status_code} {_describe(r)}".rstrip())
         if r.status_code == 204 or not r.content.strip():
@@ -339,8 +348,9 @@ class FreshserviceClient:
                             quantity: int = 1, custom_fields: dict | None = None) -> dict:
         """POST /service_catalog/items/{display_id}/place_request -> `service_request` (the new ticket).
 
-        No idempotency key exists and requested items are not searchable by form value, so a timeout is an
-        UnknownOutcome the caller must not retry blindly; callers keep the returned ticket id.
+        No idempotency key exists and requested items are not searchable by form value, so nothing can reconcile a
+        doubtful attempt: a timeout or a 5xx after sending is an UnknownOutcome the caller must not retry blindly
+        (a 429 or an unsent request stays retryable). Callers keep the returned ticket id.
         """
         path = f"service_catalog/items/{fs_id(display_id)}/place_request"
         body: dict[str, Any] = {"email": _email(email), "quantity": quantity}
@@ -348,7 +358,10 @@ class FreshserviceClient:
             body["requested_for"] = _email(requested_for)
         if custom_fields:
             body["custom_fields"] = custom_fields
-        return _unwrap(await self.post(path, body), "service_request", path)
+        try:
+            return _unwrap(await self.post(path, body), "service_request", path)
+        except ServerError as e:
+            raise UnknownOutcome(f"{e}; the request may have been placed, and cannot be looked up") from e
 
     async def place_access_request(self, email: str, request_text: str, *, requested_for: str | None = None,
                                    text_field: str = ACCESS_REQUEST_TEXT_FIELD) -> dict:
