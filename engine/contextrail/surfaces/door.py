@@ -68,11 +68,13 @@ class Door:
     # --- start / status / pick ------------------------------------------------------------------------------
 
     async def start_run(self, text: str, *, channel: Channel, actor_external_id: str | None,
-                        source_ref: str | None = None) -> RunView:
+                        source_ref: str | None = None, subject_id: str | None = None,
+                        peer_id: str | None = None) -> RunView:
+        """subject_id / peer_id pin a system-of-record ID the caller already holds; the rail still looks it up."""
         actor = await self.resolve_actor(channel, actor_external_id)
         rid = await self.runner.start(source=channel, request_text=text, source_ref=source_ref,
                                       requested_by=actor["person_id"] if actor else None)
-        await self.runner.run(rid)
+        await self.runner.run(rid, subject_id=subject_id, peer_id=peer_id)
         return await self.get_status(rid)
 
     async def get_status(self, run_id: UUID) -> RunView:

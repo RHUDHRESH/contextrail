@@ -22,6 +22,8 @@ Append-only. Each entry records what we chose, why, and what would change our mi
 | D-015 | 2026-09-26 | Freshservice approvals: the API cannot approve or reject, so decisions are mirrored as ticket notes | Accepted |
 | D-016 | — | Freshservice webhook: Workflow Automator cannot sign an HMAC; a signing hop or a weaker scheme | Open |
 | D-017 | 2026-09-26 | Freshservice assets: classic `/assets/{display_id}` built; newer (ITAM) tenants document no user assignment | Accepted |
+| D-016 | 2026-09-26 | MCP door: `/mcp` inside the engine, static ENGINE_TOKEN bearer, strict capsule handles | Accepted |
+| D-017 | 2026-09-26 | MCP runs name their requester (identity-map person id), or no run starts | Accepted |
 
 ---
 
@@ -216,3 +218,30 @@ read-back verification, and the FIXTURE tenant. A trial tenant created now is li
 classic call is expected to fail and the result is the labelled FIXTURE fallback, never a LIVE claim.
 **Revisit if.** The trial tenant turns out to be a classic tenant (then T130 is LIVE as built), or Freshservice
 documents user assignment on ITAM assets.
+
+## D-016 — MCP door: `/mcp` inside the engine, static bearer, strict capsule handles
+**Found** (reading the installed `mcp` 2.2.0, not memory): `MCPServer.streamable_http_app()` returns a Starlette app
+whose session manager must run in the host's lifespan when mounted, and `run()` may be entered once per manager.
+The SDK speaks two protocol eras: handshake-era clients (2025-11-25 and earlier) accept a server-initiated
+`elicitation/create` mid-call; 2026-07-28 clients get `InputRequiredResult` round trips and no back-channel.
+**Decision.**
+- Serve MCP at exactly `/mcp` in the engine app, via a router whose lifespan builds a fresh Streamable HTTP app and
+  session manager (merged by `include_router`, one additive line in `main.py`). Host/Origin allow-list = the
+  `PUBLIC_URL` host and localhost.
+- Auth is the SDK's bearer middleware with a TokenVerifier over `ENGINE_TOKEN` (constant-time). While the token
+  is empty or `change-me`, `/mcp` answers 503, like the REST door. Not OAuth: no metadata routes are served.
+- A capsule handle is `{run_id, digest}`. Every tool loads the sealed case file through `rail/store.load_case`
+  (content, stored digest and the run's recorded digest must agree) and requires the handle's digest to equal the
+  current one. A stale handle is refused with the current handle, so an agent never acts on a case file that
+  changed under it; a failed seal halts and is audited.
+**Revisit if.** Per-user MCP identity is needed (then OAuth via the SDK's auth provider, or per-agent tokens).
+
+## D-017 — MCP runs name their requester
+**Found.** `policy.engine.check_decision` fails closed: an approval on a run whose requester is unknown is refused
+under POL-SOD-001 ("an approval nobody can attribute is refused"). An MCP run started without a requester could
+therefore never have a held action approved, in any door.
+**Decision.** `compile_context_capsule` requires `requester`, a person id from the identity map (channel `mcp`
+maps to `identity_map.person_id`). An unknown id is refused before any run exists. As with the REST door, the
+engine-token holder asserts who is asking; separation of duties then applies to that person in every door, so
+the requester can never approve their own request.
+**Revisit if.** MCP clients get per-user credentials (D-016): the requester then comes from the token, not an argument.

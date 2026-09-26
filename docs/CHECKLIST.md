@@ -234,12 +234,12 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 
 ## M. MCP server and Agent Skills (13)
 
-- [ ] T181 `P1` FastMCP server mounted at `/mcp` (Streamable HTTP) with bearer auth.
-- [ ] T182 `P1` Tool `search_enterprise_knowledge`.
-- [ ] T183 `P1` Tool `compile_context_capsule` returning a capsule handle (run_id + digest).
-- [ ] T184 `P1` Tool `check_policy_and_permissions`.
-- [ ] T185 `P1` Tool `generate_action_plan`.
-- [ ] T186 `P1` Tool `handoff_to_specialist`.
+- [x] T181 `P1` FastMCP server mounted at `/mcp` (Streamable HTTP) with bearer auth.
+- [x] T182 `P1` Tool `search_enterprise_knowledge`.
+- [x] T183 `P1` Tool `compile_context_capsule` returning a capsule handle (run_id + digest).
+- [x] T184 `P1` Tool `check_policy_and_permissions`.
+- [x] T185 `P1` Tool `generate_action_plan`.
+- [x] T186 `P1` Tool `handoff_to_specialist`.
 - [ ] T187 `P1` Tool `execute_and_verify` (refuses without approvals).
 - [ ] T188 `P1` Tool `list_runs`.
 - [ ] T189 `P1` Elicitation for an ambiguous subject, with `needs_input` fallback.
