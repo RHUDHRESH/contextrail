@@ -276,7 +276,7 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 - [ ] T211 `P0` Write the receipt to Freshservice (note; custom object when ready).
 - [x] T212 `P0` SSE endpoint `/v1/runs/{id}/events`.
 - [ ] T213 `P1` OpenTelemetry spans for stages, LLM calls and connector calls.
-- [ ] T214 `P1` `/v1/metrics` (runs, verdict counts, time-to-access, LLM cost by tier, decisions per door).
+- [x] T214 `P1` `/v1/metrics` (runs, verdict counts, time-to-access, LLM cost by tier, decisions per door).
 - [ ] T215 `P1` Read-only receipt page `/r/{run_id}` (printable).
 - [ ] T216 `P1` Adversary console endpoints: forged approval, stripped constraint, promoted subject, replayed write, "ignore policy".
 

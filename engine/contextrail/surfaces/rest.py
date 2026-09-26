@@ -31,6 +31,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from contextrail import repo
 from contextrail.intake import TICKET_CHANNELS, find_ticket_run, run_lock, ticket_lock
+from contextrail.metrics import Metrics, collect
 from contextrail.surfaces.door import Channel, DecisionResult
 from contextrail.surfaces.presenter import RunView
 from contextrail.surfaces.sse import stage_events
@@ -142,6 +143,13 @@ async def decide(run_id: UUID, body: Decide, request: Request) -> DecisionResult
     return await _platform(request).door.decide(
         run_id, body.action_id, body.params_hash, channel=body.channel, actor_external_id=body.actor_external_id,
         decision=body.decision, reason=body.reason)
+
+
+@router.get("/metrics", response_model=Metrics, tags=["ops"])
+async def metrics(request: Request) -> Metrics:
+    """Runs, verdicts, median time to access, LLM cost by tier, decisions per door (metrics.py)."""
+    async with _platform(request).db.connection() as c:
+        return await collect(c)
 
 
 async def _existing_run(run_id: UUID, request: Request) -> UUID:
