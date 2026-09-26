@@ -314,7 +314,7 @@ export function RunConsole({ initialRun, autoStart }: { initialRun?: Run; autoSt
 
         {/* impact strip */}
         <StatStrip className="mt-3 grid-cols-2 sm:grid-cols-3 lg:grid-cols-6">
-          <Stat label="systems touched" value={m?.sources_touched ?? new Set(state.evidence.map((e) => e.system)).size} hint="live connectors" />
+          <Stat label="systems touched" value={m?.sources_touched ?? new Set(state.evidence.map((e) => e.system)).size} hint="evidence sources" />
           <Stat label="evidence" value={state.evidence.length} hint="cited sources" />
           <Stat label="actions" value={`${completed}/${state.plan?.actions.length ?? 0}`} hint="executed / planned" />
           <Stat label="blocked by policy" value={blocked} tone={blocked ? "stop" : "text"} hint="violations prevented" />

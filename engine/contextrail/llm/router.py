@@ -12,8 +12,10 @@ served it.
 from __future__ import annotations
 
 import asyncio
+import json
 import time
 from collections.abc import Awaitable, Callable, Mapping
+from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
 from decimal import Decimal
 from pathlib import Path
@@ -88,7 +90,7 @@ class RouterConfig(BaseModel):
             ),
             model=HAIKU_DIRECT_ID,
             run_budget_usd=s.run_budget_usd,
-            bedrock_budget_usd=s.bedrock_budget_usd,
+            bedrock_budget_usd=min(s.bedrock_budget_usd, Decimal(20)),  # D-013: env cannot raise the hard cap
             replay_mode=s.llm_replay_mode,
             replay_dir=Path(s.llm_replay_dir) if s.llm_replay_dir else fixtures_dir() / "llm_replay",
         )
@@ -111,6 +113,10 @@ class LLMError(Exception):
 
 class NoTierAvailable(LLMError):
     """No enabled tier could serve the call (none configured, all failed over, or all skipped)."""
+
+
+class BudgetExceeded(LLMError):
+    """A live call would cross the per-run spend limit; callers use their deterministic fallback."""
 
 
 class ReplayMiss(NoTierAvailable):
@@ -264,6 +270,12 @@ class Ledger(Protocol):
                      input_tokens: int | None, output_tokens: int | None, cost_usd: Decimal, latency_ms: int,
                      outcome: str, error: str | None) -> None: ...
 
+    def budget_guard(self, run_id: UUID | None, tier: str) -> AbstractAsyncContextManager[None]: ...
+
+    async def run_spend(self, run_id: UUID) -> Decimal: ...
+
+    async def tier_spend(self, tier: str) -> Decimal: ...
+
 
 @dataclass(frozen=True)
 class _Ctx:
@@ -317,23 +329,62 @@ class Router:
             # extraction). extra_body is the SDK's documented way to send a body field it does not type.
             base["extra_body"] = {"temperature": temperature}
         failures: list[str] = []
+        run_refusal: BudgetExceeded | None = None
+        reserve = self._maximum_call_cost(base, max_tokens)
         for tier in chain:
             if tier.provider == "replay":
                 return await self._replay(keyed, ctx)
             if self.breaker.is_open(tier.tier):
                 failures.append(f"{tier.tier}: breaker open")
                 continue
-            try:
-                response = await self._attempt(tier, {"model": tier.model, **base}, ctx)
-            except _TierFailed as f:
-                self.breaker.trip(tier.tier)
-                failures.append(f"{tier.tier}: {f}")
-                continue
+            async with self.ledger.budget_guard(ctx.run_id, tier.tier):
+                refusal = await self._budget_refusal(tier, ctx, reserve)
+                if refusal:
+                    failures.append(f"{tier.tier}: {refusal}")
+                    if isinstance(refusal, BudgetExceeded):
+                        run_refusal = refusal
+                    continue
+                try:
+                    response = await self._attempt(tier, {"model": tier.model, **base}, ctx)
+                except _TierFailed as f:
+                    self.breaker.trip(tier.tier)
+                    failures.append(f"{tier.tier}: {f}")
+                    continue
             self.breaker.reset(tier.tier)
             if self.config.replay_mode == "record":
                 self._record(keyed, response)
             return response
+        if run_refusal:
+            raise run_refusal
         raise NoTierAvailable("no tier answered: " + "; ".join(failures))
+
+    def _maximum_call_cost(self, request: dict[str, Any], max_tokens: int) -> Decimal:
+        """Conservative preflight: charge the whole request as cache-write tokens plus maximum output.
+
+        A byte upper-bounds a text token in the serialized request; the extra 1024 covers API framing and
+        tool-use overhead. Actual spend is logged after the response and checked again before the next call.
+        """
+        prompt_bytes = len(json.dumps(request, ensure_ascii=False, default=str).encode("utf-8"))
+        return cost_usd(self.config.model, input_tokens=0, cache_write_tokens=prompt_bytes + 1024,
+                        output_tokens=max_tokens)
+
+    async def _budget_refusal(self, tier: TierConfig, ctx: _Ctx, reserve: Decimal) -> LLMError | None:
+        t0 = time.perf_counter()
+        if ctx.run_id is not None:
+            spent = await self.ledger.run_spend(ctx.run_id)
+            if spent + reserve > self.config.run_budget_usd:
+                detail = (f"run budget ${self.config.run_budget_usd} would be exceeded: "
+                          f"${spent} spent, up to ${reserve} for this call")
+                await self._log(ctx, tier.tier, tier.model, outcome="budget_refused", t0=t0, error=detail)
+                return BudgetExceeded(detail)
+        if tier.provider == "bedrock":
+            spent = await self.ledger.tier_spend(tier.tier)
+            if spent + reserve > self.config.bedrock_budget_usd:
+                detail = (f"Bedrock cap ${self.config.bedrock_budget_usd} would be exceeded: "
+                          f"${spent} spent, up to ${reserve} for this call")
+                await self._log(ctx, tier.tier, tier.model, outcome="budget_refused", t0=t0, error=detail)
+                return NoTierAvailable(detail)
+        return None
 
     async def _attempt(self, tier: TierConfig, request: dict[str, Any], ctx: _Ctx) -> LLMResponse:
         """One tier: a 429 gets exactly one retry-after wait; failover-class errors raise _TierFailed; anything else

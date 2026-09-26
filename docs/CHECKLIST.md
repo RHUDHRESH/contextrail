@@ -154,7 +154,7 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 - [x] T113 `P0` Failover classifier: 429, 529, 5xx, timeout, credit-exhausted (no failover on other 400s).
 - [x] T114 `P0` Per-tier circuit breaker (180 s).
 - [x] T115 `P0` Cost calculator per model; write every call to `llm_calls`.
-- [ ] T116 `P0` Per-run budget enforcement.
+- [x] T116 `P0` Per-run budget enforcement.
 - [ ] T117 `P0` Structured-output helper: pydantic model → tool schema → validated object.
 - [x] T118 `P1` Prompt caching on the system prompt and policy text.
 - [ ] T119 `P0` Prompts `intent.md`, `explain_verdict.md`, `approval_card.md` (cites capsule fields only).

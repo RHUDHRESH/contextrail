@@ -28,15 +28,17 @@ export function Stat({
   unit,
   hint,
   tone = "text",
+  wideOnMobile = false,
 }: {
   label: string;
   value: string | number;
   unit?: string;
   hint?: string;
   tone?: StatTone;
+  wideOnMobile?: boolean;
 }) {
   return (
-    <div className="bg-panel px-3.5 py-3 last:col-span-2 sm:last:col-span-1">
+    <div className={cn("bg-panel px-3.5 py-3", wideOnMobile && "col-span-2 sm:col-span-1")}>
       <div className="eyebrow">{label}</div>
       <div className={cn("tabular mt-1.5 flex items-baseline gap-1 font-display leading-none font-bold", TONE[tone])}>
         <span className="text-2xl">{value}</span>

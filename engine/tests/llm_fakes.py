@@ -7,6 +7,11 @@ Responses are real `anthropic.types.Message` objects, and errors are built by th
 
 from __future__ import annotations
 
+import asyncio
+from contextlib import asynccontextmanager
+from decimal import Decimal
+from uuid import UUID
+
 import anthropic
 import httpx2
 from anthropic.types import Message
@@ -84,9 +89,21 @@ class MemoryLedger:
 
     def __init__(self) -> None:
         self.rows: list[dict] = []
+        self._budget_lock = asyncio.Lock()
 
     async def record(self, **row) -> None:
         self.rows.append(row)
+
+    @asynccontextmanager
+    async def budget_guard(self, run_id: UUID | None, tier: str):
+        async with self._budget_lock:
+            yield
+
+    async def run_spend(self, run_id: UUID) -> Decimal:
+        return sum((r["cost_usd"] for r in self.rows if r["run_id"] == run_id), Decimal(0))
+
+    async def tier_spend(self, tier: str) -> Decimal:
+        return sum((r["cost_usd"] for r in self.rows if r["tier"] == tier), Decimal(0))
 
 
 def make_router(cfg: RouterConfig, clients: dict, **kw) -> Router:
