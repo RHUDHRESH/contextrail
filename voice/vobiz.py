@@ -18,7 +18,10 @@ import hmac
 import threading
 import time
 from collections.abc import Mapping
+from urllib.parse import quote
 from xml.sax.saxutils import escape
+
+import httpx
 
 
 def _sign(auth_token: str, message: str) -> str:
@@ -59,6 +62,33 @@ class NonceCache:
                 return False
             self._seen[nonce] = now + self.ttl_seconds
         return True
+
+
+async def verified_live_caller(call_uuid: str, callback_from: str, callback_to: str, *, auth_id: str,
+                               auth_token: str, transport=None) -> str | None:
+    """Read an inbound live call from Vobiz and return its caller only on an exact callback match."""
+    from calls import normalize_phone
+
+    if not auth_id or not auth_token or not call_uuid or not callback_from or not callback_to:
+        return None
+    origin, target = normalize_phone(callback_from), normalize_phone(callback_to)
+    if not origin or not target:
+        return None
+    path = quote(call_uuid, safe="")
+    try:
+        async with httpx.AsyncClient(transport=transport, timeout=3.0) as client:
+            response = await client.get(f"https://api.vobiz.ai/api/v1/Account/{quote(auth_id, safe='')}/Call/"
+                                        f"{path}/", params={"status": "live"},
+                                        headers={"X-Auth-ID": auth_id, "X-Auth-Token": auth_token})
+            response.raise_for_status()
+            live = response.json()
+    except (httpx.HTTPError, ValueError):
+        return None
+    if (not isinstance(live, dict) or live.get("call_uuid") != call_uuid or
+            live.get("direction") != "inbound" or live.get("call_status") != "in-progress" or
+            normalize_phone(live.get("from")) != origin or normalize_phone(live.get("to")) != target):
+        return None
+    return origin
 
 
 def _doc(body: str) -> str:

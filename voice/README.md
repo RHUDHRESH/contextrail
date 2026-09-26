@@ -28,18 +28,19 @@ Phone numbers travel in request bodies, never in URLs, so they stay out of acces
 callers send `actor_external_id: null` to `/v1/queries`.
 
 Vobiz's documented callback signature covers only the URL and nonce, not `From`, `CallUUID`, or `Digits` in the
-POST form. The voice edge therefore treats every live caller as unknown, disables phone approval decisions and
-paid transfer, and rejects repeated nonces within its single process. Registered caller status, ticket creation,
-approvals, and transfer require a provider-side call lookup that independently verifies the caller and call ID;
-they are not enabled by merely setting `VOBIZ_AUTH_TOKEN`. The nonce cache is per process and is not a shared
-replay store across replicas.
+POST form. With both `VOBIZ_AUTH_ID` and `VOBIZ_AUTH_TOKEN`, the answer handler performs an authenticated
+`GET /api/v1/Account/{auth_id}/Call/{call_uuid}/?status=live` read-back and requires exact call ID, caller,
+destination, inbound direction, and in-progress status. Any mismatch or API error leaves the caller unknown.
+Without both credentials, only general policy questions work. Phone approval decisions and paid transfer remain
+disabled because subsequent callback form fields are also unsigned. Repeated nonces are rejected within the
+single voice process; this cache is not shared across replicas.
 
-The phone request uses the Vobiz `CallUUID` as `source_ref` only after caller verification is implemented. The engine persists an attempt before the
+The phone request uses the provider-verified Vobiz `CallUUID` as `source_ref`. The engine persists an attempt before the
 Freshservice catalog POST, so a timed-out or crashed request is never blindly posted again. `ticket.status` is
 `verified`, `unverified`, `unknown`, `attempted`, or `blocked`; the phone names the ticket only for `verified`.
 The catalog item and tenant access must be configured for a LIVE ticket. Otherwise the result is explicitly
 FIXTURE or blocked. The DTMF and transfer flows are implemented but disabled on the live HTTP edge pending
-provider-side call verification. High-risk approvals stay in Slack or Teams. The XML follows Vobiz's
+body-bound callback authentication. High-risk approvals stay in Slack or Teams. The XML follows Vobiz's
 [voice XML guidance](https://github.com/vobiz-ai/Agent-Skills/blob/main/skills/vobiz-voice-xml/SKILL.md).
 
 **Tests** are offline: Sarvam, Vobiz, the model and the engine are all faked.

@@ -12,13 +12,14 @@ import logging
 import re
 import secrets
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
 from calls import normalize_phone
 from dialogue import Dialogue
-from engine_client import EngineClient
+from engine_client import Caller, EngineClient
 from languages import configure
 from llm import Conversation
 from server import create_app
@@ -39,12 +40,13 @@ def signed(path: str, token: str = AUTH_TOKEN, nonce: str | None = None) -> dict
 
 
 class World:
-    def __init__(self, *, auth_token=AUTH_TOKEN, transfer_number=""):
+    def __init__(self, *, auth_token=AUTH_TOKEN, transfer_number="", vobiz_auth_id="", vobiz_transport=None):
         self.engine, self.sarvam = FakeEngine(), FakeSarvam()
         self.app = create_app(public_url=PUBLIC, vobiz_auth_token=auth_token,
                               engine=EngineClient("http://engine.test", TOKEN, transport=self.engine.transport()),
                               languages=configure("en-IN"), llm=Conversation(FakeAnthropic()),
-                              sarvam_transport=self.sarvam.transport(), transfer_number=transfer_number)
+                              sarvam_transport=self.sarvam.transport(), transfer_number=transfer_number,
+                              vobiz_auth_id=vobiz_auth_id, vobiz_transport=vobiz_transport)
         self.client = TestClient(self.app)
 
     def answer(self, caller: str, call_uuid: str = "call-1", headers: dict | None = None):
@@ -91,6 +93,42 @@ def test_tampering_with_from_does_not_gain_the_registered_callers_identity():
     # A second call can also carry Dana's From field with a fresh valid URL signature; neither is trusted.
     assert w.answer(DANA_RAW, call_uuid="call-2", headers=signed("/answer")).status_code == 200
     assert w.app.state.calls.get("call-2").caller is None
+
+
+def _live_call(request):
+    assert request.method == "GET"
+    assert request.url.path == "/api/v1/Account/MA-test/Call/call-1/"
+    assert request.url.params["status"] == "live"
+    assert request.headers["X-Auth-ID"] == "MA-test"
+    return httpx.Response(200, json={"call_uuid": "call-1", "direction": "inbound", "call_status": "in-progress",
+                                    "from": DANA_RAW, "to": "918000000000"})
+
+
+def test_authenticated_live_call_readback_allows_registered_caller():
+    w = World(vobiz_auth_id="MA-test", vobiz_transport=httpx.MockTransport(_live_call))
+    first, dialogue = w.opening(DANA_RAW)
+    assert dialogue.caller == Caller(person_id="p-dana", display_name="Dana Osei")
+    assert dialogue.caller_phone == "+919990000150"
+    assert first == dialogue.disclosed("menu")
+
+
+@pytest.mark.parametrize("change", ["from", "call_uuid", "direction", "to", "call_status"])
+def test_provider_readback_mismatch_rejects_caller_identity(change):
+    def altered(request):
+        body = _live_call(request).json()
+        body[change] = {"from": STRANGER_RAW, "call_uuid": "other", "direction": "outbound",
+                        "to": "919876500000", "call_status": "completed"}[change]
+        return httpx.Response(200, json=body)
+
+    w = World(vobiz_auth_id="MA-test", vobiz_transport=httpx.MockTransport(altered))
+    _, dialogue = w.opening(DANA_RAW)
+    assert dialogue.caller is None and dialogue.caller_phone is None
+
+
+def test_provider_lookup_error_rejects_caller_identity():
+    w = World(vobiz_auth_id="MA-test", vobiz_transport=httpx.MockTransport(lambda request: httpx.Response(503)))
+    _, dialogue = w.opening(DANA_RAW)
+    assert dialogue.caller is None
 
 
 def test_replayed_signature_is_rejected_even_when_the_form_body_changes():

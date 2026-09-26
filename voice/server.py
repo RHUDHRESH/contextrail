@@ -25,7 +25,15 @@ from dialogue import Dialogue
 from engine_client import EngineClient, EngineError
 from languages import LanguageTable
 from llm import Conversation
-from vobiz import NonceCache, dial_xml, gather_xml, hangup_xml, signature_valid, stream_xml
+from vobiz import (
+    NonceCache,
+    dial_xml,
+    gather_xml,
+    hangup_xml,
+    signature_valid,
+    stream_xml,
+    verified_live_caller,
+)
 
 # Load the .env sitting next to this file, whatever the working directory is.
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
@@ -43,7 +51,8 @@ def public_url_from_env() -> str:
 
 
 def create_app(*, public_url: str, vobiz_auth_token: str, engine: EngineClient, languages: LanguageTable,
-               llm: Conversation, sarvam_transport=None, transfer_number: str = "") -> FastAPI:
+               llm: Conversation, sarvam_transport=None, transfer_number: str = "",
+               vobiz_auth_id: str = "", vobiz_transport=None) -> FastAPI:
     app = FastAPI()
     calls = app.state.calls = CallRegistry()
     signed = bool(vobiz_auth_token)
@@ -76,9 +85,10 @@ def create_app(*, public_url: str, vobiz_auth_token: str, engine: EngineClient, 
         form = await vobiz_form(request)
         if not form.get("CallUUID"):
             raise HTTPException(400, "CallUUID is required")
-        # Vobiz signs URL + nonce, not POST fields. From can be changed in transit while the signature stays valid.
-        # Until CallUUID/From can be confirmed through a provider-side call lookup, fail closed for identity.
-        caller = None
+        # URL signatures do not bind POST fields; use authenticated provider read-back for identity.
+        caller = await verified_live_caller(form["CallUUID"], form.get("From", ""), form.get("To", ""),
+                                            auth_id=vobiz_auth_id, auth_token=vobiz_auth_token,
+                                            transport=vobiz_transport) if signed else None
         call = calls.register(form.get("CallUUID", ""), caller)
         logger.info(f"Answering call {call.call_uuid} (caller id not trusted)")
         xml = stream_xml(f"{ws_base}/ws/{call.token}", f"{public_url}/stream-status",
@@ -161,7 +171,8 @@ def create_app(*, public_url: str, vobiz_auth_token: str, engine: EngineClient, 
                 "modes": {"vobiz_callbacks": "LIVE" if signed else "FIXTURE",
                           "sarvam": "LIVE" if agent.SARVAM_API_KEY else "FIXTURE", "llm": llm.mode,
                           "engine": "configured" if engine.configured else "unconfigured",
-                          "caller_identity": "UNVERIFIED", "phone_approvals": "DISABLED",
+                          "caller_identity": "provider_lookup_configured" if signed and vobiz_auth_id else "UNVERIFIED",
+                          "phone_approvals": "DISABLED",
                           "human_transfer": "configured" if transfer_number else "unavailable"}}
 
     return app
@@ -172,7 +183,8 @@ def create_app_from_env() -> FastAPI:
         public_url=public_url_from_env(), vobiz_auth_token=os.getenv("VOBIZ_AUTH_TOKEN", ""),
         engine=EngineClient(os.getenv("ENGINE_URL", "http://localhost:8000"), os.getenv("ENGINE_TOKEN", "")),
         languages=agent.LANGUAGES, llm=Conversation.from_key(agent.ANTHROPIC_KEY),
-        transfer_number=os.getenv("HUMAN_TRANSFER_NUMBER", ""))
+        transfer_number=os.getenv("HUMAN_TRANSFER_NUMBER", ""),
+        vobiz_auth_id=os.getenv("VOBIZ_AUTH_ID", ""))
 
 
 app = create_app_from_env()
