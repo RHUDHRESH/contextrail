@@ -4,6 +4,7 @@ import pytest
 from mcp import Client
 from mcp_helpers import app_with, mcp_over_http, running, settings
 
+from contextrail import repo
 from contextrail.agentic.knowledge import KnowledgeHit, RuleIndex
 from contextrail.capsule import DigestMismatch, receive
 from contextrail.fixtures import load
@@ -147,7 +148,7 @@ async def test_compile_without_a_wired_door_is_an_honest_error():
 # --- check_policy_and_permissions and the handle check every tool shares (T184) ----------------------------
 
 HANDLE_TOOLS = [("check_policy_and_permissions", {}), ("generate_action_plan", {}),
-                ("handoff_to_specialist", {"team": "it"})]
+                ("handoff_to_specialist", {"team": "it"}), ("execute_and_verify", {"action_ids": ["A01"]})]
 
 async def _compiled(door) -> dict:
     r = await call(server(door), "compile_context_capsule", {"request_text": SAME_AS_RAHUL, **ANIL})
@@ -306,6 +307,89 @@ async def test_an_unknown_team_is_refused(door):
     handle = await _compiled(door)
     r = await call(server(door), "handoff_to_specialist", {"capsule_handle": handle, "team": "marketing"})
     assert r.is_error
+
+
+# --- execute_and_verify (T187) ------------------------------------------------------------------------------
+
+async def _execute(door, handle, action_ids):
+    r = await call(server(door), "execute_and_verify", {"capsule_handle": handle, "action_ids": action_ids})
+    assert not r.is_error, r.content
+    return r.structured_content
+
+
+async def _rows(door, run_id) -> dict:
+    return {r.action_id: r for r in (await door.get_status(run_id)).rows}
+
+
+async def _approvals(door) -> int:
+    async with door.db.connection() as c:
+        return (await (await c.execute("select count(*) as n from approvals")).fetchone())["n"]
+
+
+async def test_allowed_work_is_reported_with_its_read_back(door):
+    handle = await _compiled(door)
+    allowed = [a for a, r in (await _rows(door, handle["run_id"])).items() if r.verdict == "ALLOW"]
+    out = await _execute(door, handle, allowed)
+    assert out["outcome"] == "complete" and not out["rail_resumed"]
+    assert all(r["verified"] and r["outcome"] == "verified" for r in out["results"])
+
+
+async def test_a_hold_without_its_approval_is_refused_and_nothing_happens(door):
+    handle = await _compiled(door)
+    rows = await _rows(door, handle["run_id"])
+    held = [a for a, r in rows.items() if r.verdict == "HOLD"]
+    allowed = next(a for a, r in rows.items() if r.verdict == "ALLOW")
+    out = await _execute(door, handle, [allowed, *held])
+    assert out["outcome"] == "refused" and out["reason"].startswith("APPROVAL_MISSING")
+    assert {n["approver_name"] for n in out["needs_approval"]} == {"Dana Osei", "Meera Iyer"}
+    assert out["capsule_handle"] == handle and not out["rail_resumed"]
+    assert all(r.state == "awaiting" for a, r in (await _rows(door, handle["run_id"])).items() if a in held)
+    assert await _approvals(door) == 0   # it never approves anything itself
+
+
+async def test_approved_work_recorded_but_not_yet_carried_out_is_run_by_the_rail(door):
+    """The decision landed (first write wins) but the rail had not resumed: this tool asks the rail to continue."""
+    handle = await _compiled(door)
+    dana = next(r for r in (await _rows(door, handle["run_id"])).values() if r.approver_id == "p-dana")
+    async with door.db.transaction() as c:
+        await repo.record_approval(c, handle["run_id"], dana.action_id, params_hash=dana.params_hash,
+                                   approver="p-dana", decision="approved", channel="teams")
+    out = await _execute(door, handle, [dana.action_id])
+    assert out["rail_resumed"] and out["outcome"] == "complete"
+    assert out["results"][0]["state"] == "verified" and out["results"][0]["verified"]
+    assert out["capsule_handle"]["digest"] != handle["digest"]   # the case moved on; the new handle is returned
+    assert (await _rows(door, handle["run_id"]))[dana.action_id].state == "verified"
+
+
+async def test_an_approval_for_different_parameters_does_not_count(door):
+    handle = await _compiled(door)
+    dana = next(r for r in (await _rows(door, handle["run_id"])).values() if r.approver_id == "p-dana")
+    async with door.db.transaction() as c:
+        await repo.record_approval(c, handle["run_id"], dana.action_id, params_hash="f" * 64,
+                                   approver="p-dana", decision="approved", channel="teams")
+    out = await _execute(door, handle, [dana.action_id])
+    assert out["outcome"] == "refused" and "different parameters" in out["needs_approval"][0]["why"]
+
+
+async def test_refusals_are_reported_and_never_executed(door):
+    handle = await _compiled(door)
+    rows = await _rows(door, handle["run_id"])
+    refused = next(a for a, r in rows.items() if r.verdict == "REFUSE")
+    meera = next(r for r in rows.values() if r.approver_id == "p-meera")
+    await door.decide(handle["run_id"], meera.action_id, meera.params_hash, channel="email",
+                      actor_external_id="Meera.Iyer@northbeam.example", decision="refused", reason="no budget")
+    fresh = {"run_id": handle["run_id"], "digest": (await door.get_status(handle["run_id"])).capsule_digest}
+    out = await _execute(door, fresh, [refused, meera.action_id])
+    by_id = {r["action_id"]: r for r in out["results"]}
+    assert by_id[refused]["outcome"] == "refused_by_policy" and by_id[refused]["clause"]
+    assert by_id[meera.action_id]["outcome"] == "refused_by_approver"
+    assert not any(r["verified"] for r in out["results"]) and out["outcome"] == "complete"
+
+
+async def test_unknown_action_ids_are_an_error(door):
+    handle = await _compiled(door)
+    r = await call(server(door), "execute_and_verify", {"capsule_handle": handle, "action_ids": ["A99"]})
+    assert r.is_error and "A99" in r.content[0].text
 
 
 async def test_an_unknown_run_is_an_error(door):
