@@ -8,10 +8,10 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 <!-- stats:start -->
 | Priority | Tasks | Done |
 |---|---|---|
-| P0 | 152 | 114 |
-| P1 | 92 | 48 |
+| P0 | 152 | 117 |
+| P1 | 92 | 49 |
 | P2 | 10 | 4 |
-| **Total** | **254** | **166** |
+| **Total** | **254** | **170** |
 
 👤 human-owned tasks: 0
 <!-- stats:end -->
@@ -101,7 +101,7 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 - [x] T069 `P0` POL-OFF-001: revoke old-team access on transfer.
 - [x] T070 `P0` POL-SOD-001: requester cannot approve their own request (enforced in `door.decide` for every door).
 - [ ] T071 `P2` POL-REF-001 (refund limit) and POL-REF-002 (one outage credit per quarter).
-- [ ] T072 `P1` Policy Studio function: re-evaluate a run with one rule held out and return the diff.
+- [x] T072 `P1` Policy Studio function: re-evaluate a run with one rule held out and return the diff.
 
 ## F. Fixtures (clearly labelled FIXTURE) (10)
 
@@ -325,7 +325,7 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 
 ## T. Agentic core: memory, RAG, tools, capabilities (4) — added 2026-09-26 at the user's request (D-014)
 
-- [ ] T251 `P0` Memory: working memory (the sealed case file per run), episodic memory (precedents derived from the audit chain: approved/refused counts per rule and entitlement), conversational memory (per door thread, bounded, PII-redacted, with retention); every memory read cites its source.
-- [ ] T252 `P0` RAG: chunked OKF knowledge + receipts indexed in Postgres full-text search, hybrid retrieval (lexical + rule/tag links), Haiku answers grounded only in retrieved chunks with citations, and an explicit "not in the knowledge base" refusal when nothing supports an answer.
-- [ ] T253 `P0` Tools: a bounded, read-only tool-use loop (Haiku) for questions (search knowledge, run status, my runs, precedents), with a step limit and cost cap; it can read and explain, never approve, execute or change a verdict; the same tools exposed to other agents via MCP (section M).
+- [x] T251 `P0` Memory: working memory (the sealed case file per run), episodic memory (precedents derived from the audit chain: approved/refused counts per rule and entitlement), conversational memory (per door thread, bounded, PII-redacted, with retention); every memory read cites its source.
+- [x] T252 `P0` RAG: chunked OKF knowledge + receipts indexed in Postgres full-text search, hybrid retrieval (lexical + rule/tag links), Haiku answers grounded only in retrieved chunks with citations, and an explicit "not in the knowledge base" refusal when nothing supports an answer.
+- [x] T253 `P0` Tools: a bounded, read-only tool-use loop (Haiku) for questions (search knowledge, run status, my runs, precedents), with a step limit and cost cap; it can read and explain, never approve, execute or change a verdict; the same tools exposed to other agents via MCP (section M).
 - [x] T254 `P0` Capabilities: a machine-readable capability manifest (GET /v1/capabilities and /.well-known/agent.json) listing skills, tools, doors, connector modes and limits, generated from code so it cannot drift.
