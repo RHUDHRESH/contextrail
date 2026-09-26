@@ -32,7 +32,7 @@ The engine in [`engine/`](engine/) is the decision and write authority: Python 3
 | **Slack** | Slash command, status updates, approval cards, candidate picker, and Bolt handlers are implemented. | Install/configure the app and verify live Slack delivery. HTTP mode needs a signing secret; Socket Mode uses an app token. |
 | **Email** | Freshservice mailbox intake classification, SES outbound mail, signed approval links, receipt mail, and SNS bounce handling are implemented. `GET` on a decision link only displays confirmation; `POST` decides. | Configure the support mailbox, SES sender and recipient permissions, and public links. Freshservice requester acknowledgement remains open. |
 | **Microsoft Teams** | Identity fields and configuration are reserved. | Bot, Adaptive Cards, decision handler, and `ONE-WAY` Workflows fallback are planned; no working Teams door is claimed. |
-| **Voice** | Vobiz/Sarvam service code covers request, status, and curated knowledge flows. | Attach and test a number and public Answer URL. Spoken approver decisions and transfer fallback remain open. |
+| **Voice** | Vobiz/Sarvam service code covers request, status, curated knowledge, signed DTMF approval, and optional human transfer flows. A ticket number is spoken only after a Freshservice read-back. | Attach and test a number, credentials, public Answer URL, and human transfer number. No real call or ticket write has been verified. |
 
 Other agents can use the engine's bearer-protected Streamable HTTP MCP endpoint at `/mcp`; the five user doors above are distinct from that agent interface. The root [`skills/`](skills/) directory contains Agent Skills. The FDK sidebar lives in [`fdk-app/`](fdk-app/).
 
@@ -49,7 +49,7 @@ The separate Stage 1 fixture MCP server in [`mcp/server.ts`](mcp/server.ts) regi
 | Slack door | No external delivery | Slack API delivery can run with its tokens; live app installation is not verified here. |
 | Email door | No SES delivery | SES outbound can run with an authorized sender; inbound still depends on the Freshservice mailbox. |
 | Teams door | Planned | Credentials alone do not create a bot or `ONE-WAY` fallback. |
-| Voice door | Local service flows | Vobiz/Sarvam credentials and call routing require end-to-end verification. |
+| Voice door | Local service flows | Vobiz/Sarvam credentials, a number, public call routing, and a configured transfer destination require end-to-end verification. |
 | Dodo Payments | `FIXTURE` | Any API path is pinned to **Dodo test mode**; no production payment claim. |
 | LLM | Heuristic intent extraction or recorded replay | Configured direct Anthropic tiers, then optional Bedrock; policy and identity still stay in code. |
 
