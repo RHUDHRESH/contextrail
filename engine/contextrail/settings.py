@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 from functools import lru_cache
+from pathlib import Path
 from typing import Literal
 
 from pydantic import Field, SecretStr, field_validator
@@ -18,7 +19,10 @@ LanguageCode = Literal["hi-IN", "en-IN", "ta-IN", "kn-IN", "te-IN", "ml-IN", "mr
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+    # CLI entry points normally run from engine/, while the local .env lives at the repository root.
+    # Keep the path tied to this package so changing cwd cannot silently switch LIVE connectors to FIXTURE.
+    model_config = SettingsConfigDict(env_file=Path(__file__).resolve().parents[2] / ".env",
+                                      env_file_encoding="utf-8", extra="ignore")
 
     # core
     database_url: str = "postgresql://cr:cr@localhost:5432/cr"

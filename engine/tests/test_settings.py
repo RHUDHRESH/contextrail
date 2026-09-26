@@ -8,6 +8,11 @@ from contextrail.settings import Settings
 ROOT = Path(__file__).resolve().parents[2]
 
 
+def test_default_env_path_is_repo_root_even_when_cwd_changes(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    assert Settings.model_config["env_file"] == ROOT / ".env"
+
+
 def _env_keys_from_claude_md() -> set[str]:
     text = (ROOT / "CLAUDE.md").read_text(encoding="utf-8")
     block = text.split("`.env.example`:", 1)[1].split("```", 2)[1]
