@@ -37,6 +37,15 @@ _READS = frozenset({"GET", "HEAD"})
 SOURCES = {1: "email", 2: "portal", 3: "phone", 4: "chat", 5: "feedback_widget", 10: "slack", 15: "ms_teams"}
 
 
+ACCESS_REQUEST_ITEM = "Access request (ContextRail)"  # the catalog item an admin creates (T134)
+CATALOG_PAGE_SIZE = 30  # View List of Service Items: "per_page ... (default: 30, max: 30)"
+MAX_PAGES = 50          # a tenant that always answers rel="next" cannot keep us paging forever
+
+
+def _norm(text: str) -> str:
+    return " ".join(text.split()).casefold()
+
+
 def source_name(ticket: dict) -> str:
     """'email' for tickets raised through the support mailbox (the email door, CLAUDE.md §13.6), and so on."""
     return SOURCES.get(ticket.get("source"), "other")
@@ -109,6 +118,7 @@ class FreshserviceClient:
                  limiter: TokenBucket | None = None) -> None:
         self.base_url = base_url(domain)
         self.limiter = limiter
+        self._access_item: dict | None = None
         self.http = httpx.AsyncClient(
             base_url=self.base_url + "/",
             auth=httpx.BasicAuth(api_key, "X"),
@@ -131,7 +141,9 @@ class FreshserviceClient:
     async def aclose(self) -> None:
         await self.http.aclose()
 
-    async def request(self, method: str, path: str, *, params: dict | None = None, json: Any = None) -> Any:
+    async def _send(self, method: str, path: str, *, params: dict | None = None, json: Any = None
+                    ) -> tuple[httpx.Response, Any]:
+        """One rate-limited call with errors mapped; returns the response (for headers) and its parsed body."""
         what = f"freshservice {method} /{path}"
         if self.limiter is not None:
             await self.limiter.acquire()
@@ -143,7 +155,7 @@ class FreshserviceClient:
             if method in _READS:
                 raise TransientError(f"{what}: {type(e).__name__}") from e
             raise UnknownOutcome(f"{what}: {type(e).__name__} after sending; outcome unknown") from e
-        return self._parse(r, what, write=method not in _READS)
+        return r, self._parse(r, what, write=method not in _READS)
 
     @staticmethod
     def _parse(r: httpx.Response, what: str, *, write: bool) -> Any:
@@ -162,6 +174,21 @@ class FreshserviceClient:
             if write:
                 raise UnknownOutcome(f"{what}: {r.status_code} with an unreadable body; outcome unknown") from e
             raise ConnectorError(f"{what}: {r.status_code} with an unreadable body") from e
+
+    async def request(self, method: str, path: str, *, params: dict | None = None, json: Any = None) -> Any:
+        return (await self._send(method, path, params=params, json=json))[1]
+
+    async def get_all(self, path: str, key: str, *, page_size: int = 100, max_pages: int = MAX_PAGES,
+                      params: dict | None = None) -> list[dict]:
+        """Every object of a paginated list. The `link` header's rel="next" only says whether to ask for page n+1;
+        its URL is never followed, so an authenticated call cannot be steered to another host."""
+        out: list[dict] = []
+        for page in range(1, max_pages + 1):
+            r, body = await self._send("GET", path, params={**(params or {}), "page": page, "per_page": page_size})
+            out.extend(_unwrap(body, key, path))
+            if "next" not in r.links:
+                break
+        return out
 
     async def get(self, path: str, params: dict | None = None) -> Any:
         return await self.request("GET", path, params=params)
@@ -192,3 +219,29 @@ class FreshserviceClient:
         want = email.strip().casefold()
         agents = _unwrap(await self.get("agents", {"email": email.strip()}), "agents", "agents?email")
         return [a for a in agents if str(a.get("email", "")).casefold() == want]
+
+    # --- service catalog (T125) --------------------------------------------------------------------------------
+
+    async def list_catalog_items(self, *, max_pages: int = MAX_PAGES) -> list[dict]:
+        """GET /service_catalog/items, every page (this endpoint allows at most 30 per page)."""
+        return await self.get_all("service_catalog/items", "service_items", page_size=CATALOG_PAGE_SIZE,
+                                  max_pages=max_pages)
+
+    async def find_catalog_items(self, name: str) -> list[dict]:
+        """Live (not deleted) items whose name equals `name`, ignoring case and runs of whitespace."""
+        want = _norm(name)
+        return [i for i in await self.list_catalog_items() if not i.get("deleted") and _norm(i.get("name", "")) == want]
+
+    async def access_request_item(self) -> dict:
+        """The 'Access request (ContextRail)' catalog item ({id, display_id, name}), looked up once and remembered.
+
+        place_request addresses items by display_id and approvals/tickets reference the id, so both are kept.
+        Zero or several matches are errors: an admin must create exactly one such item (T134); we never guess.
+        """
+        if self._access_item is None:
+            found = await self.find_catalog_items(ACCESS_REQUEST_ITEM)
+            if len(found) != 1:
+                what = "no catalog item" if not found else f"{len(found)} catalog items"
+                raise ConnectorError(f"{what} named {ACCESS_REQUEST_ITEM!r}; an admin must create exactly one (T134)")
+            self._access_item = {k: found[0][k] for k in ("id", "display_id", "name")}
+        return dict(self._access_item)
