@@ -33,6 +33,30 @@ _DOMAIN = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.freshservice\.com$
 _NOT_SENT = (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout)
 _READS = frozenset({"GET", "HEAD"})
 
+# Ticket `source` values (api.freshservice.com, Tickets: "Source Type"). Accounts can add custom sources.
+SOURCES = {1: "email", 2: "portal", 3: "phone", 4: "chat", 5: "feedback_widget", 10: "slack", 15: "ms_teams"}
+
+
+def source_name(ticket: dict) -> str:
+    """'email' for tickets raised through the support mailbox (the email door, CLAUDE.md §13.6), and so on."""
+    return SOURCES.get(ticket.get("source"), "other")
+
+
+def fs_id(value: object) -> int:
+    """A Freshservice id as a positive int. Anything else is refused before it can reach a URL path."""
+    if isinstance(value, bool) or not isinstance(value, int | str):
+        raise TypeError(f"not a Freshservice id: {value!r}")
+    text = str(value).strip()
+    if not (text.isascii() and text.isdigit()) or int(text) <= 0:
+        raise ValueError(f"not a Freshservice id: {value!r}")
+    return int(text)
+
+
+def _unwrap(body: Any, key: str, what: str) -> Any:
+    if not isinstance(body, dict) or key not in body:
+        raise ConnectorError(f"{what}: response has no '{key}' envelope")
+    return body[key]
+
 
 class FreshserviceHTTPError(ConnectorError):
     """A permanent Freshservice error (4xx other than 429). Do not retry."""
@@ -147,3 +171,24 @@ class FreshserviceClient:
 
     async def put(self, path: str, json: Any) -> Any:
         return await self.request("PUT", path, json=json)
+
+    # --- reads by id (T124) ------------------------------------------------------------------------------------
+
+    async def get_ticket(self, ticket_id: object) -> dict:
+        """GET /tickets/{id}. `source` tells a mailbox (email) ticket from a portal/catalog one."""
+        path = f"tickets/{fs_id(ticket_id)}"
+        return _unwrap(await self.get(path), "ticket", path)
+
+    async def get_requester(self, requester_id: object) -> dict:
+        path = f"requesters/{fs_id(requester_id)}"
+        return _unwrap(await self.get(path), "requester", path)
+
+    async def get_agent(self, agent_id: object) -> dict:
+        path = f"agents/{fs_id(agent_id)}"
+        return _unwrap(await self.get(path), "agent", path)
+
+    async def find_agents_by_email(self, email: str) -> list[dict]:
+        """GET /agents?email=... Every agent whose address is exactly `email` (case-insensitive), never a near match."""
+        want = email.strip().casefold()
+        agents = _unwrap(await self.get("agents", {"email": email.strip()}), "agents", "agents?email")
+        return [a for a in agents if str(a.get("email", "")).casefold() == want]
