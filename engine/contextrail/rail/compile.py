@@ -52,6 +52,11 @@ def _missing_policy(rule: Rule) -> str:
             f"carry the rule's clause text. Restore the page before acting.")
 
 
+def role_entry(role: str | None) -> dict:
+    """The role catalogue entry Govern uses; Policy Studio rebuilds the same value for a stored run."""
+    return load("roles")["roles"].get(role or "", {"baseline": []})
+
+
 def _knowledge_evidence(knowledge: Bundle, rules: list[Rule], now: datetime) -> tuple[list[Evidence], list[str]]:
     """T177: each rule's clause from its curated page (dated, so freshness can be judged) and the precedent pages
     linked to the rules. A clause missing from its page keeps the rule-file text as evidence and opens a blocker."""
@@ -76,11 +81,11 @@ async def gather_inputs(subject_record: dict, peer_record: dict | None, *, entit
             return []
         return (await entitlements.read({"subject_id": record["source_id"]}))["holdings"]
 
-    async def role_entry() -> dict:
-        return load("roles")["roles"].get(subject_record.get("role") or "", {"baseline": []})
+    async def subject_role() -> dict:
+        return role_entry(subject_record.get("role"))
 
     subject_h, peer_h, catalog, role = await asyncio.gather(
-        holdings(subject_record), holdings(peer_record), entitlements.read({}), role_entry())
+        holdings(subject_record), holdings(peer_record), entitlements.read({}), subject_role())
     evidence = [_record_evidence(subject_record, now)]
     if peer_record:
         evidence.append(_record_evidence(peer_record, now))

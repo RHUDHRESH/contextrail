@@ -13,6 +13,7 @@ from contextrail.policy.loader import load_rules
 from contextrail.settings import Settings, get_settings
 from contextrail.surfaces.decision_page import router as decision_page_router
 from contextrail.surfaces.mcp_server import mount_mcp
+from contextrail.surfaces.policy_studio import router as policy_studio_router
 from contextrail.surfaces.receipt_page import router as receipt_page_router
 from contextrail.surfaces.rest import router as runs_router
 from contextrail.surfaces.ses_webhook import router as ses_webhook_router
@@ -34,6 +35,7 @@ def create_app(settings: Settings | None = None, *, platform: Platform | None = 
     )
     app.state.settings = settings
     app.state.platform = platform
+    app.state.db = platform.db
     app.state.door = platform.door
     app.state.rules = platform.rules
     app.state.registry = platform.registry
@@ -47,6 +49,7 @@ def create_app(settings: Settings | None = None, *, platform: Platform | None = 
     app.include_router(v1_router)
     app.include_router(well_known_router)
     app.include_router(runs_router)
+    app.include_router(policy_studio_router)
     if settings.slack_configured:  # the Slack door is LIVE only with its credentials (D-004)
         app.include_router(slack_router)
         platform.slack = attach_slack(app, platform.door)
