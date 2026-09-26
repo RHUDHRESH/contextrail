@@ -15,4 +15,6 @@ The smallest useful screen is one request box, the three optional additions, a s
 
 The Python engine is the authority for identity, policy, named approvals, connector writes, and read-back verification. It may refuse a request or ask for a clearer person or action. The web interface must show that outcome without implying every request succeeded. The current Next.js interface uses fixture data and does **not** submit to the Python engine, create live Freshservice tickets, or place calls. Live voice requires a public callback, provider verification, and configured credentials; the call preference in the web demo does not supply these.
 
+The development-only `/engine-demo` page is a separate local integration check. It submits to the running Python engine and shows its actual RunView, including connector modes. It currently seeds sample identities and entitlements; it is not a production access-change claim. The route is unavailable in production and accepts requests only through a local Next.js host and local engine URL.
+
 Success for this redesign means a first-time user can prepare and submit a fixture request without understanding ContextRail internals, then find its status and next step. Technical details remain available on demand.

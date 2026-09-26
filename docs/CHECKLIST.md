@@ -333,3 +333,10 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 ## U. Requester experience (1) — added 2026-09-26
 
 - [x] T255 `P0` A simple requester screen: describe the outcome, optionally add people/workflow/call preference, submit to the fixture, and see status and next action; keep technical details behind disclosure.
+
+## V. Local integration demo — added 2026-09-26
+
+- [x] T256 `P0` A development-only, localhost-only web page sends a request to the Python engine with a server-side token and displays the actual RunView and connector modes.
+- [ ] T257 `P0` Switch among end user, contractor, and manager personas; show each actor's requests and manager approvals without letting one persona decide for another.
+- [ ] T258 `P0` Verify an approval from a real Slack workspace and its cross-door status update.
+- [ ] T259 `P1` Verify Dodo test checkout/usage and AWS-hosted multi-service deployment with account permissions and setup in place.

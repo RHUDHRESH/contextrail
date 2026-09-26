@@ -22,6 +22,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           {open && <nav aria-label="More" className="absolute right-0 top-11 w-48 rounded-xl border border-line-strong bg-panel p-1.5 shadow-xl">
             <Link href="/requests" onClick={() => setOpen(false)} className="block rounded-lg px-3 py-2 text-sm text-text hover:bg-panel-2 sm:hidden">My requests</Link>
             <Link href="/approvals" onClick={() => setOpen(false)} className="block rounded-lg px-3 py-2 text-sm text-text hover:bg-panel-2">Approvals</Link>
+            {process.env.NODE_ENV !== "production" && <Link href="/engine-demo" onClick={() => setOpen(false)} className="block rounded-lg px-3 py-2 text-sm text-text hover:bg-panel-2">Local engine demo</Link>}
             <Link href="/policy" onClick={() => setOpen(false)} className="block rounded-lg px-3 py-2 text-sm text-text hover:bg-panel-2">Policy</Link>
             <Link href="/skills" onClick={() => setOpen(false)} className="block rounded-lg px-3 py-2 text-sm text-text hover:bg-panel-2">Tools</Link>
           </nav>}

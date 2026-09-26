@@ -78,7 +78,24 @@ uv sync --project engine --frozen
 uv run --project engine pytest -q
 ```
 
-The separate Stage 1 web demo runs with `npm ci && npm run dev` at `http://localhost:3100`; its fixture simulation is not the Python engine. Do not put API keys in the browser app or commit `.env`. See [`.env.example`](.env.example) for variable names, including `FS_DOMAIN` and `FS_API_KEY` for Freshservice.
+The main web screen runs with `npm ci && npm run dev` at `http://localhost:3100` and uses sample data. To check a browser request against the actual Python engine on Windows, use two PowerShell terminals from the repository root (with a non-placeholder `ENGINE_TOKEN` in the ignored `.env`):
+
+```powershell
+# Terminal 1: temporary PostgreSQL, seeded identities, Python engine on 127.0.0.1:8000
+uv sync --project engine --group dev --frozen
+uv run --project engine python scripts/voice-pilot-local.py
+```
+
+```powershell
+# Terminal 2: local browser app on 127.0.0.1:3100
+$env:DEMO_ENGINE_URL = 'http://127.0.0.1:8000'
+npm ci
+npm run dev -- --hostname 127.0.0.1
+```
+
+Open `http://127.0.0.1:3100/engine-demo` and submit the prefilled access request. The page shows the Python engine's actual run ID, policy outcome, verified actions, and LIVE/FIXTURE mode per connector. This pilot uses a temporary database and sample access systems; stopping Terminal 1 removes that state. The route is development-only, localhost-only, and uses the server-side `ENGINE_TOKEN`; never put the token in browser code or commit `.env`. The call preference on the main screen is still a fixture preference, not a phone call.
+
+See [`.env.example`](.env.example) for variable names, including `FS_DOMAIN` and `FS_API_KEY` for Freshservice.
 
 ## Integrations and project trail
 
