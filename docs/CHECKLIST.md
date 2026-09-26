@@ -297,7 +297,7 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 
 - [ ] T227 `P0` 👤 Freshservice support mailbox configured (forwarding from the demo address).
 - [ ] T228 `P0` Workflow Automator condition for email-sourced tickets → same Web Request; webhook reads ticket `source`.
-- [ ] T229 `P0` Discover classifies email as request / query / approval-reply; body wrapped as untrusted.
+- [x] T229 `P0` Discover classifies email as request / query / approval-reply; body wrapped as untrusted.
 - [ ] T230 `P0` SES connector (boto3 sesv2, ap-south-1); idempotent send keyed by (run_id, action_id, "email").
 - [ ] T231 `P0` Approval email (HTML + plain text) rendered from `RunView` with the LIVE/FIXTURE label.
 - [ ] T232 `P0` Signed decision links: HMAC token; `GET /a/{token}` renders a confirm page only; `POST` decides.
