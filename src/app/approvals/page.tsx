@@ -28,12 +28,12 @@ export default function ApprovalCenter() {
         </p>
       </header>
 
-      <StatStrip className="mt-6 grid-cols-3">
+      <StatStrip className="mt-6 grid-cols-2 sm:grid-cols-3">
         <Stat label="awaiting a human" value={pending.length} tone={pending.length ? "caution" : "text"} />
         {/* Tone follows an actual state, never a sentiment: a zero count is
             not a red outcome. */}
         <Stat label="approved" value={approvedCount} tone={approvedCount > 0 ? "clear" : "text"} />
-        <Stat label="denied" value={deniedCount} tone={deniedCount > 0 ? "stop" : "text"} />
+        <Stat label="denied" value={deniedCount} tone={deniedCount > 0 ? "stop" : "text"} wideOnMobile />
       </StatStrip>
 
       <section className="mt-7">

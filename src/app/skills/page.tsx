@@ -4,8 +4,10 @@ import { Badge } from "@/components/ui/badge";
 import { Stat, StatStrip } from "@/components/rail/metrics";
 
 export const metadata = { title: "Skills & Tools — ContextRail" };
+export const dynamic = "force-dynamic";
 
 export default function SkillsPage() {
+  const freshserviceConfigured = Boolean(process.env.FRESHSERVICE_DOMAIN && process.env.FRESHSERVICE_API_KEY);
   return (
     <div className="mx-auto max-w-[1060px] px-6 py-8">
       <header>
@@ -19,10 +21,10 @@ export default function SkillsPage() {
         </p>
       </header>
 
-      <StatStrip className="mt-6 grid-cols-3">
+      <StatStrip className="mt-6 grid-cols-2 sm:grid-cols-3">
         <Stat label="mcp tools" value={MCP_TOOLS.length} tone="rail" hint="zod-validated boundaries" />
         <Stat label="skills" value={SKILLS.length} tone="clear" hint="installable, composable" />
-        <Stat label="connectors" value={8} hint="Freshservice + 7 mocked" />
+        <Stat label="source adapters" value={8} hint={freshserviceConfigured ? "Freshservice configured + 7 fixtures" : "8 fixtures"} wideOnMobile />
       </StatStrip>
 
       {/* ── skills ── */}

@@ -218,7 +218,9 @@ export default async function ReceiptPage({ params }: { params: Promise<{ id: st
       </article>
 
       <p className="mt-4 font-mono text-[10px] text-dim print:hidden">
-        Fixture tenant. Connectors are demo fixtures, not live systems.
+        {process.env.FRESHSERVICE_DOMAIN && process.env.FRESHSERVICE_API_KEY
+          ? "Freshservice configured; other source adapters use fixtures."
+          : "Fixture tenant. Source adapters use demo fixtures."}
       </p>
     </main>
   );

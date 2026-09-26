@@ -57,7 +57,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               </span>
             </TooltipTrigger>
             <TooltipContent side="right">
-              Tenant <span className="font-mono">acme-corp</span> · 8 systems connected
+              8 source adapters · connection status on Command Center
             </TooltipContent>
           </Tooltip>
         </div>
