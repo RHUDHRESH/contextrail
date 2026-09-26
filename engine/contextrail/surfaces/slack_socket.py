@@ -1,16 +1,18 @@
 """Slack door over Socket Mode, for development (CLAUDE.md §13.1): `python -m contextrail.surfaces.slack_socket`.
 
 Slack delivers slash commands and button clicks over a websocket, so a laptop with no public URL can run the door.
-It needs SLACK_BOT_TOKEN, SLACK_SIGNING_SECRET and SLACK_APP_TOKEN (an app-level token with connections:write), and
-refuses to start without them rather than pretend. Production uses HTTP mode (POST /slack/events) instead.
+It needs SLACK_BOT_TOKEN and SLACK_APP_TOKEN (an app-level token with connections:write), and
+refuses to start without them rather than pretend. HTTP mode also needs SLACK_SIGNING_SECRET.
+Production uses HTTP mode (POST /slack/events) instead.
 
-The rail wired here is the fixture-backed one the tests use (heuristic intent reader, template explanations); it
-talks to DATABASE_URL, so run `python -m contextrail.seed` first.
+The rail is built from the same Settings and Platform as the HTTP app, including connector modes and the approval
+worker. It talks to DATABASE_URL, so run `python -m contextrail.seed` first.
 """
 
 from __future__ import annotations
 
 import asyncio
+import secrets
 import sys
 
 from slack_bolt.adapter.socket_mode.async_handler import AsyncSocketModeHandler
@@ -26,41 +28,25 @@ def build_handler(slack: SlackDoor, *, app_token: str) -> AsyncSocketModeHandler
 
 
 async def _serve(settings: Settings) -> None:
-    from contextrail.connectors.registry import build_registry
-    from contextrail.db import Database
-    from contextrail.fixtures import load
-    from contextrail.policy.engine import PolicyEngine
-    from contextrail.policy.loader import load_rules
-    from contextrail.rail.discover import HeuristicExtractor
-    from contextrail.rail.plan import TemplateExplainer
-    from contextrail.rail.runner import RailDeps, Runner
-    from contextrail.seed import approver_directory
-    from contextrail.surfaces.door import Door
+    from contextrail.app_state import build_platform
 
-    people = {p["person_id"]: p["display_name"] for p in load("identity")["people"]}
-    rules, registry = load_rules(), build_registry()
-    db = Database(settings.database_url)
-    await db.open()
-    try:
-        runner = Runner(RailDeps(db=db, registry=registry, engine=PolicyEngine(rules, approver_directory()),
-                                 rules=rules, extractor=HeuristicExtractor(), explainer=TemplateExplainer(people)))
-        modes = {name: c.mode for name, c in registry.connectors.items()}
-        slack = SlackDoor(Door(runner, people=people, modes=modes),
-                          client=AsyncWebClient(token=settings.slack_bot_token.get_secret_value()),
-                          signing_secret=settings.slack_signing_secret.get_secret_value())
-        handler = build_handler(slack, app_token=settings.slack_app_token.get_secret_value())
+    platform = build_platform(settings)
+    # Socket Mode receives callbacks over a websocket; this signing secret is never used to admit HTTP traffic.
+    signing_secret = settings.slack_signing_secret.get_secret_value() or secrets.token_urlsafe(32)
+    slack = SlackDoor(platform.door, client=AsyncWebClient(token=settings.slack_bot_token.get_secret_value()),
+                      signing_secret=signing_secret)
+    platform.slack = slack
+    handler = build_handler(slack, app_token=settings.slack_app_token.get_secret_value())
+    async with platform.serving(worker=True):
         try:
             await handler.start_async()
         finally:
             await handler.close_async()
-    finally:
-        await db.close()
 
 
 def main(settings: Settings | None = None) -> int:
     settings = settings or get_settings()
     missing = [name for name, secret in (("SLACK_BOT_TOKEN", settings.slack_bot_token),
-                                         ("SLACK_SIGNING_SECRET", settings.slack_signing_secret),
                                          ("SLACK_APP_TOKEN", settings.slack_app_token))
                if not secret.get_secret_value()]
     if missing:

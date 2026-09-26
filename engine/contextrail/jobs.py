@@ -62,13 +62,9 @@ class HandlerRegistry:
 handlers = HandlerRegistry()
 handler = handlers.handler
 
-# Modules whose import registers handlers. Every worker (the API's in-process one and `python -m contextrail.worker`)
-# loads the same list. Kinds enqueued today whose handlers are being written with their doors, to be appended here:
-#   'approval.dispatch'   rail/approve.py -> Freshservice approval + the approver's preferred door (+ Slack)
-#   'fs.approval.mirror'  door.decide -> mirror the decision to the Freshservice approval
-#   'door.update'         door.decide -> refresh every door's card ("decided by Dana in Teams")
-# Until a handler is registered, those jobs wait in the queue untouched (claims filter by kind).
-HANDLER_MODULES: tuple[str, ...] = ("contextrail.intake", "contextrail.receipts")
+# Modules whose import registers handlers. Both in-process and standalone workers load the same kinds.
+HANDLER_MODULES: tuple[str, ...] = ("contextrail.intake", "contextrail.receipts",
+                                    "contextrail.surfaces.job_dispatch")
 
 
 def load_handlers(modules: tuple[str, ...] = HANDLER_MODULES) -> list[str]:
