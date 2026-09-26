@@ -11,7 +11,7 @@ import httpx
 import pytest
 from _fs_mock import API_KEY, DOMAIN, FakeTenant, ok
 
-from contextrail.connectors.base import Connector, ConnectorError, UnknownOutcome
+from contextrail.connectors.base import Connector, ConnectorError, TransientError, UnknownOutcome
 from contextrail.connectors.freshservice import FreshserviceConnector, source_name
 from contextrail.connectors.registry import build_registry
 from contextrail.connectors.state import FixtureState
@@ -129,11 +129,20 @@ async def test_a_failing_tenant_read_falls_back_to_the_fixture_labelled_and_logg
     assert API_KEY not in json.dumps(lines)
 
 
-async def test_a_failing_tenant_write_falls_back_and_is_labelled(tmp_path):
+@pytest.mark.parametrize(("answer", "error"), [(ok({"description": "no"}, status=403), ConnectorError),
+                                               (httpx.Response(503), TransientError)])
+async def test_a_failing_tenant_write_is_raised_and_never_redone_on_the_fixture(tmp_path, answer, error):
+    """A write the tenant did not take cannot be stood in for by the fixture: the ticket would never show it, and
+    a stored fixture id would stop the real one from ever being requested (split brain). Reads still fall back."""
     tenant = FakeTenant({("GET", "/api/v2/tickets/4412/approvals"): ok({"approvals": []}),
-                         ("POST", "/api/v2/tickets/4412/approvals"): ok({"description": "no"}, status=403)})
-    got = await live_conn(tmp_path, tenant).request_approval(4412, DANA)
-    assert got.mode == "FIXTURE" and "403" in got.fallback_reason and got.status == "requested"
+                         ("POST", "/api/v2/tickets/4412/approvals"): answer})
+    with pytest.raises(error):
+        await live_conn(tmp_path, tenant).request_approval(4412, DANA)
+    assert (await fixture_conn(tmp_path).list_approvals(4412)).data == []
+    note_tenant = FakeTenant({("GET", "/api/v2/tickets/4412/conversations"): ok({"conversations": []}),
+                              ("POST", "/api/v2/tickets/4412/notes"): answer})
+    with pytest.raises(error):
+        await live_conn(tmp_path, note_tenant).add_private_note(4412, "<p>x</p>", "cr-ref:0123456789abcdef")
 
 
 async def test_an_unknown_write_outcome_is_raised_not_papered_over_by_the_fixture(tmp_path):

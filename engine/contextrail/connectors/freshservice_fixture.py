@@ -57,6 +57,15 @@ class FixtureTenant:
             ("GET", re.compile(r"^/api/v2/agents/(\d+)$"), self._agent),
             ("GET", re.compile(r"^/api/v2/agents$"), self._agents),
             ("GET", re.compile(r"^/api/v2/service_catalog/items$"), self._catalog),
+            ("GET", re.compile(r"^/api/v2/solutions/articles/(\d+)$"), self._article),
+            ("POST", re.compile(r"^/api/v2/service_catalog/items/(\d+)/place_request$"), self._place_request),
+            ("GET", re.compile(r"^/api/v2/tickets/(\d+)/requested_items$"), self._requested_items),
+            ("GET", re.compile(r"^/api/v2/assets/(\d+)$"), self._asset),
+            ("PUT", re.compile(r"^/api/v2/assets/(\d+)$"), self._update_asset),
+            ("GET", re.compile(r"^/api/v2/objects$"), self._objects),
+            ("GET", re.compile(r"^/api/v2/objects/(\d+)$"), self._object),
+            ("GET", re.compile(r"^/api/v2/objects/(\d+)/records$"), self._records),
+            ("POST", re.compile(r"^/api/v2/objects/(\d+)/records$"), self._create_record),
             ("GET", re.compile(r"^/api/v2/tickets/(\d+)/approvals$"), self._approvals),
             ("GET", re.compile(r"^/api/v2/tickets/(\d+)/approvals/(\d+)$"), self._approval),
             ("POST", re.compile(r"^/api/v2/tickets/(\d+)/approvals$"), self._create_approval),
@@ -102,6 +111,10 @@ class FixtureTenant:
     async def _catalog(self, request: httpx.Request) -> httpx.Response:
         return _page(request, self.state.load()["service_items"], "service_items")
 
+    async def _article(self, request: httpx.Request, aid: str) -> httpx.Response:
+        a = self._record("solution_articles", aid)
+        return _ok({"article": a}) if a else _error(404, f"solution article {aid} not found")
+
     async def _approvals(self, request: httpx.Request, tid: str) -> httpx.Response:
         doc = self.state.load()
         if tid not in doc["tickets"]:
@@ -113,6 +126,79 @@ class FixtureTenant:
             if str(a["id"]) == aid:
                 return _ok({"approval": a})
         return _error(404, f"approval {aid} not found on ticket {tid}")
+
+    async def _requested_items(self, request: httpx.Request, tid: str) -> httpx.Response:
+        doc = self.state.load()
+        if tid not in doc["tickets"]:
+            return _error(404, f"ticket {tid} not found")
+        return _ok({"requested_items": doc["requested_items"].get(tid, [])})
+
+    async def _asset(self, request: httpx.Request, did: str) -> httpx.Response:
+        a = self._record("assets", did)
+        return _ok({"asset": a}) if a else _error(404, f"asset {did} not found")
+
+    async def _update_asset(self, request: httpx.Request, did: str) -> httpx.Response:
+        fields = json.loads(request.content or b"{}")
+        allowed = {"name", "description", "asset_tag", "impact", "usage_type", "user_id", "location_id",
+                   "department_id", "agent_id", "group_id", "assigned_on"}
+
+        def apply(doc: dict) -> httpx.Response:
+            asset = doc["assets"].get(did)
+            if asset is None:
+                return _error(404, f"asset {did} not found")
+            unknown = sorted(set(fields) - allowed)
+            if unknown:
+                return _error(400, f"Validation failed: unknown fields {unknown}", field=unknown[0])
+            if fields.get("user_id") is not None and str(fields["user_id"]) not in {
+                    *doc["requesters"], *doc["agents"]}:
+                return _error(400, "Validation failed: no such user", field="user_id")
+            asset.update(fields)
+            if "user_id" in fields:
+                asset["assigned_on"] = _now()
+            asset["updated_at"] = _now()
+            return _ok({"asset": asset})
+
+        return await self.state.mutate(apply)
+
+    async def _objects(self, request: httpx.Request) -> httpx.Response:
+        listed = [{k: o[k] for k in ("id", "title", "description")} for o in self.state.load()["custom_objects"].values()]
+        return _page(request, listed, "custom_objects")
+
+    async def _object(self, request: httpx.Request, oid: str) -> httpx.Response:
+        o = self._record("custom_objects", oid)
+        return _ok({"custom_object": o}) if o else _error(404, f"custom object {oid} not found")
+
+    async def _records(self, request: httpx.Request, oid: str) -> httpx.Response:
+        doc = self.state.load()
+        if oid not in doc["custom_objects"]:
+            return _error(404, f"custom object {oid} not found")
+        records = doc["object_records"].get(oid, [])
+        query = request.url.params.get("query")
+        if query is not None:  # the fixture understands one condition: field : 'value'
+            m = re.fullmatch(r"(\w+) : '([^']*)'", query)
+            if m is None:
+                return _error(400, "Invalid query")
+            records = [r for r in records if str(r.get(m.group(1))) == m.group(2)]
+        size = int(request.url.params.get("page_size", 10))
+        return _ok({"records": [{"data": r} for r in records[:size]]})
+
+    async def _create_record(self, request: httpx.Request, oid: str) -> httpx.Response:
+        data = json.loads(request.content or b"{}").get("data") or {}
+
+        def apply(doc: dict) -> httpx.Response:
+            obj = doc["custom_objects"].get(oid)
+            if obj is None:
+                return _error(404, f"custom object {oid} not found")
+            unknown = sorted(set(data) - {f["name"] for f in obj["fields"]})
+            if unknown:
+                return _error(400, f"Validation failed: unknown fields {unknown}", field=unknown[0])
+            records = doc["object_records"].setdefault(oid, [])
+            record = {**data, "bo_display_id": len(records) + 1, "bo_created_at": _now(), "bo_updated_at": _now(),
+                      "bo_created_by": None, "bo_updated_by": None}
+            records.append(record)
+            return _ok({"custom_object": {"data": record}})
+
+        return await self.state.mutate(apply)
 
     async def _conversations(self, request: httpx.Request, tid: str) -> httpx.Response:
         doc = self.state.load()
@@ -141,6 +227,41 @@ class FixtureTenant:
                       "email_content": body.get("email_content"), "latest_remark": ""}
             doc["approvals"].setdefault(tid, []).append(record)
             return _ok({"approval": record})
+
+        return await self.state.mutate(apply)
+
+    async def _place_request(self, request: httpx.Request, display_id: str) -> httpx.Response:
+        body = json.loads(request.content or b"{}")
+
+        def user_by_email(doc: dict, email: str | None) -> dict | None:
+            want = (email or "").casefold()
+            return next((u for u in [*doc["requesters"].values(), *doc["agents"].values()]
+                         if (u.get("primary_email") or u.get("email", "")).casefold() == want), None)
+
+        def apply(doc: dict) -> httpx.Response:
+            item = next((i for i in doc["service_items"] if str(i["display_id"]) == display_id), None)
+            if item is None or item.get("deleted"):
+                return _error(404, f"service item {display_id} not found")
+            requester = user_by_email(doc, body.get("email"))
+            if requester is None:
+                return _error(400, "Validation failed: no such requester", field="email")
+            requested_for = user_by_email(doc, body["requested_for"]) if "requested_for" in body else requester
+            if requested_for is None:
+                return _error(400, "Validation failed: no such user", field="requested_for")
+            tid, doc["next_ticket_id"] = doc["next_ticket_id"], doc["next_ticket_id"] + 1
+            ticket = {"id": tid, "subject": f"Request for : {item['name']}", "description": "",
+                      "description_text": "", "requester_id": requester["id"],
+                      "requested_for_id": requested_for["id"], "source": 2, "status": 2, "priority": 2,
+                      "type": "Service Request", "custom_fields": {}, "created_at": _now(), "updated_at": _now(),
+                      "deleted": False, "approval_status": None, "approval_status_name": "Not Requested"}
+            ritem_id, doc["next_id"] = doc["next_id"], doc["next_id"] + 1
+            doc["tickets"][str(tid)] = ticket
+            doc["requested_items"][str(tid)] = [{
+                "id": ritem_id, "service_item_id": item["display_id"], "quantity": body.get("quantity", 1),
+                "stage": 1, "is_parent": True, "custom_fields": body.get("custom_fields") or {},
+                "created_at": _now(), "updated_at": _now()}]
+            doc["approvals"][str(tid)], doc["conversations"][str(tid)] = [], []
+            return _ok({"service_request": ticket})
 
         return await self.state.mutate(apply)
 

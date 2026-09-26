@@ -15,9 +15,11 @@ How outcomes map to the connector contract (connectors/base.py):
   but a write is an UnknownOutcome: reconcile with a read before any retry, never blind-retry (§8 Execute).
 
 FreshserviceConnector (T138) is what the rail and the doors use. It is LIVE only when FS_DOMAIN and FS_API_KEY are
-set. Every result carries the mode of the system that actually answered: FIXTURE when not configured, and FIXTURE
-with a `fallback_reason` (and a warning log) when a tenant call failed. A write with an unknown outcome is raised,
-never redone against the fixture, because the tenant may already hold it (D-004, CLAUDE.md §0 rule 4).
+set. Every result carries the mode of the system that actually answered: FIXTURE when not configured, and for a
+read, FIXTURE with a `fallback_reason` (and a warning log) when the tenant call failed. A write on a configured
+tenant never falls back: an approval or note the ticket never received cannot be stood in for by the fixture, and a
+stored fixture id would stop the real one from ever being made. Failed writes are raised (TransientError retries
+with read-first reconciliation; UnknownOutcome is reconciled; anything else is surfaced) (D-004, CLAUDE.md §0 rule 4).
 """
 
 from __future__ import annotations
@@ -56,10 +58,27 @@ SOURCES = {1: "email", 2: "portal", 3: "phone", 4: "chat", 5: "feedback_widget",
 
 
 ACCESS_REQUEST_ITEM = "Access request (ContextRail)"  # the catalog item an admin creates (T134)
+ACCESS_REQUEST_TEXT_FIELD = "request_text"  # that item's "request text" form field, as the API names it
+_EMAIL = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+# The receipts custom object an admin creates (T128). The API names a field after its label ("Receipt Key" ->
+# receipt_key); receipts_object() checks these names exist before anything is written.
+RECEIPTS_OBJECT = "ContextRail Receipts"
+RECEIPT_FIELDS = ("receipt_key", "run_id", "ticket_id", "status", "summary", "receipt_json", "audit_from",
+                  "audit_to", "mode")
+_QUERY_FIELD = re.compile(r"^[a-z0-9_]{1,64}$")
+_QUERY_VALUE = re.compile(r"^[A-Za-z0-9:_.@-]{1,120}$")  # no quotes or spaces: nothing can close the literal
 CATALOG_PAGE_SIZE = 30  # View List of Service Items: "per_page ... (default: 30, max: 30)"
 MAX_PAGES = 50          # a tenant that always answers rel="next" cannot keep us paging forever
 CONVERSATION_PAGE_SIZE = 30  # the documented default page size for a ticket's conversations
 _MARKER = re.compile(r"^[a-z0-9][a-z0-9:_-]{7,79}$")  # plain tokens survive Freshservice's HTML handling
+
+
+@dataclass(frozen=True)
+class RecordOutcome:
+    record: dict      # the custom object record's data (bo_display_id is its id)
+    replayed: bool    # a record with this receipt_key already existed; nothing was posted
+    confirmed: bool   # a re-query shows the record
 
 
 @dataclass(frozen=True)
@@ -93,6 +112,14 @@ class ApprovalStatus(IntEnum):
     CANCELLED = 3
 
 
+ARTICLE_STATUSES = {1: "draft", 2: "published"}  # Solution Article attribute `status`
+
+
+def article_status(article: dict) -> str:
+    """'published' or 'draft'. Knowledge ingest treats only published articles as policy (CLAUDE.md §10)."""
+    return ARTICLE_STATUSES.get(article.get("status"), "unknown")
+
+
 def approval_status(approval: dict) -> ApprovalStatus:
     """The status of an approval record, read from `approval_status.id` (the display name may vary)."""
     return ApprovalStatus(int(approval["approval_status"]["id"]))
@@ -113,6 +140,13 @@ def fs_id(value: object) -> int:
     return int(text)
 
 
+def _email(value: str) -> str:
+    value = (value or "").strip()
+    if not _EMAIL.match(value):
+        raise ValueError(f"not an email address: {value!r}")
+    return value
+
+
 def _unwrap(body: Any, key: str, what: str) -> Any:
     if not isinstance(body, dict) or key not in body:
         raise ConnectorError(f"{what}: response has no '{key}' envelope")
@@ -121,6 +155,15 @@ def _unwrap(body: Any, key: str, what: str) -> Any:
 
 class FreshserviceHTTPError(ConnectorError):
     """A permanent Freshservice error (4xx other than 429). Do not retry."""
+
+    def __init__(self, status: int, message: str) -> None:
+        super().__init__(message)
+        self.status = status
+
+
+class ServerError(TransientError):
+    """5xx from Freshservice. Retryable where a read-first reconcile exists; a write without one must treat it as
+    an UnknownOutcome, because a gateway error can follow a write that landed."""
 
     def __init__(self, status: int, message: str) -> None:
         super().__init__(message)
@@ -171,6 +214,7 @@ class FreshserviceClient:
         self.base_url = base_url(domain)
         self.limiter = limiter
         self._access_item: dict | None = None
+        self._receipts_object: dict | None = None
         self.http = httpx.AsyncClient(
             base_url=self.base_url + "/",
             auth=httpx.BasicAuth(api_key, "X"),
@@ -215,7 +259,7 @@ class FreshserviceClient:
             after = _retry_after(r)
             raise RateLimited(f"{what}: 429 rate limited (retry after {after}s)", after)
         if r.status_code >= 500:
-            raise TransientError(f"{what}: {r.status_code} {_describe(r)}".rstrip())
+            raise ServerError(r.status_code, f"{what}: {r.status_code} {_describe(r)}".rstrip())
         if r.status_code >= 300:
             raise FreshserviceHTTPError(r.status_code, f"{what}: {r.status_code} {_describe(r)}".rstrip())
         if r.status_code == 204 or not r.content.strip():
@@ -298,6 +342,39 @@ class FreshserviceClient:
             self._access_item = {k: found[0][k] for k in ("id", "display_id", "name")}
         return dict(self._access_item)
 
+    # --- catalog requests: tickets for requests from Slack, Teams and voice (T131) -----------------------------
+
+    async def place_request(self, display_id: object, *, email: str, requested_for: str | None = None,
+                            quantity: int = 1, custom_fields: dict | None = None) -> dict:
+        """POST /service_catalog/items/{display_id}/place_request -> `service_request` (the new ticket).
+
+        No idempotency key exists and requested items are not searchable by form value, so nothing can reconcile a
+        doubtful attempt: a timeout or a 5xx after sending is an UnknownOutcome the caller must not retry blindly
+        (a 429 or an unsent request stays retryable). Callers keep the returned ticket id.
+        """
+        path = f"service_catalog/items/{fs_id(display_id)}/place_request"
+        body: dict[str, Any] = {"email": _email(email), "quantity": quantity}
+        if requested_for is not None:
+            body["requested_for"] = _email(requested_for)
+        if custom_fields:
+            body["custom_fields"] = custom_fields
+        try:
+            return _unwrap(await self.post(path, body), "service_request", path)
+        except ServerError as e:
+            raise UnknownOutcome(f"{e}; the request may have been placed, and cannot be looked up") from e
+
+    async def place_access_request(self, email: str, request_text: str, *, requested_for: str | None = None,
+                                   text_field: str = ACCESS_REQUEST_TEXT_FIELD) -> dict:
+        """A ticket on the 'Access request (ContextRail)' item, with the request text in its form field."""
+        item = await self.access_request_item()
+        return await self.place_request(item["display_id"], email=email, requested_for=requested_for,
+                                        custom_fields={text_field: request_text})
+
+    async def get_requested_items(self, ticket_id: object) -> list[dict]:
+        """GET /tickets/{id}/requested_items: the catalog form values (`custom_fields`) of a service request."""
+        path = f"tickets/{fs_id(ticket_id)}/requested_items"
+        return _unwrap(await self.get(path), "requested_items", path)
+
     # --- approvals on a ticket (T126) --------------------------------------------------------------------------
 
     async def create_approval(self, ticket_id: object, approver_id: object, *,
@@ -336,6 +413,75 @@ class FreshserviceClient:
                 return a, True
         return await self.create_approval(ticket_id, who, approval_type=approval_type,
                                           email_content=email_content), False
+
+    # --- solution articles: the policy source for knowledge ingest (T129) --------------------------------------
+
+    async def get_solution_article(self, article_id: object) -> dict:
+        """GET /solutions/articles/{id} -> `article` (HTML `description`, `status` 1 draft / 2 published)."""
+        path = f"solutions/articles/{fs_id(article_id)}"
+        return _unwrap(await self.get(path), "article", path)
+
+    # --- assets: laptop assignment for onboarding (T130) --------------------------------------------------------
+
+    async def get_asset(self, display_id: object) -> dict:
+        """GET /assets/{display_id} -> `asset`. `user_id` is who uses it ("Used By")."""
+        path = f"assets/{fs_id(display_id)}"
+        return _unwrap(await self.get(path), "asset", path)
+
+    async def update_asset(self, display_id: object, fields: dict) -> dict:
+        """PUT /assets/{display_id} with only the given fields -> `asset`."""
+        path = f"assets/{fs_id(display_id)}"
+        return _unwrap(await self.put(path, fields), "asset", path)
+
+    # --- custom object records: the full receipt (T128) ---------------------------------------------------------
+
+    async def list_custom_objects(self) -> list[dict]:
+        return await self.get_all("objects", "custom_objects", page_size=CATALOG_PAGE_SIZE)
+
+    async def get_custom_object(self, object_id: object) -> dict:
+        path = f"objects/{fs_id(object_id)}"
+        return _unwrap(await self.get(path), "custom_object", path)
+
+    async def create_record(self, object_id: object, data: dict) -> dict:
+        """POST /objects/{id}/records {"data": ...} -> the stored record's data (with bo_display_id)."""
+        path = f"objects/{fs_id(object_id)}/records"
+        return _unwrap(_unwrap(await self.post(path, {"data": data}), "custom_object", path), "data", path)
+
+    async def find_records(self, object_id: object, field: str, value: str, *, page_size: int = 10) -> list[dict]:
+        """GET /objects/{id}/records?query=<field : 'value'>. Field and value are plain tokens, so the query
+        language cannot be injected through them."""
+        if not _QUERY_FIELD.match(field) or not _QUERY_VALUE.match(value or ""):
+            raise ValueError(f"unsafe custom object query {field!r} : {value!r}")
+        path = f"objects/{fs_id(object_id)}/records"
+        records = _unwrap(await self.get(path, {"query": f"{field} : '{value}'", "page_size": page_size}),
+                          "records", path)
+        return [r["data"] for r in records]
+
+    async def receipts_object(self) -> dict:
+        """The 'ContextRail Receipts' object ({id, title}), found by exact title and checked for RECEIPT_FIELDS."""
+        if self._receipts_object is None:
+            found = [o for o in await self.list_custom_objects() if _norm(o.get("title", "")) == _norm(RECEIPTS_OBJECT)]
+            if len(found) != 1:
+                what = "no custom object" if not found else f"{len(found)} custom objects"
+                raise ConnectorError(f"{what} titled {RECEIPTS_OBJECT!r}; an admin must create exactly one (T128)")
+            names = {f.get("name") for f in (await self.get_custom_object(found[0]["id"])).get("fields", [])}
+            missing = [f for f in RECEIPT_FIELDS if f not in names]
+            if missing:
+                raise ConnectorError(f"{RECEIPTS_OBJECT!r} lacks fields {missing}; add them in admin (T128)")
+            self._receipts_object = {"id": found[0]["id"], "title": found[0]["title"]}
+        return dict(self._receipts_object)
+
+    async def add_receipt_record(self, record: dict, key: str) -> RecordOutcome:
+        """Store a receipt once under `key` (receipt_key), then query it back to confirm it exists."""
+        if not _QUERY_VALUE.match(key or ""):
+            raise ValueError(f"receipt key must be a plain token, got {key!r}")
+        obj = (await self.receipts_object())["id"]
+        existing = await self.find_records(obj, "receipt_key", key)
+        if existing:
+            return RecordOutcome(record=existing[0], replayed=True, confirmed=True)
+        stored = await self.create_record(obj, {**record, "receipt_key": key})
+        seen = await self.find_records(obj, "receipt_key", key)
+        return RecordOutcome(record=stored, replayed=False, confirmed=bool(seen))
 
     # --- private notes: receipts and decision mirrors (T127) ---------------------------------------------------
 
@@ -409,6 +555,33 @@ class FsNote(BaseModel):
     fallback_reason: str | None = None
 
 
+class FsReceipt(BaseModel):
+    """Where a full receipt record lives (custom object + record id), whether it read back, and in which system."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    object_id: int
+    display_id: int | None
+    receipt_key: str
+    replayed: bool
+    confirmed: bool
+    mode: Mode
+    fallback_reason: str | None = None
+
+
+class FsAsset(BaseModel):
+    """An asset assignment: who the asset is with after the call, and whether a read-back showed it (P3)."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    display_id: int
+    user_id: int | None
+    replayed: bool   # it was already with this person; nothing was written
+    verified: bool   # a read after the write shows the asset with this person
+    mode: Mode
+    fallback_reason: str | None = None
+
+
 def _approval(ticket_id: int, a: dict, mode: Mode, why: str | None, replayed: bool = False) -> FsApproval:
     return FsApproval(ticket_id=ticket_id, approval_id=a["id"], approver_id=a["approver_id"],
                       status=approval_status(a).name.lower(), replayed=replayed, mode=mode, fallback_reason=why)
@@ -421,8 +594,8 @@ class FreshserviceConnector:
 
     def __init__(self, settings: Settings | None = None, *, state: FixtureState | None = None,
                  transport: httpx.AsyncBaseTransport | None = None, limiter: TokenBucket | None = None) -> None:
-        self.fixture = FreshserviceClient(FIXTURE_DOMAIN, "fixture",
-                                          transport=FixtureTenant(state or FixtureState("freshservice")).transport)
+        self.fixture_state = state or FixtureState("freshservice")
+        self.fixture = FreshserviceClient(FIXTURE_DOMAIN, "fixture", transport=FixtureTenant(self.fixture_state).transport)
         self.live: FreshserviceClient | None = None
         if settings is not None and settings.freshservice_configured:
             self.live = FreshserviceClient(settings.fs_domain, settings.fs_api_key.get_secret_value(),
@@ -435,7 +608,8 @@ class FreshserviceConnector:
         if self.live is not None:
             await self.live.aclose()
 
-    async def _call(self, op: str, fn: Callable[[FreshserviceClient], Awaitable[T]]) -> tuple[T, Mode, str | None]:
+    async def _call(self, op: str, fn: Callable[[FreshserviceClient], Awaitable[T]], *,
+                    write: bool = False) -> tuple[T, Mode, str | None]:
         if self.live is None:
             return await fn(self.fixture), "FIXTURE", None
         try:
@@ -443,6 +617,8 @@ class FreshserviceConnector:
         except UnknownOutcome:
             raise  # the tenant may hold the write already: reconcile, do not write it somewhere else
         except ConnectorError as e:
+            if write:  # a fixture write cannot stand in for one the ticket never got: raise, retry, reconcile
+                raise
             failure = e
         reason = f"tenant call failed: {failure}"
         get_logger("contextrail.freshservice").warning("freshservice.fixture_fallback", op=op, reason=reason)
@@ -454,8 +630,9 @@ class FreshserviceConnector:
 
     # --- reads -------------------------------------------------------------------------------------------------
 
-    async def _read(self, op: str, fn: Callable[[FreshserviceClient], Awaitable[Any]]) -> FsRead:
-        data, mode, why = await self._call(op, fn)
+    async def _read(self, op: str, fn: Callable[[FreshserviceClient], Awaitable[Any]], *, write: bool = False
+                    ) -> FsRead:
+        data, mode, why = await self._call(op, fn, write=write)
         return FsRead(data=data, mode=mode, fallback_reason=why)
 
     async def get_ticket(self, ticket_id: object) -> FsRead:
@@ -480,6 +657,20 @@ class FreshserviceConnector:
         tid = fs_id(ticket_id)
         return await self._read("list_approvals", lambda c: c.list_approvals(tid))
 
+    async def get_solution_article(self, article_id: object) -> FsRead:
+        aid = fs_id(article_id)
+        return await self._read("get_solution_article", lambda c: c.get_solution_article(aid))
+
+    async def get_requested_items(self, ticket_id: object) -> FsRead:
+        tid = fs_id(ticket_id)
+        return await self._read("get_requested_items", lambda c: c.get_requested_items(tid))
+
+    async def place_access_request(self, email: str, request_text: str, *,
+                                   requested_for: str | None = None) -> FsRead:
+        """A new 'Access request (ContextRail)' ticket; `data` is the service request, labelled with its mode."""
+        return await self._read("place_access_request", lambda c: c.place_access_request(
+            email, request_text, requested_for=requested_for), write=True)
+
     async def get_approval(self, ticket_id: object, approval_id: object) -> FsApproval:
         tid, aid = fs_id(ticket_id), fs_id(approval_id)
         a, mode, why = await self._call("get_approval", lambda c: c.get_approval(tid, aid))
@@ -491,14 +682,44 @@ class FreshserviceConnector:
                                approval_type: ApprovalType = ApprovalType.EVERYONE) -> FsApproval:
         tid, who = fs_id(ticket_id), fs_id(approver_id)
         (a, replayed), mode, why = await self._call("request_approval", lambda c: c.request_approval(
-            tid, who, approval_type=approval_type, email_content=email_content))
+            tid, who, approval_type=approval_type, email_content=email_content), write=True)
         return _approval(tid, a, mode, why, replayed)
 
     async def add_private_note(self, ticket_id: object, body_html: str, marker: str) -> FsNote:
         tid = fs_id(ticket_id)
-        out, mode, why = await self._call("add_private_note", lambda c: c.add_private_note(tid, body_html, marker))
+        out, mode, why = await self._call("add_private_note", lambda c: c.add_private_note(tid, body_html, marker),
+                                          write=True)
         return FsNote(ticket_id=tid, note_id=out.note["id"], marker=marker, replayed=out.replayed,
                       confirmed=out.confirmed, mode=mode, fallback_reason=why)
+
+    async def get_asset(self, display_id: object) -> FsRead:
+        did = fs_id(display_id)
+        return await self._read("get_asset", lambda c: c.get_asset(did))
+
+    async def assign_asset(self, display_id: object, user_id: object) -> FsAsset:
+        """Give the asset to `user_id` ("Used By"): read first (already theirs -> replayed, nothing written), else
+        PUT, then read back. Setting the same user twice is harmless, but the read comes first all the same."""
+        did, uid = fs_id(display_id), fs_id(user_id)
+
+        async def op(c: FreshserviceClient) -> tuple[dict, bool]:
+            before = await c.get_asset(did)
+            if before.get("user_id") == uid:
+                return before, True
+            await c.update_asset(did, {"user_id": uid})
+            return await c.get_asset(did), False
+
+        (asset, replayed), mode, why = await self._call("assign_asset", op, write=True)
+        return FsAsset(display_id=did, user_id=asset.get("user_id"), replayed=replayed,
+                       verified=asset.get("user_id") == uid, mode=mode, fallback_reason=why)
+
+    async def add_receipt_record(self, record: dict, key: str) -> FsReceipt:
+        async def op(c: FreshserviceClient) -> tuple[int, RecordOutcome]:
+            out = await c.add_receipt_record(record, key)
+            return (await c.receipts_object())["id"], out  # remembered by the first call: no extra request
+
+        (obj, out), mode, why = await self._call("add_receipt_record", op, write=True)
+        return FsReceipt(object_id=obj, display_id=out.record.get("bo_display_id"), receipt_key=key,
+                         replayed=out.replayed, confirmed=out.confirmed, mode=mode, fallback_reason=why)
 
     # --- the Connector protocol --------------------------------------------------------------------------------
 
