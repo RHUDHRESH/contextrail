@@ -28,7 +28,7 @@ The engine in [`engine/`](engine/) is the decision and write authority: Python 3
 
 | Door | Repository state | External setup still needed |
 | --- | --- | --- |
-| **Freshservice** | REST connector, signed webhook intake, and FDK ticket sidebar are implemented. The configured tenant passed a live, read-only `GET /api/v2/agents/me` authentication check. | Create the catalog item and signed Workflow Automator delivery path; verify ticket creation, approvals, and receipt notes end to end. |
+| **Freshservice** | REST connector, signed webhook intake, and FDK ticket sidebar are implemented. The configured tenant passed live, read-only `GET /api/v2/agents/me` and ticket-list checks. | The same key receives `403` listing service catalog items. Resolve that permission, then create the catalog item and signed Workflow Automator delivery path; verify ticket creation, approvals, and receipt notes end to end. |
 | **Slack** | Slash command, status updates, approval cards, candidate picker, and Bolt handlers are implemented. | Install/configure the app and verify live Slack delivery. HTTP mode needs a signing secret; Socket Mode uses an app token. |
 | **Email** | Freshservice mailbox intake classification, SES outbound mail, signed approval links, receipt mail, and SNS bounce handling are implemented. `GET` on a decision link only displays confirmation; `POST` decides. | Configure the support mailbox, SES sender and recipient permissions, and public links. Freshservice requester acknowledgement remains open. |
 | **Microsoft Teams** | Identity fields and configuration are reserved. | Bot, Adaptive Cards, decision handler, and `ONE-WAY` Workflows fallback are planned; no working Teams door is claimed. |
@@ -42,7 +42,7 @@ Other agents can use the engine's bearer-protected Streamable HTTP MCP endpoint 
 
 | System | With local fixture data | With credentials/configuration |
 | --- | --- | --- |
-| Freshservice | `FIXTURE` ticket and requester state | `LIVE` REST path when `FS_DOMAIN` and `FS_API_KEY` are set. Authentication was verified with `agents/me`; write flows remain unverified against the tenant. |
+| Freshservice | `FIXTURE` ticket and requester state | `LIVE` REST path when `FS_DOMAIN` and `FS_API_KEY` are set. `agents/me` and ticket listing were verified; catalog listing returned `403`, and write flows remain unverified against the tenant. |
 | HRIS, entitlements, GitHub, Slack evidence corpus | `FIXTURE` | No live connector in this build. |
 | Slack door | No external delivery | Slack API delivery can run with its tokens; live app installation is not verified here. |
 | Email door | No SES delivery | SES outbound can run with an authorized sender; inbound still depends on the Freshservice mailbox. |
