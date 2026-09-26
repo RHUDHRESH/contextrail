@@ -10,6 +10,7 @@ from contextrail.logs import configure_logging
 from contextrail.policy.loader import load_rules
 from contextrail.settings import Settings, get_settings
 from contextrail.surfaces.decision_page import router as decision_page_router
+from contextrail.surfaces.ses_webhook import router as ses_webhook_router
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -32,6 +33,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app.include_router(v1_router)
     app.include_router(decision_page_router)  # /a/{token}: email decision links (T232)
+    app.include_router(ses_webhook_router)  # /v1/webhooks/ses: SES bounces/complaints via SNS (T237)
     return app
 
 

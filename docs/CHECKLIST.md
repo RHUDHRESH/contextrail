@@ -305,7 +305,7 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 - [ ] T234 `P0` Requester acknowledgement via Freshservice ticket reply (verify the endpoint).
 - [x] T235 `P1` Receipt email to the requester on finalize.
 - [ ] T236 `P1` Status/query emails answered only from receipts, citing audit seq numbers.
-- [ ] T237 `P1` SES bounce/complaint SNS handler (`/v1/webhooks/ses`, signature verified).
+- [x] T237 `P1` SES bounce/complaint SNS handler (`/v1/webhooks/ses`, signature verified).
 - [ ] T238 `P1` Copy pass: same verbs and lamps as Slack; plain-text version readable on phones.
 
 ## S. Microsoft Teams door (12)

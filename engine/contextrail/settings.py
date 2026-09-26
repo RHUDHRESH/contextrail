@@ -55,6 +55,7 @@ class Settings(BaseSettings):
     # Email door (SES outbound; inbound arrives via the Freshservice mailbox)
     ses_from_address: str = ""
     ses_configuration_set: str = ""
+    ses_sns_topic_arn: str = ""  # the one SNS topic whose bounce/complaint notices /v1/webhooks/ses accepts
 
     # Slack door
     slack_bot_token: SecretStr = SecretStr("")

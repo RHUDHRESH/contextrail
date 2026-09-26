@@ -151,6 +151,7 @@ source = { editable = "." }
 dependencies = [
     { name = "anthropic", extra = ["bedrock"] },
     { name = "boto3" },
+    { name = "cryptography" },
     { name = "fastapi" },
     { name = "httpx" },
     { name = "mcp" },
@@ -177,6 +178,7 @@ dev = [
 requires-dist = [
     { name = "anthropic", extras = ["bedrock"], specifier = "==1.8.0" },
     { name = "boto3", specifier = "==1.43.103" },
+    { name = "cryptography", specifier = "==50.0.1" },
     { name = "fastapi", specifier = "==0.141.1" },
     { name = "httpx", specifier = "==0.28.1" },
     { name = "mcp", specifier = "==2.2.0" },
