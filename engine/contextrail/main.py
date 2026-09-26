@@ -10,6 +10,7 @@ from contextrail.errors import install_error_handlers
 from contextrail.logs import configure_logging
 from contextrail.policy.loader import load_rules
 from contextrail.settings import Settings, get_settings
+from contextrail.surfaces.receipt_page import router as receipt_page_router
 from contextrail.surfaces.rest import router as runs_router
 
 
@@ -38,6 +39,7 @@ def create_app(settings: Settings | None = None, *, platform: Platform | None = 
 
     app.include_router(v1_router)
     app.include_router(runs_router)
+    app.include_router(receipt_page_router)
     return app
 
 
