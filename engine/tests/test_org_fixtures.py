@@ -393,3 +393,64 @@ def test_rosters_cover_every_approver_role_and_keep_the_original_order():
 def test_the_original_ten_identities_are_unchanged():
     original = [r for r in identities() if r["hris_id"] in ORIGINAL_HRIS_IDS]
     assert _digest(original) == "fab951d2471b3b377b52f815a5b6cc2575b2ad54438d633ed4bda1fc0e7c4902"
+
+
+# --- statements of work and incident INC-4412 (T077) -------------------------------------------------------
+
+REPO = re.compile(r"\bnorthbeam/[a-z0-9-]+")
+
+
+def sows():
+    return [d for d in load("documents")["documents"] if d["kind"] == "sow"]
+
+
+def incidents():
+    return {i["id"]: i for i in load("incidents")["incidents"]}
+
+
+def test_every_contractor_has_exactly_one_statement_of_work():
+    assert load("documents")["_meta"]["mode"] == "FIXTURE"
+    contractors = {p["source_id"] for p in people() if p["employment_type"] == "contractor"}
+    assert sorted(d["subject_id"] for d in sows()) == sorted(contractors)
+
+
+def test_each_sow_names_exactly_the_repositories_in_the_hr_record():
+    ids = by_id()
+    for d in sows():
+        assert set(REPO.findall(d["text"])) == set(ids[d["subject_id"]]["sow_repos"]), d["id"]
+    priya = next(d for d in sows() if d["subject_id"] == "W-8841")
+    assert "Read-only access to northbeam/perception-sdk" in priya["text"]
+
+
+def test_each_sow_agrees_with_the_hr_record_on_dates_owner_and_id():
+    ids = by_id()
+    for d in sows():
+        hr = ids[d["subject_id"]]
+        assert (d["starts"], d["ends"], d["owner_id"]) == (hr["start_date"], hr["end_date"], hr["manager_id"]), d["id"]
+        assert d["starts"] in d["text"] and d["ends"] in d["text"] and ids[d["owner_id"]]["display_name"] in d["text"]
+        assert hr.get("sow_id", d["sow_id"]) == d["sow_id"]
+
+
+def test_sow_clauses_are_numbered_so_constraints_can_cite_them():
+    for d in sows():
+        for n in range(1, 7):
+            assert f"§{n} " in d["text"], (d["id"], n)
+        assert "production credentials" in d["text"].split("§4 ", 1)[1].split("§5 ", 1)[0], d["id"]
+
+
+def test_incident_4412_is_open_with_a_rostered_commander_and_real_responders():
+    assert load("incidents")["_meta"]["mode"] == "FIXTURE"
+    inc = incidents()["INC-4412"]
+    assert (inc["status"], inc["severity"], inc["region"]) == ("open", "Sev-2", "ap-south-1")
+    commander = next(r["person_id"] for r in identities() if r["hris_id"] == inc["commander_id"])
+    assert commander in load("identity")["roster"]["incident-commander"]
+    assert set(inc["responder_ids"]) <= set(by_id())
+
+
+def test_incident_access_request_is_read_only_time_boxed_and_not_already_held():
+    inc = incidents()["INC-4412"]
+    (req,) = inc["access_requests"]
+    target = catalog()[req["entitlement"]]
+    assert req["subject_id"] in inc["responder_ids"] and req["status"] == "pending"
+    assert (target["permission"], target["resource_class"], req["duration"]) == ("read", "production_read", "4h")
+    assert req["entitlement"] not in holdings()[req["subject_id"]]

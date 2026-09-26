@@ -1,0 +1,33 @@
+{
+  "_meta": {
+    "mode": "FIXTURE",
+    "system": "documents",
+    "note": "Fictional statements of work, one per Northbeam contractor. Documents are evidence of kind 'document' (trust=untrusted when retrieved); the HR record, not this text, is what policy reads. Clauses are numbered (§n) so constraint extraction can cite spans (T091). Dates, repositories and owners agree with fixtures/hris.json (tests/test_org_fixtures.py)."
+  },
+  "documents": [
+    {
+      "id": "DOC-SOW-2026-031", "kind": "sow", "sow_id": "SOW-2026-031", "subject_id": "W-8841", "owner_id": "E-0120",
+      "title": "Statement of Work SOW-2026-031: Priya Raghunathan, perception SDK ingest reliability",
+      "uri": "documents://sow/SOW-2026-031", "starts": "2026-09-28", "ends": "2027-03-31",
+      "text": "STATEMENT OF WORK SOW-2026-031 between Northbeam Robotics and Priya Raghunathan (contractor, worker W-8841).\n§1 Term. Services start on 2026-09-28 and end on 2027-03-31. All access expires on the end date, with no grace period.\n§2 Scope. Improve ingest reliability in the perception SDK and extend its test harness.\n§3 Repositories. Read-only access to northbeam/perception-sdk. No other repository is in scope; changes are submitted as patches reviewed by the engaging manager.\n§4 Production. The contractor will not receive production credentials, production database access or customer PII exports.\n§5 Owner. Engaging manager: Marc Liu (E-0120). Approver of record for repository access: the Security on-call.\n§6 Paperwork. NDA signed 2026-09-10; SOW countersigned 2026-09-15."
+    },
+    {
+      "id": "DOC-SOW-2026-012", "kind": "sow", "sow_id": "SOW-2026-012", "subject_id": "W-8790", "owner_id": "E-0120",
+      "title": "Statement of Work SOW-2026-012: Oskar Nilsson, lidar calibration tooling",
+      "uri": "documents://sow/SOW-2026-012", "starts": "2026-04-06", "ends": "2026-12-31",
+      "text": "STATEMENT OF WORK SOW-2026-012 between Northbeam Robotics and Oskar Nilsson (contractor, worker W-8790).\n§1 Term. Services start on 2026-04-06 and end on 2026-12-31. All access expires on the end date, with no grace period.\n§2 Scope. Port the lidar calibration tools into the perception SDK.\n§3 Repositories. Read-only access to northbeam/perception-sdk. No other repository is in scope.\n§4 Production. The contractor will not receive production credentials, production database access or customer PII exports.\n§5 Owner. Engaging manager: Marc Liu (E-0120). Approver of record for repository access: the Security on-call.\n§6 Paperwork. NDA signed 2026-03-20; SOW countersigned 2026-03-27."
+    },
+    {
+      "id": "DOC-SOW-2026-019", "kind": "sow", "sow_id": "SOW-2026-019", "subject_id": "W-8862", "owner_id": "E-0140",
+      "title": "Statement of Work SOW-2026-019: Dmitri Volkov, CI runner images",
+      "uri": "documents://sow/SOW-2026-019", "starts": "2026-06-01", "ends": "2026-11-30",
+      "text": "STATEMENT OF WORK SOW-2026-019 between Northbeam Robotics and Dmitri Volkov (contractor, worker W-8862).\n§1 Term. Services start on 2026-06-01 and end on 2026-11-30. All access expires on the end date, with no grace period.\n§2 Scope. Reduce CI build times by rebuilding the platform team's runner images and their cache.\n§3 Repositories. Read-only access to northbeam/platform-tooling. No other repository is in scope; patches are attached to Jira tickets for an employee to open as pull requests.\n§4 Production. The contractor will not receive production credentials, production database access or customer PII exports.\n§5 Owner. Engaging manager: Grace Okafor (E-0140). Approver of record for repository access: the Security on-call.\n§6 Paperwork. NDA signed 2026-05-15; SOW countersigned 2026-05-22."
+    },
+    {
+      "id": "DOC-SOW-2026-024", "kind": "sow", "sow_id": "SOW-2026-024", "subject_id": "W-8915", "owner_id": "E-0804",
+      "title": "Statement of Work SOW-2026-024: Marta Kowalski, Q3 close support",
+      "uri": "documents://sow/SOW-2026-024", "starts": "2026-07-01", "ends": "2026-10-31",
+      "text": "STATEMENT OF WORK SOW-2026-024 between Northbeam Robotics and Marta Kowalski (contractor, worker W-8915).\n§1 Term. Services start on 2026-07-01 and end on 2026-10-31. All access expires on the end date, with no grace period.\n§2 Scope. Q3 close support: accruals and revenue reconciliation.\n§3 Repositories. None. No source-code access is in scope.\n§4 Production. The contractor will not receive production credentials, production database access or customer PII exports; finance data is read through masked views only.\n§5 Owner. Engaging manager: Yusuf Karim (E-0804).\n§6 Paperwork. NDA signed 2026-06-15; SOW countersigned 2026-06-20."
+    }
+  ]
+}

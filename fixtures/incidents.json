@@ -1,0 +1,29 @@
+{
+  "_meta": {
+    "mode": "FIXTURE",
+    "system": "incidents",
+    "note": "Fictional incident records, as the Freshservice incident module would hold them. INC-4412 is open and carries one read-only incident access request; the rule that decides it, POL-EMG-001 (read-only, 4-hour expiry, incident commander approval), is checklist T068 and is not built yet, so this is data only."
+  },
+  "incidents": [
+    {
+      "id": "INC-4412", "title": "Obstacle-classifier latency regression after the v4.2 rollout",
+      "severity": "Sev-2", "status": "open", "service": "perception", "region": "ap-south-1",
+      "opened_at": "2026-09-25T18:05:00Z", "resolved_at": null,
+      "commander_id": "E-0051", "responder_ids": ["E-0134", "E-0188", "E-0237"],
+      "systems": ["northbeam/perception-models", "aws perception-prod"],
+      "timeline": [
+        {"at": "2026-09-25T18:05:00Z", "event": "p95 obstacle-classifier latency above 180 ms on 20% of the ap-south-1 fleet"},
+        {"at": "2026-09-25T18:10:00Z", "event": "Declared Sev-2; Omar Haddad is incident commander"},
+        {"at": "2026-09-25T20:05:00Z", "event": "v4.2 rolled back to 5%; latency recovering; incident stays open"}
+      ],
+      "access_requests": [
+        {
+          "id": "IAR-4412-01", "requested_by": "E-0188", "subject_id": "E-0188",
+          "entitlement": "aws-perception-prod-readonly", "duration": "4h",
+          "justification": "Triage the p95 latency regression from perception-prod logs and metrics",
+          "requested_at": "2026-09-25T18:40:00Z", "status": "pending"
+        }
+      ]
+    }
+  ]
+}
