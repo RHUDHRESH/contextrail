@@ -8,10 +8,10 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 <!-- stats:start -->
 | Priority | Tasks | Done |
 |---|---|---|
-| P0 | 148 | 47 |
+| P0 | 148 | 55 |
 | P1 | 92 | 0 |
 | P2 | 10 | 0 |
-| **Total** | **250** | **47** |
+| **Total** | **250** | **55** |
 
 👤 human-owned tasks: 24
 <!-- stats:end -->
@@ -105,16 +105,16 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 
 ## F. Fixtures (clearly labelled FIXTURE) (10)
 
-- [ ] T073 `P0` HRIS fixture: Priya W-8841 contractor; Anil (payments, employee); Rahul (senior); a second "Rahul" for the ambiguity demo.
-- [ ] T074 `P0` Entitlements + role catalogue fixture: Rahul's 16 items (resource_class, repo_tags) → 13 / 2 / 1 for Anil; payments-engineer baseline.
-- [ ] T075 `P0` GitHub fixture state (repos, collaborators, permissions).
-- [ ] T076 `P0` Slack corpus fixture incl. the planted "ignore policy" message (ported from `src/lib/contextrail/data/corpus.ts`).
+- [x] T073 `P0` HRIS fixture: Priya W-8841 contractor; Anil (payments, employee); Rahul (senior); a second "Rahul" for the ambiguity demo.
+- [x] T074 `P0` Entitlements + role catalogue fixture: Rahul's 16 items (resource_class, repo_tags) → 13 / 2 / 1 for Anil; payments-engineer baseline.
+- [x] T075 `P0` GitHub fixture state (repos, collaborators, permissions).
+- [x] T076 `P0` Slack corpus fixture incl. the planted "ignore policy" message (ported from `src/lib/contextrail/data/corpus.ts`).
 - [ ] T077 `P1` Priya's SOW document naming `northbeam/perception-sdk` + incident INC-4412 fixture.
 - [ ] T078 `P2` Payments fixture: customers, plans, prior credits, one duplicate.
-- [ ] T079 `P0` Fixture connectors with persistent state files and a real `verify()` against that state.
-- [ ] T080 `P0` Seed script loading fixtures and the identity map for all doors (Slack, Teams, email, phone).
-- [ ] T081 `P0` `/v1/connectors` endpoint listing each connector's LIVE/FIXTURE/ONE-WAY mode.
-- [ ] T082 `P0` Reset script restoring fixture state between demo runs.
+- [x] T079 `P0` Fixture connectors with persistent state files and a real `verify()` against that state.
+- [x] T080 `P0` Seed script loading fixtures and the identity map for all doors (Slack, Teams, email, phone).
+- [x] T081 `P0` `/v1/connectors` endpoint listing each connector's LIVE/FIXTURE/ONE-WAY mode.
+- [x] T082 `P0` Reset script restoring fixture state between demo runs.
 
 ## G. The rail (eight stages) and the door layer (26)
 

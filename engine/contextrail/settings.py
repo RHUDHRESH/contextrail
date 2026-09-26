@@ -28,6 +28,9 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     log_json: bool = True
     cors_allowed_origins: list[str] = Field(default_factory=list)
+    fixtures_dir: str = ""      # read-only seeds (default: <repo>/fixtures)
+    state_dir: str = ""         # mutable FIXTURE connector state (default: <repo>/.state)
+    knowledge_dir: str = ""     # OKF bundle (default: <repo>/knowledge)
 
     # Freshservice (the base) and Freshdesk
     fs_domain: str = ""

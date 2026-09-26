@@ -1,0 +1,44 @@
+{
+  "_meta": {
+    "mode": "FIXTURE",
+    "system": "entitlements",
+    "note": "Entitlement catalogue and who holds what. Rahul (E-0007) holds 18; Anil (E-1042) holds 4, 2 shared with Rahul and 2 from his previous team. 'Same access as Rahul' therefore yields 16 candidates for Anil. With the shipped rules the outcome is 13 ALLOW, 2 HOLD, 1 REFUSE, and the 2 old-team items are revoked on transfer."
+  },
+  "catalog": {
+    "okta-sso":                     {"label": "Okta SSO",                              "system": "okta",       "resource_class": "standard", "permission": "member",    "role_scope": ["payments-engineer", "risk-analyst", "contract-engineer", "engineering-manager", "security-engineer", "engineering-lead", "vp-engineering"]},
+    "slack-general":                {"label": "Slack #general",                        "system": "slack",      "resource_class": "standard", "permission": "member",    "role_scope": ["payments-engineer", "risk-analyst", "contract-engineer", "engineering-manager", "security-engineer", "engineering-lead", "vp-engineering"]},
+    "gh-payments-api-read":         {"label": "GitHub northbeam/payments-api (read)",  "system": "github",     "resource_class": "standard", "permission": "read", "repo": "northbeam/payments-api",   "repo_tags": ["internal"],           "role_scope": ["payments-engineer"]},
+    "gh-ledger-service-read":       {"label": "GitHub northbeam/ledger-service (read)","system": "github",     "resource_class": "standard", "permission": "read", "repo": "northbeam/ledger-service", "repo_tags": ["internal"],           "role_scope": ["payments-engineer"]},
+    "gh-payments-web-read":         {"label": "GitHub northbeam/payments-web (read)",  "system": "github",     "resource_class": "standard", "permission": "read", "repo": "northbeam/payments-web",   "repo_tags": [],                     "role_scope": ["payments-engineer"]},
+    "gh-payments-core-read":        {"label": "GitHub northbeam/payments-core (read)", "system": "github",     "resource_class": "standard", "permission": "read", "repo": "northbeam/payments-core",  "repo_tags": ["production", "pci"],  "role_scope": ["payments-engineer"]},
+    "slack-payments":               {"label": "Slack #payments",                       "system": "slack",      "resource_class": "standard", "permission": "member",    "role_scope": ["payments-engineer", "engineering-manager"]},
+    "slack-payments-oncall":        {"label": "Slack #payments-oncall",                "system": "slack",      "resource_class": "standard", "permission": "member",    "role_scope": ["payments-engineer"]},
+    "jira-pay":                     {"label": "Jira project PAY",                      "system": "jira",       "resource_class": "standard", "permission": "member",    "role_scope": ["payments-engineer", "engineering-manager"]},
+    "confluence-pay":               {"label": "Confluence space PAY",                  "system": "confluence", "resource_class": "standard", "permission": "member",    "role_scope": ["payments-engineer", "engineering-manager"]},
+    "datadog-payments-viewer":      {"label": "Datadog payments dashboards (viewer)",  "system": "datadog",    "resource_class": "standard", "permission": "viewer", "seat_cost_usd": 0, "role_scope": ["payments-engineer"]},
+    "pagerduty-payments-responder": {"label": "PagerDuty payments rotation",           "system": "pagerduty",  "resource_class": "standard", "permission": "responder", "role_scope": ["payments-engineer"]},
+    "sentry-payments":              {"label": "Sentry project payments",               "system": "sentry",     "resource_class": "standard", "permission": "member",    "role_scope": ["payments-engineer"]},
+    "aws-payments-staging-readonly":{"label": "AWS payments-staging ReadOnly",         "system": "aws",        "resource_class": "standard", "permission": "read",      "role_scope": ["payments-engineer"]},
+    "vault-payments-staging-read":  {"label": "Vault payments/staging secrets (read)", "system": "vault",      "resource_class": "standard", "permission": "read",      "role_scope": ["payments-engineer"]},
+    "google-group-payments-eng":    {"label": "Google group payments-eng@",            "system": "google",     "resource_class": "standard", "permission": "member",    "role_scope": ["payments-engineer", "engineering-manager"]},
+    "postman-enterprise-seat":      {"label": "Postman Enterprise seat ($49/mo)",      "system": "postman",    "resource_class": "standard", "permission": "member", "seat_cost_usd": 49, "role_scope": ["payments-engineer"]},
+    "aws-payments-prod-admin":      {"label": "AWS payments-prod AdministratorAccess", "system": "aws",        "resource_class": "production_admin", "permission": "admin", "role_scope": ["payments-engineer"]},
+    "looker-risk-dashboards":       {"label": "Looker risk dashboards",                "system": "looker",     "resource_class": "standard", "permission": "viewer",    "role_scope": ["risk-analyst"]},
+    "slack-risk-analytics":         {"label": "Slack #risk-analytics",                 "system": "slack",      "resource_class": "standard", "permission": "member",    "role_scope": ["risk-analyst"]},
+    "gh-perception-sdk-read":       {"label": "GitHub northbeam/perception-sdk (read)","system": "github",     "resource_class": "standard", "permission": "read", "repo": "northbeam/perception-sdk", "repo_tags": ["production"],       "role_scope": ["contract-engineer", "engineering-lead"]},
+    "aws-perception-prod-credentials": {"label": "AWS perception-prod credentials",    "system": "aws",        "resource_class": "production_credential", "permission": "read", "role_scope": ["engineering-lead"]}
+  },
+  "holdings": {
+    "E-0007": [
+      "okta-sso", "slack-general",
+      "gh-payments-api-read", "gh-ledger-service-read", "gh-payments-web-read", "slack-payments",
+      "slack-payments-oncall", "jira-pay", "confluence-pay", "datadog-payments-viewer",
+      "pagerduty-payments-responder", "sentry-payments", "aws-payments-staging-readonly",
+      "vault-payments-staging-read", "google-group-payments-eng",
+      "gh-payments-core-read", "postman-enterprise-seat", "aws-payments-prod-admin"
+    ],
+    "E-1042": ["okta-sso", "slack-general", "looker-risk-dashboards", "slack-risk-analytics"],
+    "E-0415": ["okta-sso", "slack-general", "looker-risk-dashboards", "slack-risk-analytics"],
+    "W-8841": []
+  }
+}
