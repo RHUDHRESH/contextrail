@@ -21,7 +21,8 @@ def test_create_app_builds_one_platform_every_part_shares(tmp_path):
     assert app.state.registry is p.registry and app.state.rules is p.rules
     assert isinstance(p.runner.d.extractor, HeuristicExtractor) and isinstance(p.runner.d.explainer, TemplateExplainer)
     assert {r.id for r in p.rules} >= {"POL-CTR-001", "POL-SOD-001"}
-    assert p.modes == {"entitlements": "FIXTURE", "github": "FIXTURE", "hris": "FIXTURE", "slack_corpus": "FIXTURE"}
+    assert p.modes == {"entitlements": "FIXTURE", "freshservice": "FIXTURE", "github": "FIXTURE", "hris": "FIXTURE",
+                       "slack_corpus": "FIXTURE"}  # freshservice: FIXTURE until FS_DOMAIN + FS_API_KEY exist
     assert p.door.people["p-dana"] == "Dana Osei"
     assert p.owns_db
 
