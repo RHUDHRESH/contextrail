@@ -3,12 +3,10 @@
 CLAUDE.md §8 Compile: "load OKF concepts, mark stale ... Missing policy -> blocker, not assumption".
 """
 
-import re
-import shutil
 from datetime import UTC, date, datetime
-from pathlib import Path
 
 import pytest
+from okf_util import fresh_copy
 
 from contextrail import repo
 from contextrail.connectors.fixture import FixtureEntitlements, FixtureHRIS
@@ -21,19 +19,6 @@ from contextrail.rail.compile import gather_inputs
 NOW = datetime(2026, 9, 26, 10, 0, tzinfo=UTC)
 BUNDLE = load_bundle()
 RULES = {r.id: r for r in load_rules()}
-
-
-def fresh_copy(tmp_path: Path, *, drop_clause: str | None = None) -> Path:
-    """The shipped bundle, re-verified today (so no test depends on the calendar), optionally with one clause cut."""
-    root = tmp_path / "knowledge"
-    shutil.copytree(BUNDLE.root, root)
-    for f in root.rglob("*.md"):
-        text = re.sub(r"^last_verified: .*$", f"last_verified: {datetime.now(UTC).date().isoformat()}",
-                      f.read_text(encoding="utf-8"), flags=re.MULTILINE)
-        if drop_clause:
-            text = text.replace(drop_clause, "(clause removed)")
-        f.write_text(text, encoding="utf-8")
-    return root
 
 
 # --- pages by links ---------------------------------------------------------------------------------------------

@@ -229,7 +229,7 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 - [x] T176 `P1` OKF loader: frontmatter parser + link graph.
 - [x] T177 `P1` Query by tags/rules for Compile and `door.answer_query`.
 - [ ] T178 `P2` Ingest: Solutions article → `raw/` copy → drafted page update in `drafts/`.
-- [ ] T179 `P1` Lint: contradictions, stale pages, broken links, orphans; report without overwriting.
+- [x] T179 `P1` Lint: contradictions, stale pages, broken links, orphans; report without overwriting.
 - [ ] T180 `P2` Precedent updater after each run + draft Solutions article for publish-back.
 
 ## M. MCP server and Agent Skills (13)
