@@ -33,6 +33,11 @@ NOT_IN_KNOWLEDGE_BASE = "Not in the knowledge base: nothing curated supports an 
 # spaces. The rail's lookup falls back to an exact-name search for anything else, so a name must stop here (P1).
 SourceId = Annotated[str, Field(pattern=r"^[A-Za-z0-9_.:-]*[0-9][A-Za-z0-9_.:-]*$", max_length=64,
                                 description="A system-of-record ID such as E-1042 or W-8841, never a name.")]
+# Who is asking, as their identity-map person id. POL-SOD-001 refuses every approval on a run nobody can
+# attribute, so an MCP run must name its requester. The engine-token holder asserts it (as with the REST door);
+# separation of duties then applies to that person in every door.
+PersonId = Annotated[str, Field(pattern=r"^[a-z0-9][a-z0-9._-]{0,63}$",
+                                description="The requester's ContextRail person id (identity map), e.g. p-anil.")]
 
 
 class CapsuleHandle(BaseModel):
@@ -50,6 +55,7 @@ class CompileResult(BaseModel):
     status: str
     run_id: UUID
     capsule_handle: CapsuleHandle | None
+    requested_by: str
     subject: str | None
     peer: str | None
     counts: dict[str, int]
@@ -134,18 +140,21 @@ class ContextRailTools:
                                note=None if hits else NOT_IN_KNOWLEDGE_BASE)
 
     async def compile_context_capsule(
-            self, request_text: Annotated[str, Field(min_length=3, max_length=4000)],
+            self, request_text: Annotated[str, Field(min_length=3, max_length=4000)], requester: PersonId,
             subject_id: SourceId | None = None, peer_id: SourceId | None = None) -> CompileResult:
         door = self.door()
-        view = await door.start_run(request_text, channel="mcp", actor_external_id=None,
+        if await door.resolve_actor("mcp", requester) is None:
+            raise ToolError(f"Unknown requester {requester!r}: not in the identity map. A run nobody can attribute "
+                            "could never be approved (POL-SOD-001), so none was started.")
+        view = await door.start_run(request_text, channel="mcp", actor_external_id=requester,
                                     subject_id=subject_id, peer_id=peer_id)
         handle = None
         if view.capsule_digest is not None:
             case = await self.sealed(view.run_id)
             handle = CapsuleHandle(run_id=case.run_id, digest=case.digest)
-        return CompileResult(status=view.status, run_id=view.run_id, capsule_handle=handle, subject=view.subject,
-                             peer=view.peer, counts=view.counts, needs=view.needs, modes=view.modes,
-                             replay=view.replay, next_step=_next_step(view, handle is not None))
+        return CompileResult(status=view.status, run_id=view.run_id, capsule_handle=handle, requested_by=requester,
+                             subject=view.subject, peer=view.peer, counts=view.counts, needs=view.needs,
+                             modes=view.modes, replay=view.replay, next_step=_next_step(view, handle is not None))
 
     def register(self, server: MCPServer) -> None:
         server.add_tool(
@@ -161,6 +170,8 @@ class ContextRailTools:
                 "Start a governed ContextRail run for a one-sentence request (for example 'Give Anil the same "
                 "access as Rahul Mehta') and return its capsule handle {run_id, digest}: the sealed case file of "
                 "the subject fetched by ID, evidence, constraints and every proposed action with its verdict. "
+                "requester is the person asking (identity-map person id, e.g. p-anil); they can never approve "
+                "their own request. "
                 "Pass subject_id / peer_id only as system-of-record IDs, never names. If a name matches more "
                 "than one person the result is needs_input with the candidates: ask, never guess. This starts "
                 "the rail: allowed actions are carried out and verified, held actions are sent to their named "

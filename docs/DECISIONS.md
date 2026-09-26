@@ -20,6 +20,7 @@ Append-only. Each entry records what we chose, why, and what would change our mi
 | D-013 | 2026-09-26 | Claude Haiku 4.5 is the only model; Bedrock backup capped at $20 | Accepted |
 | D-014 | 2026-09-26 | Agentic core (memory, RAG, tools, capabilities) pulled forward as section T | Accepted |
 | D-016 | 2026-09-26 | MCP door: `/mcp` inside the engine, static ENGINE_TOKEN bearer, strict capsule handles | Accepted |
+| D-017 | 2026-09-26 | MCP runs name their requester (identity-map person id), or no run starts | Accepted |
 
 ---
 
@@ -174,3 +175,13 @@ The SDK speaks two protocol eras: handshake-era clients (2025-11-25 and earlier)
   current one. A stale handle is refused with the current handle, so an agent never acts on a case file that
   changed under it; a failed seal halts and is audited.
 **Revisit if.** Per-user MCP identity is needed (then OAuth via the SDK's auth provider, or per-agent tokens).
+
+## D-017 — MCP runs name their requester
+**Found.** `policy.engine.check_decision` fails closed: an approval on a run whose requester is unknown is refused
+under POL-SOD-001 ("an approval nobody can attribute is refused"). An MCP run started without a requester could
+therefore never have a held action approved, in any door.
+**Decision.** `compile_context_capsule` requires `requester`, a person id from the identity map (channel `mcp`
+maps to `identity_map.person_id`). An unknown id is refused before any run exists. As with the REST door, the
+engine-token holder asserts who is asking; separation of duties then applies to that person in every door, so
+the requester can never approve their own request.
+**Revisit if.** MCP clients get per-user credentials (D-016): the requester then comes from the token, not an argument.

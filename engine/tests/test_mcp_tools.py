@@ -15,6 +15,8 @@ from contextrail.surfaces.mcp_tools import ContextRailTools
 INDEX = RuleIndex(load_rules())
 PEOPLE = {p["person_id"]: p["display_name"] for p in load("identity")["people"]}
 SAME_AS_RAHUL = "Give Anil the same access as Rahul Mehta"
+ANIL = {"requester": "p-anil"}                     # who is asking, as their identity-map person id
+DANA_TEAMS = "00000000-0000-4000-8000-000000000050"
 
 
 @pytest.fixture
@@ -30,6 +32,11 @@ def server(door=None, knowledge=INDEX):
 async def call(srv, tool: str, args: dict):
     async with Client(srv, mode="legacy") as c:
         return await c.call_tool(tool, args)
+
+
+async def _run_count(door) -> int:
+    async with door.db.connection() as c:
+        return (await (await c.execute("select count(*) as n from runs")).fetchone())["n"]
 
 
 # --- search_enterprise_knowledge (T182) ---------------------------------------------------------------------
@@ -74,7 +81,7 @@ async def test_the_engine_app_serves_search_from_its_loaded_rules():
 # --- compile_context_capsule (T183) -------------------------------------------------------------------------
 
 async def test_compile_returns_a_capsule_handle_for_the_sealed_case_file(door):
-    r = await call(server(door), "compile_context_capsule", {"request_text": SAME_AS_RAHUL})
+    r = await call(server(door), "compile_context_capsule", {"request_text": SAME_AS_RAHUL, **ANIL})
     out = r.structured_content
     assert not r.is_error and out["status"] == "awaiting_approval"
     async with door.db.connection() as c:
@@ -86,9 +93,29 @@ async def test_compile_returns_a_capsule_handle_for_the_sealed_case_file(door):
     assert view.source == "mcp"
 
 
+async def test_the_requester_is_recorded_so_named_approvers_can_decide(door):
+    """POL-SOD-001 refuses any approval on a run nobody can attribute; an MCP run names who asked."""
+    out = (await call(server(door), "compile_context_capsule", {"request_text": SAME_AS_RAHUL, **ANIL}))
+    run_id = out.structured_content["run_id"]
+    async with door.db.connection() as c:
+        row = await (await c.execute("select requested_by from runs where id = %s", (run_id,))).fetchone()
+    assert row["requested_by"] == "p-anil" and out.structured_content["requested_by"] == "p-anil"
+    view = await door.get_status(run_id)
+    hold = next(r for r in view.rows if r.approver_id == "p-dana")
+    decided = await door.decide(view.run_id, hold.action_id, hold.params_hash, channel="teams",
+                                actor_external_id=DANA_TEAMS, decision="approved")
+    assert decided.outcome == "recorded"
+
+
+async def test_an_unknown_requester_is_refused_before_any_run_exists(door):
+    r = await call(server(door), "compile_context_capsule", {"request_text": SAME_AS_RAHUL, "requester": "p-nobody"})
+    assert r.is_error and "identity map" in r.content[0].text
+    assert await _run_count(door) == 0
+
+
 async def test_an_ambiguous_mention_returns_needs_input_with_candidates_and_no_handle(door):
     r = await call(server(door), "compile_context_capsule",
-                   {"request_text": "Give Anil the same access as Rahul"})
+                   {"request_text": "Give Anil the same access as Rahul", **ANIL})
     out = r.structured_content
     assert out["status"] == "needs_input" and out["capsule_handle"] is None
     need = out["needs"][0]
@@ -97,7 +124,7 @@ async def test_an_ambiguous_mention_returns_needs_input_with_candidates_and_no_h
 
 async def test_a_pinned_id_is_looked_up_exactly_and_resolves_the_ambiguity(door):
     r = await call(server(door), "compile_context_capsule",
-                   {"request_text": "Give Anil the same access as Rahul", "peer_id": "E-0007"})
+                   {"request_text": "Give Anil the same access as Rahul", "peer_id": "E-0007", **ANIL})
     out = r.structured_content
     assert out["status"] == "awaiting_approval" and out["peer"] == "Rahul Mehta" and out["capsule_handle"]
 
@@ -105,12 +132,12 @@ async def test_a_pinned_id_is_looked_up_exactly_and_resolves_the_ambiguity(door)
 @pytest.mark.parametrize("name", ["Anil Kumar", "Anil"])
 async def test_a_name_is_never_accepted_as_a_pinned_id(door, name):
     # The rail's lookup would resolve a bare name; the door refuses it before the rail sees it (P1).
-    r = await call(server(door), "compile_context_capsule", {"request_text": SAME_AS_RAHUL, "subject_id": name})
+    r = await call(server(door), "compile_context_capsule",
+                   {"request_text": SAME_AS_RAHUL, "subject_id": name, **ANIL})
     assert r.is_error and "subject_id" in r.content[0].text
-    async with door.db.connection() as c:
-        assert await (await c.execute("select count(*) as n from runs")).fetchone() == {"n": 0}
+    assert await _run_count(door) == 0
 
 
 async def test_compile_without_a_wired_door_is_an_honest_error():
-    r = await call(server(door=None), "compile_context_capsule", {"request_text": SAME_AS_RAHUL})
+    r = await call(server(door=None), "compile_context_capsule", {"request_text": SAME_AS_RAHUL, **ANIL})
     assert r.is_error and "no door" in r.content[0].text
