@@ -199,7 +199,7 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 - [ ] T152 `P1` Refuse-with-reason modal (`views.open`).
 - [x] T153 `P0` Seed identity map for demo Slack users.
 - [x] T154 `P0` Friendly `needs_input` message with candidate buttons.
-- [ ] T155 `P0` Candidate picker handler resumes the run with the chosen ID.
+- [x] T155 `P0` Candidate picker handler resumes the run with the chosen ID.
 - [ ] T156 `P1` Copy and design pass: consistent verbs, lamps (✅ 🟠 ⛔), short sentences.
 
 ## K. Freshworks FDK app (ticket sidebar) (13)

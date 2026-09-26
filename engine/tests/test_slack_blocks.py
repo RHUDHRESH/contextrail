@@ -183,6 +183,13 @@ def test_questions_without_candidates_are_asked_in_words():
         assert "actions" not in [b["type"] for b in content["blocks"]]
 
 
+def test_pick_value_round_trips_and_anything_else_is_rejected():
+    assert blocks.parse_pick_value(blocks.pick_value(RUN_ID, "peer", "E-0007")) == (RUN_ID, "peer", "E-0007")
+    for bad in ("", f"{RUN_ID}|boss|E-0007", f"{RUN_ID}|peer|", f"{RUN_ID}|peer|E 0007", "x|peer|E-0007",
+                f"{RUN_ID}|peer|E-0007|x"):
+        assert blocks.parse_pick_value(bad) is None, bad
+
+
 def test_run_summary_after_decisions_says_who_approved_and_who_refused():
     view = _view(status="partial", rows=[
         _row("a-github", "HOLD", "verified", approver_id="p-dana", approver_name="Dana Osei"),

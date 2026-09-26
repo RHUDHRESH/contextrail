@@ -189,6 +189,27 @@ def pick_value(run_id: UUID, role: str, source_id: str) -> str:
     return f"{run_id}|{role}|{source_id}"
 
 
+_PICK_VALUE = re.compile(r"^(?P<run>[0-9a-f-]{36})\|(?P<role>subject|peer)\|(?P<id>[A-Za-z0-9_.-]{1,64})$")
+
+
+def parse_pick_value(value: str | None) -> tuple[UUID, str, str] | None:
+    """(run_id, role, source_id) from a candidate button, or None. The rail still looks the ID up exactly."""
+    m = _PICK_VALUE.match(value or "")
+    if m is None:
+        return None
+    try:
+        return UUID(m["run"]), m["role"], m["id"]
+    except ValueError:
+        return None
+
+
+def not_yours_text(asker: str) -> str:
+    return f"🟠 Only <@{asker}> can answer this. They asked for it."
+
+
+ANSWERED_TEXT = "🟠 This question was already answered."
+
+
 def _question(need: dict) -> str:
     mention, reason = esc(need.get("mention")), need.get("reason")
     if reason == "ambiguous":

@@ -26,6 +26,7 @@ from contextrail.logs import get_logger
 from contextrail.models import RunStatus, StageEvent
 from contextrail.surfaces import slack_blocks as blocks
 from contextrail.surfaces.door import DecisionResult, Door
+from contextrail.surfaces.presenter import RunView
 
 EVENTS_PATH = "/slack/events"
 COMMAND = "/contextrail"
@@ -56,7 +57,9 @@ class SlackDoor:
         self.app.command(COMMAND)(self.on_command)
         self.app.action("approve")(self.on_decision)
         self.app.action("refuse")(self.on_decision)
+        self.app.action(re.compile(r"^pick_candidate:\d+$"))(self.on_pick)
         self._status: dict[UUID, dict | None] = {}  # run id -> its status message {channel, ts, request_text}
+        self._askers: dict[tuple[str, str], str] = {}  # (channel, ts) of a status message -> who typed the command
         door.runner.d.events.on_every_run(self.on_stage_event)
 
     # --- /contextrail <request> ---------------------------------------------------------------------------------
@@ -71,8 +74,35 @@ class SlackDoor:
             return
         await ack(text=blocks.ack_text(text), response_type="ephemeral")
         channel, ts = await self._post_status(command["channel_id"], command["user_id"], text)
+        self._askers[(channel, ts)] = command["user_id"]
         await self.door.start_run(text, channel="slack", actor_external_id=command["user_id"],
                                   source_ref=f"{channel}:{ts}")
+
+    # --- "which Rahul?" -> Door.pick_candidate ----------------------------------------------------------------
+
+    async def on_pick(self, ack, body: dict, action: dict) -> RunView | None:
+        """A candidate button on the status message. The question was asked to the Slack user who typed the
+        command, so only they answer it; the rail looks the chosen ID up exactly, like any other mention."""
+        await ack()
+        parsed = blocks.parse_pick_value(action.get("value"))
+        if parsed is None:
+            await self._tell(body, blocks.rejected_text("this button is damaged"))
+            return None
+        run_id, role, source_id = parsed
+        asker = await self._asker(run_id)
+        if asker and body["user"]["id"] != asker:
+            await self._tell(body, blocks.not_yours_text(asker))
+            return None
+        try:
+            return await self.door.pick_candidate(run_id, role, source_id)
+        except ValueError:  # the rail refuses to re-run a run that is no longer waiting for this answer
+            await self._tell(body, blocks.ANSWERED_TEXT)
+            return None
+
+    async def _asker(self, run_id: UUID) -> str | None:
+        async with self.door.db.connection() as c:
+            refs = [m["ref"] for m in await repo.list_door_messages(c, run_id) if m["channel"] == "slack"]
+        return refs[0].get("user") if refs else None
 
     async def _post_status(self, channel: str, user: str, text: str) -> tuple[str, str]:
         """In the channel the command came from; in the requester's DM if the bot is not a member there."""
@@ -200,8 +230,11 @@ class SlackDoor:
             run = await repo.get_run(c, run_id)
         msg = _status_ref(run) if run else None
         if msg is not None:
+            ref = {"channel": msg["channel"], "ts": msg["ts"]}
+            if asker := self._askers.pop((msg["channel"], msg["ts"]), None):
+                ref["user"] = asker
             async with self.door.db.transaction() as c:  # where the message lives, so later updates can find it
-                await repo.upsert_door_message(c, run_id, "slack", {"channel": msg["channel"], "ts": msg["ts"]})
+                await repo.upsert_door_message(c, run_id, "slack", ref)
             msg["request_text"] = run["request_text"]
         self._status[run_id] = msg
         return msg
