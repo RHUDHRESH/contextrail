@@ -25,7 +25,7 @@ from dialogue import Dialogue
 from engine_client import EngineClient, EngineError
 from languages import LanguageTable
 from llm import Conversation
-from vobiz import signature_valid, stream_xml
+from vobiz import dial_xml, gather_xml, hangup_xml, signature_valid, stream_xml
 
 # Load the .env sitting next to this file, whatever the working directory is.
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
@@ -43,10 +43,13 @@ def public_url_from_env() -> str:
 
 
 def create_app(*, public_url: str, vobiz_auth_token: str, engine: EngineClient, languages: LanguageTable,
-               llm: Conversation, sarvam_transport=None) -> FastAPI:
+               llm: Conversation, sarvam_transport=None, transfer_number: str = "") -> FastAPI:
     app = FastAPI()
     calls = app.state.calls = CallRegistry()
     signed = bool(vobiz_auth_token)
+    if transfer_number and normalize_phone(transfer_number) != transfer_number:
+        raise ValueError("HUMAN_TRANSFER_NUMBER must be an E.164 number")
+    transfer_number = transfer_number if signed else ""  # unsigned callbacks cannot authorize a paid transfer
     ws_base = public_url.replace("https://", "wss://").replace("http://", "ws://")
 
     async def vobiz_form(request: Request) -> dict:
@@ -68,11 +71,50 @@ def create_app(*, public_url: str, vobiz_auth_token: str, engine: EngineClient, 
     @app.post("/answer")
     async def answer(request: Request):
         form = await vobiz_form(request)
+        if not form.get("CallUUID"):
+            raise HTTPException(400, "CallUUID is required")
         caller = normalize_phone(form.get("From")) if signed else None
         call = calls.register(form.get("CallUUID", ""), caller)
         logger.info(f"Answering call {call.call_uuid} (caller id {'verified' if caller else 'not trusted'})")
-        xml = stream_xml(f"{ws_base}/ws/{call.token}", f"{public_url}/stream-status")
+        xml = stream_xml(f"{ws_base}/ws/{call.token}", f"{public_url}/stream-status",
+                         f"{public_url}/next")
         return Response(content=xml, media_type="application/xml")
+
+    @app.post("/next")
+    async def next_step(request: Request):
+        form = await vobiz_form(request)
+        call = calls.get(form.get("CallUUID", ""))
+        step = call.dialogue.take_next_step() if call and call.dialogue else None
+        if step == "gather_dtmf":
+            xml = gather_xml(f"{public_url}/dtmf")
+        elif step == "transfer" and transfer_number:
+            xml = dial_xml(transfer_number, f"{public_url}/transfer-result")
+        else:
+            xml = hangup_xml()
+        return Response(content=xml, media_type="application/xml")
+
+    @app.post("/transfer-result")
+    async def transfer_result(request: Request):
+        form = await vobiz_form(request)
+        call = calls.get(form.get("CallUUID", ""))
+        if call is None or call.dialogue is None or form.get("DialStatus") == "completed":
+            return Response(content=hangup_xml(), media_type="application/xml")
+        call.dialogue._resume = [call.dialogue.line("transfer_failed")]
+        return Response(content=stream_xml(f"{ws_base}/ws/{call.token}", f"{public_url}/stream-status",
+                                           f"{public_url}/next"), media_type="application/xml")
+
+    @app.post("/dtmf")
+    async def dtmf(request: Request):
+        form = await vobiz_form(request)
+        call = calls.get(form.get("CallUUID", ""))
+        if call is None or call.dialogue is None:
+            return Response(content=hangup_xml(), media_type="application/xml")
+        # A signed Vobiz callback still must say it came from the DTMF gather. The dialogue only accepts one
+        # pending item, and the engine checks the named approver and params_hash again before recording anything.
+        digits = form.get("Digits", "") if form.get("InputType") == "dtmf" else ""
+        await call.dialogue.on_dtmf(digits)
+        return Response(content=stream_xml(f"{ws_base}/ws/{call.token}", f"{public_url}/stream-status",
+                                           f"{public_url}/next"), media_type="application/xml")
 
     @app.websocket("/ws/{token}")
     async def ws_endpoint(websocket: WebSocket, token: str):
@@ -86,7 +128,7 @@ def create_app(*, public_url: str, vobiz_auth_token: str, engine: EngineClient, 
             person = await resolve(call.caller)
             call.dialogue = Dialogue(languages=languages, llm=llm, caller=person,
                                      caller_phone=call.caller if person else None, engine=engine,
-                                     call_ref=call.call_uuid)
+                                     call_ref=call.call_uuid, transfer_available=bool(transfer_number))
         session = agent.CallSession(websocket, dialogue=call.dialogue, sarvam_transport=sarvam_transport)
         try:
             async for message in websocket.iter_text():
@@ -113,7 +155,8 @@ def create_app(*, public_url: str, vobiz_auth_token: str, engine: EngineClient, 
         return {"status": "ok", "base_url": public_url,
                 "modes": {"vobiz_callbacks": "LIVE" if signed else "FIXTURE",
                           "sarvam": "LIVE" if agent.SARVAM_API_KEY else "FIXTURE", "llm": llm.mode,
-                          "engine": "configured" if engine.configured else "unconfigured"}}
+                          "engine": "configured" if engine.configured else "unconfigured",
+                          "human_transfer": "configured" if transfer_number else "unavailable"}}
 
     return app
 
@@ -122,7 +165,8 @@ def create_app_from_env() -> FastAPI:
     return create_app(
         public_url=public_url_from_env(), vobiz_auth_token=os.getenv("VOBIZ_AUTH_TOKEN", ""),
         engine=EngineClient(os.getenv("ENGINE_URL", "http://localhost:8000"), os.getenv("ENGINE_TOKEN", "")),
-        languages=agent.LANGUAGES, llm=Conversation.from_key(agent.ANTHROPIC_KEY))
+        languages=agent.LANGUAGES, llm=Conversation.from_key(agent.ANTHROPIC_KEY),
+        transfer_number=os.getenv("HUMAN_TRANSFER_NUMBER", ""))
 
 
 app = create_app_from_env()

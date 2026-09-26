@@ -11,10 +11,10 @@ The model only talks (llm.Conversation). Flows call the engine's door contract a
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass, field
 
 import flows as door_flows
-from engine_client import Caller, EngineClient
+from engine_client import Caller, EngineClient, RowView, RunView
+from flows import Turn
 from intents import route
 from languages import Language, LanguageTable, detect_switch
 from llm import Conversation
@@ -30,12 +30,6 @@ SYSTEM_PROMPT = (
 )
 
 
-@dataclass
-class Turn:
-    say: list[str] = field(default_factory=list)
-    control: str | None = None  # set by flows that must leave the media stream (later: DTMF, transfer)
-
-
 Flow = Callable[["Dialogue", str], Awaitable["Turn | list[str]"]]
 
 
@@ -46,22 +40,31 @@ async def _conversation_flow(dialogue: Dialogue, text: str) -> list[str]:
 FLOW_NAMES = ("request", "status", "policy", "approve", "human")
 REGISTERED_ONLY = frozenset({"request", "status", "approve"})  # unknown callers: policy questions (and a person)
 DOOR_FLOWS: dict[str, Flow] = {"request": door_flows.request_flow, "status": door_flows.query_flow,
-                               "policy": door_flows.query_flow}
+                               "policy": door_flows.query_flow, "approve": door_flows.approve_flow,
+                               "human": door_flows.human_flow}
 
 
 class Dialogue:
     def __init__(self, *, languages: LanguageTable, llm: Conversation, flows: dict[str, Flow] | None = None,
                  lang: Language | None = None, caller: Caller | None = None, caller_phone: str | None = None,
-                 engine: EngineClient | None = None, call_ref: str | None = None) -> None:
+                 engine: EngineClient | None = None, call_ref: str | None = None,
+                 transfer_available: bool = False) -> None:
         self.languages, self.llm, self.engine = languages, llm, engine
         self.lang = lang or languages.default
         # Who is calling, as identity_map.phone resolved it; both None for an unknown or unverified number.
         self.caller, self.caller_phone = caller, caller_phone if caller else None
         self.call_ref = call_ref  # the Vobiz CallUUID: the run's source_ref
+        self.transfer_available = transfer_available
         self.history: list[dict] = []  # the model's turns only; flows' turns never enter a prompt
         self.flows: dict[str, Flow] = ({name: _conversation_flow for name in FLOW_NAMES} | DOOR_FLOWS
                                        | (flows or {}))
         self.expect: Flow | None = None  # a flow waiting for the caller's next answer (e.g. yes/no)
+        # Approver flow state: the items awaiting this caller, where we are, and the one waiting for a key press.
+        self.queue: list[tuple[RunView, RowView]] = []
+        self.position = 0
+        self.awaiting_keys: tuple[RunView, RowView] | None = None
+        self._next_step: str | None = None  # what the server does when the stream stops (gather_dtmf, transfer)
+        self._resume: list[str] | None = None  # said first when the stream comes back
 
     @property
     def registered(self) -> bool:
@@ -75,6 +78,11 @@ class Dialogue:
         return f"{self.line('disclosure')} {self.line(key)}"
 
     async def opening(self) -> Turn:
+        """What the caller hears when a stream starts: the disclosure first on a new call, or, when the stream comes
+        back after a key press or a failed transfer, what happened while it was away."""
+        if self._resume is not None:
+            say, self._resume = self._resume, None
+            return Turn(say)
         return Turn([self.disclosed("menu" if self.registered else "unregistered")])
 
     async def on_utterance(self, text: str) -> Turn:
@@ -92,9 +100,24 @@ class Dialogue:
             return Turn([self.line("unregistered")])
         return self._turn(await self.flows[intent](self, text))
 
-    @staticmethod
-    def _turn(result: Turn | list[str]) -> Turn:
-        return result if isinstance(result, Turn) else Turn(list(result))
+    async def on_dtmf(self, digits: str) -> Turn:
+        """The key the caller pressed in the Gather that followed a stream stop. Its outcome is spoken first when
+        the stream resumes."""
+        turn = self._turn(await door_flows.decide_by_keys(self, digits))
+        if turn.say:  # duplicate callbacks must not erase the result waiting for the resumed stream
+            self._resume = turn.say
+        return turn
+
+    def take_next_step(self) -> str | None:
+        """Read once by the server when the stream stops: gather_dtmf, transfer, or None (hang up)."""
+        step, self._next_step = self._next_step, None
+        return step
+
+    def _turn(self, result: Turn | list[str]) -> Turn:
+        turn = result if isinstance(result, Turn) else Turn(list(result))
+        if turn.control:
+            self._next_step = turn.control
+        return turn
 
     async def converse(self, text: str) -> str:
         """A conversational turn by Haiku; without a reply, the fixed apology and the menu."""

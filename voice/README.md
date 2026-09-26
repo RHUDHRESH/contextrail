@@ -19,12 +19,24 @@ maps through `identity_map.phone`. An empty or `change-me` token sends nothing.
 | `POST /v1/runs` `{request_text, channel, actor_external_id, source_ref}` → `RunView` | `start_run` | matches `engine/contextrail/surfaces/rest.py` on `sec/P-platform` |
 | `GET /v1/runs/{run_id}` → `RunView` | `get_status` | matches `sec/P-platform` |
 | `POST /v1/runs/{run_id}/decisions` `{action_id, params_hash, channel, actor_external_id, decision, reason}` → `DecisionResult` | `decide` | matches `sec/P-platform` |
-| `POST /v1/queries` `{question, channel, actor_external_id \| null}` → `Answer {text, run_id, citations}` | `answer_query` | **defined here; the engine must add it** |
-| `POST /v1/identities/resolve` `{channel, external_id}` → `{person_id, display_name}` or 404 | `resolve_actor` | **defined here; the engine must add it** |
-| `POST /v1/approvals/pending` `{channel, actor_external_id}` → `{runs: [RunView]}` (runs with a row awaiting that person) | reads `RunView` | **defined here; the engine must add it** |
+| `POST /v1/queries` `{question, channel, actor_external_id \| null}` → `Answer {text, run_id, citations}` | `answer_query` | implemented in engine HTTP door |
+| `POST /v1/identities/resolve` `{channel, external_id}` → `{person_id, display_name}` or 404 | `resolve_actor` | implemented in engine HTTP door |
+| `POST /v1/approvals/pending` `{channel, actor_external_id}` → `{runs: [RunView]}` (runs with a row awaiting that person) | reads `RunView` | implemented in engine HTTP door |
+| `POST /v1/voice/requests` `{request_text, actor_external_id, source_ref}` → `{run, ticket}` | `start_run` + catalog request | one attempt per call; ticket spoken only after read-back verification |
 
 Phone numbers travel in request bodies, never in URLs, so they stay out of access logs (CLAUDE.md §16). Unknown
 callers send `actor_external_id: null` to `/v1/queries`.
+
+The phone request uses the signed Vobiz `CallUUID` as `source_ref`. The engine persists an attempt before the
+Freshservice catalog POST, so a timed-out or crashed request is never blindly posted again. `ticket.status` is
+`verified`, `unverified`, `unknown`, `attempted`, or `blocked`; the phone names the ticket only for `verified`.
+The catalog item and tenant access must be configured for a LIVE ticket. Otherwise the result is explicitly
+FIXTURE or blocked. The approval flow uses a signed `/next` callback and a one-digit `/dtmf` gather after the
+audio prompt has played. High-risk approvals stay in Slack or Teams.
+If `HUMAN_TRANSFER_NUMBER` is set to an E.164 service-desk number, a signed call can leave the media stream and
+bridge through Vobiz `<Dial>`; a busy or failed dial resumes the same conversation with a clear fallback. With no
+configured number, the assistant says that phone transfer is unavailable. The XML follows Vobiz's
+[voice XML guidance](https://github.com/vobiz-ai/Agent-Skills/blob/main/skills/vobiz-voice-xml/SKILL.md).
 
 **Tests** are offline: Sarvam, Vobiz, the model and the engine are all faked.
 

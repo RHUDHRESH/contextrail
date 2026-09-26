@@ -40,12 +40,30 @@ def _doc(body: str) -> str:
     return f'<?xml version="1.0" encoding="UTF-8"?>\n<Response>\n{body}\n</Response>'
 
 
-def stream_xml(ws_url: str, status_url: str) -> str:
-    """Hold the call on a bidirectional mu-law stream; <Hangup/> runs only once the stream ends (keepCallAlive)."""
+def stream_xml(ws_url: str, status_url: str, next_url: str | None = None) -> str:
+    """Hold the call on a bidirectional mu-law stream, then hand control back for DTMF or transfer."""
+    after = f'<Redirect method="POST">{escape(next_url)}</Redirect>' if next_url else "<Hangup/>"
     return _doc(f"""    <Stream bidirectional="true" keepCallAlive="true"
             contentType="audio/x-mulaw;rate=8000"
             statusCallbackUrl="{escape(status_url)}"
             statusCallbackMethod="POST">
         {escape(ws_url)}
     </Stream>
-    <Hangup/>""")
+{after}""")
+
+
+def gather_xml(action_url: str) -> str:
+    """Collect exactly one DTMF digit, then call the same endpoint when no key was pressed."""
+    url = escape(action_url)
+    return _doc(f'    <Gather action="{url}" method="POST" inputType="dtmf" numDigits="1" '
+                f'executionTimeout="15"></Gather>\n<Redirect method="POST">{url}</Redirect>')
+
+
+def hangup_xml() -> str:
+    return _doc("<Hangup/>")
+
+
+def dial_xml(number: str, action_url: str) -> str:
+    """Bridge to a configured human; Vobiz posts DialStatus to action_url when the attempt ends."""
+    return _doc(f'<Dial timeout="30" action="{escape(action_url)}" method="POST">'
+                f'<Number>{escape(number)}</Number></Dial>\n<Hangup/>')

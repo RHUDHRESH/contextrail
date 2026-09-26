@@ -45,6 +45,7 @@ SARVAM_TTS_URL = "https://api.sarvam.ai/text-to-speech"
 SILENCE_THRESHOLD  = 200   # RMS below this = silence
 SILENCE_FRAMES     = 40    # 40 × 20ms = 800ms silence → trigger STT
 MIN_SPEECH_FRAMES  = 8     # ignore clips shorter than 160ms
+PLAYBACK_GRACE_S   = 2.0   # stop after the prompt is played, or after a bounded missing-ack grace
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("sarvam_agent")
@@ -66,6 +67,7 @@ class CallSession:
             languages=LANGUAGES, llm=llm if llm is not None else Conversation.from_key(ANTHROPIC_KEY), lang=lang)
         self._sarvam_transport = sarvam_transport     # None = the real Sarvam API; tests pass a fake
         self._played     = 0                          # utterances sent; names each playback checkpoint
+        self._playback_done = asyncio.Event()
 
         # VAD state
         self._audio_buf    = bytearray()
@@ -89,7 +91,15 @@ class CallSession:
 
     async def _say(self, turn):
         if turn.say:
+            self._playback_done.clear()
             await self._speak(" ".join(turn.say))
+        if turn.control and self.stream_id:
+            if turn.say and self.is_playing:
+                try:
+                    await asyncio.wait_for(self._playback_done.wait(), timeout=PLAYBACK_GRACE_S)
+                except TimeoutError:
+                    logger.warning("Playback acknowledgement timed out; stopping stream for call control")
+            await self._send(json.dumps({"event": "stop", "streamId": self.stream_id}))
 
     # ── Vobiz event router ────────────────────────────────────────────────────
 
@@ -100,7 +110,7 @@ class CallSession:
 
             if event == "start":
                 start = data.get("start", {})
-                self.stream_id = data.get("streamId")
+                self.stream_id = data.get("streamId") or start.get("streamId")
                 self.call_id   = (data.get("callId")
                                   or start.get("callId")
                                   or start.get("callUUID"))
@@ -114,11 +124,14 @@ class CallSession:
                         await self._handle_audio(base64.b64decode(payload))
 
             elif event == "playedStream":
-                self.is_playing = False
-                logger.info("Playback complete")
+                if not data.get("name") or data["name"] == f"tts-{self._played}":
+                    self.is_playing = False
+                    self._playback_done.set()
+                    logger.info("Playback complete")
 
             elif event == "clearedAudio":
                 self.is_playing = False
+                self._playback_done.set()
 
             elif event == "stop":
                 logger.info("Stream stopped")
@@ -164,10 +177,10 @@ class CallSession:
             if not transcript:
                 logger.info("STT returned empty transcript, skipping")
                 return
-            logger.info(f"STT: {transcript}")
+            logger.info("STT transcript received")
 
             turn = await self.dialogue.on_utterance(transcript)
-            logger.info(f"Reply: {' '.join(turn.say)}")
+            logger.info("Voice reply composed")
             await self._say(turn)
 
         except Exception as e:

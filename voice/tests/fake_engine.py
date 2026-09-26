@@ -55,6 +55,7 @@ class FakeEngine:
         self.decision = {"outcome": "recorded", "reason": None, "rule_id": None, "decided_by": "p-dana",
                          "decided_channel": "voice", "view": None}
         self.fail_with: int | None = None
+        self.ticket = {"status": "verified", "ticket_id": 4413, "mode": "FIXTURE"}
 
     def body(self, i: int = -1) -> dict:
         return json.loads(self.requests[i].content)
@@ -74,6 +75,10 @@ class FakeEngine:
             view = run_view(request_text=body["request_text"])
             self.runs[view["run_id"]] = view
             return httpx.Response(201, json=view, headers={"Location": f"/v1/runs/{view['run_id']}"})
+        if (method, path) == ("POST", "/v1/voice/requests"):
+            view = run_view(request_text=body["request_text"])
+            self.runs[view["run_id"]] = view
+            return httpx.Response(200, json={"run": view, "ticket": self.ticket})
         if method == "GET" and path.startswith("/v1/runs/"):
             rid = path.rsplit("/", 1)[1]
             if rid not in self.runs:

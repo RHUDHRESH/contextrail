@@ -38,12 +38,12 @@ def signed(path: str, token: str = AUTH_TOKEN, nonce: str = "12345678") -> dict:
 
 
 class World:
-    def __init__(self, *, auth_token=AUTH_TOKEN):
+    def __init__(self, *, auth_token=AUTH_TOKEN, transfer_number=""):
         self.engine, self.sarvam = FakeEngine(), FakeSarvam()
         self.app = create_app(public_url=PUBLIC, vobiz_auth_token=auth_token,
                               engine=EngineClient("http://engine.test", TOKEN, transport=self.engine.transport()),
                               languages=configure("en-IN"), llm=Conversation(FakeAnthropic()),
-                              sarvam_transport=self.sarvam.transport())
+                              sarvam_transport=self.sarvam.transport(), transfer_number=transfer_number)
         self.client = TestClient(self.app)
 
     def answer(self, caller: str, call_uuid: str = "call-1", headers: dict | None = None):

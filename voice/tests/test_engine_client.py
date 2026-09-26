@@ -33,6 +33,15 @@ async def test_start_run_posts_the_request_as_a_voice_door_with_the_bearer_token
     assert view.status == "awaiting_approval" and view.request_text == "Anil ko Rahul jaisa access do"
 
 
+async def test_voice_request_returns_the_ticket_only_after_engine_verification(client, engine):
+    result = await client.start_voice_request("same as Rahul", actor=ANIL, source_ref="call-7")
+    assert engine.requests[-1].url.path == "/v1/voice/requests"
+    assert engine.body() == {"request_text": "same as Rahul", "actor_external_id": ANIL,
+                             "source_ref": "call-7"}
+    assert result.run.status == "awaiting_approval"
+    assert (result.ticket.status, result.ticket.ticket_id, result.ticket.mode) == ("verified", 4413, "FIXTURE")
+
+
 async def test_get_status_reads_the_run_view(client, engine):
     started = await client.start_run("same as Rahul", actor=ANIL, source_ref="c1")
     again = await client.get_status(started.run_id)

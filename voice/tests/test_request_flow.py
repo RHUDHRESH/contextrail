@@ -27,7 +27,7 @@ def make(code="en-IN"):
 
 
 def runs_started(engine):
-    return [r for r in engine.requests if (r.method, r.url.path) == ("POST", "/v1/runs")]
+    return [r for r in engine.requests if (r.method, r.url.path) == ("POST", "/v1/voice/requests")]
 
 
 async def test_the_request_is_read_back_and_nothing_starts_before_yes():
@@ -42,11 +42,12 @@ async def test_yes_starts_one_run_with_the_callers_exact_words_and_speaks_the_re
     await d.on_utterance(REQUEST)
     turn = await d.on_utterance("yes, go ahead")
     assert len(runs_started(engine)) == 1
-    assert engine.body() == {"request_text": REQUEST, "channel": "voice", "actor_external_id": ANIL_PHONE,
+    assert engine.body() == {"request_text": REQUEST, "actor_external_id": ANIL_PHONE,
                              "source_ref": "call-uuid-7"}
     view = next(iter(engine.runs.values()))
     ref = " ".join(view["run_id"].replace("-", "")[:8].upper())
     assert turn.say[0] == d.line("started").format(ref=ref)
+    assert turn.say[1] == d.line("ticket_created").format(number=4413, mode="FIXTURE")
     assert d.line("st_awaiting_approval") in " ".join(turn.say)
     assert fake.messages.calls == []
 
@@ -79,6 +80,14 @@ async def test_an_unreachable_engine_is_said_plainly():
     await d.on_utterance(REQUEST)
     engine.fail_with = 503
     assert (await d.on_utterance("yes")).say == [d.line("engine_down")]
+
+
+async def test_a_run_with_no_verified_ticket_is_reported_honestly():
+    d, engine, _ = make()
+    engine.ticket = {"status": "blocked", "ticket_id": None, "mode": "LIVE"}
+    await d.on_utterance(REQUEST)
+    turn = await d.on_utterance("yes")
+    assert turn.say[1] == d.line("ticket_unavailable")
 
 
 async def test_a_hindi_caller_confirms_in_hindi():

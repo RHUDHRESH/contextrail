@@ -73,6 +73,14 @@ def asks_to_request(text: str) -> bool:
     return len(said.split()) <= _ASK_MAX_WORDS and _any(said, _ASKS_TO_REQUEST[:1], _ASKS_TO_REQUEST[1:])
 
 
+_NEXT = ((r"\b(next|skip|later)\b",), ("अगला", "अगले", "छोड़", "बाद में", "அடுத்த", "தவிர்", "பிறகு",
+                                      "ಮುಂದಿನ", "ಬಿಟ್ಟು", "ನಂತರ"))
+
+
+def match_next(text: str) -> bool:
+    return _any(text.casefold(), *_NEXT)
+
+
 def match_yes_no(text: str) -> bool | None:
     said = text.casefold()
     if _any(said, *_NO):

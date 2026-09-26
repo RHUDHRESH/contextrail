@@ -7,9 +7,10 @@ named approver, params_hash and POL-SOD-001, and the first decision from any doo
 Calls (voice/README.md, "Engine API", has the full table):
 - POST /v1/runs, GET /v1/runs/{id}, POST /v1/runs/{id}/decisions: match engine/contextrail/surfaces/rest.py on
   sec/P-platform exactly (door.start_run, door.get_status, door.decide).
-- POST /v1/queries, POST /v1/identities/resolve, POST /v1/approvals/pending: not in the engine yet; defined here
-  as thin wrappers over door.answer_query, door.resolve_actor and the awaiting rows of RunView. Phone numbers go
+- POST /v1/queries, POST /v1/identities/resolve, POST /v1/approvals/pending: thin engine HTTP wrappers over
+  door.answer_query, door.resolve_actor and the awaiting rows of RunView. Phone numbers go
   in request bodies, never in URLs, so they stay out of access logs (CLAUDE.md §16).
+- POST /v1/voice/requests: one governed run and at most one catalog request per signed Vobiz call reference.
 
 The models mirror the engine's RunView / DecisionResult / Answer and ignore fields they do not use, so the engine
 can add fields without breaking a live call.
@@ -56,6 +57,17 @@ class RunView(_View):
     counts: dict[str, int] = {}
     modes: dict[str, str] = {}
     replay: bool = False
+
+
+class VoiceTicket(_View):
+    status: Literal["attempted", "verified", "unverified", "unknown", "blocked"]
+    ticket_id: int | None = None
+    mode: Literal["LIVE", "FIXTURE"]
+
+
+class VoiceRequestResult(_View):
+    run: RunView
+    ticket: VoiceTicket
 
 
 class DecisionResult(_View):
@@ -115,6 +127,11 @@ class EngineClient:
     async def start_run(self, text: str, *, actor: str, source_ref: str | None) -> RunView:
         return RunView.model_validate(await self._call("POST", "/v1/runs", {
             "request_text": text, "channel": CHANNEL, "actor_external_id": actor, "source_ref": source_ref}))
+
+    async def start_voice_request(self, text: str, *, actor: str, source_ref: str) -> VoiceRequestResult:
+        """Create one run and attempt one catalog request for this signed Vobiz call UUID."""
+        return VoiceRequestResult.model_validate(await self._call("POST", "/v1/voice/requests", {
+            "request_text": text, "actor_external_id": actor, "source_ref": source_ref}))
 
     async def get_status(self, run_id: UUID) -> RunView:
         return RunView.model_validate(await self._call("GET", f"/v1/runs/{run_id}"))
