@@ -8,6 +8,8 @@ from contextrail import repo
 from contextrail.agentic.knowledge import KnowledgeHit, RuleIndex
 from contextrail.capsule import DigestMismatch, receive
 from contextrail.fixtures import load
+from contextrail.knowledge.okf import load_bundle
+from contextrail.knowledge.rag import index_bundle
 from contextrail.policy.loader import load_rules
 from contextrail.rail.store import load_case
 from contextrail.surfaces.door import Door
@@ -78,6 +80,27 @@ async def test_the_engine_app_serves_search_from_its_loaded_rules(migrated_db):
     async with running(app), mcp_over_http(app) as c:
         r = await c.call_tool("search_enterprise_knowledge", {"query": "POL-ACC-004", "limit": 1})
     assert [h["id"] for h in r.structured_content["hits"]] == ["POL-ACC-004"]
+
+
+async def test_read_only_agent_tools_share_cited_providers_and_scope_runs(door):
+    async with door.db.transaction() as conn:
+        await index_bundle(conn, load_bundle(), load_rules())
+    view = await door.start_run(SAME_AS_RAHUL, channel="mcp", actor_external_id="p-anil")
+    srv = server(door)
+    knowledge = await call(srv, "search_knowledge", {"query": "POL-CTR-001 contractor production credentials",
+                                                      "requester": "p-anil"})
+    assert not knowledge.is_error and knowledge.structured_content["supported"]
+    assert any(c.startswith("okf:") for c in knowledge.structured_content["citations"])
+    own = await call(srv, "run_status", {"run_id": str(view.run_id), "requester": "p-anil"})
+    other = await call(srv, "run_status", {"run_id": str(view.run_id), "requester": "p-rahul"})
+    assert own.structured_content["supported"] and own.structured_content["citations"]
+    assert not other.structured_content["supported"] and other.structured_content["citations"] == []
+    mine = await call(srv, "my_runs", {"requester": "p-anil", "limit": 5})
+    assert mine.structured_content["supported"] and str(view.run_id) in mine.structured_content["text"]
+    precedent = await call(srv, "precedents", {"rule_id": "POL-ACC-003", "requester": "p-anil"})
+    assert not precedent.is_error and precedent.structured_content["kind"] == "precedent"
+    unknown = await call(srv, "my_runs", {"requester": "p-not-real"})
+    assert unknown.is_error
 
 
 # --- compile_context_capsule (T183) -------------------------------------------------------------------------

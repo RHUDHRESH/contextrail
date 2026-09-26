@@ -22,11 +22,13 @@ from contextrail import repo
 from contextrail.agentic.knowledge import KnowledgeHit, KnowledgeSearch
 from contextrail.audit import chain
 from contextrail.capsule import DigestMismatch, receive
+from contextrail.llm.question_agent import ReadEvidence
 from contextrail.models import CaseFile, Evidence
 from contextrail.rail.compile import wrap_untrusted
 from contextrail.rail.store import load_case
 from contextrail.surfaces.door import Door
 from contextrail.surfaces.presenter import RowView, RunView
+from contextrail.surfaces.read_tools import PlatformReadTools
 
 NOT_IN_KNOWLEDGE_BASE = "Not in the knowledge base: nothing curated supports an answer. Do not answer from memory."
 
@@ -295,6 +297,26 @@ class ContextRailTools:
             raise ToolError("No knowledge index is wired.")
         return index
 
+    async def _actor_reads(self, requester: PersonId) -> PlatformReadTools:
+        door = self.door()
+        if await door.resolve_actor("mcp", requester) is None:
+            raise ToolError("Unknown requester: no read tool can use an unmapped identity.")
+        return door.read_tools or PlatformReadTools(door)
+
+    async def search_knowledge(self, query: Annotated[str, Field(min_length=2, max_length=500)],
+                               requester: PersonId) -> ReadEvidence:
+        return await (await self._actor_reads(requester)).search_knowledge(query, actor_id=requester)
+
+    async def run_status(self, run_id: UUID, requester: PersonId) -> ReadEvidence:
+        return await (await self._actor_reads(requester)).run_status(run_id, actor_id=requester)
+
+    async def my_runs(self, requester: PersonId, limit: Annotated[int, Field(ge=1, le=10)] = 5) -> ReadEvidence:
+        return await (await self._actor_reads(requester)).my_runs(limit, actor_id=requester)
+
+    async def precedents(self, rule_id: Annotated[str, Field(pattern=r"^POL-[A-Z]+-[0-9]{3}$")],
+                         requester: PersonId) -> ReadEvidence:
+        return await (await self._actor_reads(requester)).precedents(rule_id, actor_id=requester)
+
     async def sealed(self, run_id: UUID) -> CaseFile:
         """The run's case file, received by value and verified against its seal and the run's recorded digest.
         A failed seal halts the call and leaves an audit event, as the rail's own handoff does (P5)."""
@@ -444,6 +466,14 @@ class ContextRailTools:
                     "Every requested action is settled: verified by read-back, or refused and never executed."))
 
     def register(self, server: MCPServer) -> None:
+        server.add_tool(self.search_knowledge, name="search_knowledge", title="Search cited OKF knowledge",
+                        description="Read curated knowledge with chunk citations. Requires a mapped requester.")
+        server.add_tool(self.run_status, name="run_status", title="Read an owned run",
+                        description="Read a run status with audit citations only when requester owns it.")
+        server.add_tool(self.my_runs, name="my_runs", title="List owned runs",
+                        description="List the requester's own runs with audit citations, at most ten.")
+        server.add_tool(self.precedents, name="precedents", title="Read audited precedents",
+                        description="Read rule precedents computed from the verified audit chain.")
         server.add_tool(
             self.search_enterprise_knowledge, name="search_enterprise_knowledge", title="Search enterprise knowledge",
             description=(

@@ -26,6 +26,7 @@ def test_capabilities_report_built_connectors_and_registered_tools():
     assert {tool["name"] for tool in body["tools"]} == {
         "search_enterprise_knowledge", "compile_context_capsule", "check_policy_and_permissions",
         "generate_action_plan", "handoff_to_specialist", "execute_and_verify",
+        "search_knowledge", "run_status", "my_runs", "precedents",
     }
     assert all(tool["enabled"] for tool in body["tools"])
     assert {door["name"] for door in body["doors"]} == {"http", "mcp"}
