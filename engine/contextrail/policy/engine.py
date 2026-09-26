@@ -8,6 +8,8 @@ Semantics (CLAUDE.md §9):
    but only when at least one rule explicitly allowed. Nothing fired means DEFAULT-DENY: nothing executes
    without a written rule that allows it.
 4. The verdict carries the deciding rule's id and its clause text verbatim.
+5. Alongside a HOLD or REFUSE, the deciding rule may name an `alternative` (POL-DAT-001: the masked view). It is
+   read after the verdict is final, so it can inform the requester and never change the outcome.
 
 `decide()` has no parameter for evidence, messages or model output: the engine cannot be handed retrieved
 text, so retrieved text cannot change a verdict (P6).
@@ -21,7 +23,7 @@ from typing import Any
 from contextrail.models import Action, Subject, Verdict
 from contextrail.policy.approvers import ApproverDirectory, resolve_approver
 from contextrail.policy.conditions import evaluate, evaluate_all
-from contextrail.policy.matchers import applies_to, matches
+from contextrail.policy.matchers import applies_to, matches, resolve
 from contextrail.policy.schema import APPROVER_ROLES, Rule
 
 DEFAULT_DENY_ID = "DEFAULT-DENY"
@@ -44,6 +46,7 @@ class RuleOutcome:
 class Decision:
     verdict: Verdict
     fired: tuple[RuleOutcome, ...]  # every rule that produced an outcome, for explanations and Policy Studio
+    alternative: str | None = None  # offered with a HOLD/REFUSE (e.g. a masked view's entitlement id); not a verdict
 
 
 def build_context(action: Action, subject: Subject, *, role: dict | None = None, run: dict | None = None,
@@ -82,7 +85,8 @@ class PolicyEngine:
             if r.id not in disabled and applies_to(r, subject) and matches(r, action)
             if (o := rule_outcome(r, ctx)) is not None
         )
-        return Decision(verdict=self._resolve(fired, subject, (run or {}).get("requested_by")), fired=fired)
+        verdict = self._resolve(fired, subject, (run or {}).get("requested_by"))
+        return Decision(verdict=verdict, fired=fired, alternative=_alternative(verdict, fired, ctx))
 
     def _resolve(self, fired: tuple[RuleOutcome, ...], subject: Subject, requested_by: str | None) -> Verdict:
         refusals = [o for o in fired if o.verdict == "REFUSE"]
@@ -100,6 +104,19 @@ class PolicyEngine:
             top = min(allows, key=lambda o: o.rule.id)
             return Verdict(verdict="ALLOW", rule_id=top.rule.id, clause_text=top.rule.clause_text)
         return Verdict(verdict="REFUSE", rule_id=DEFAULT_DENY_ID, clause_text=DEFAULT_DENY_CLAUSE)
+
+
+def _alternative(verdict: Verdict, fired: tuple[RuleOutcome, ...], ctx: dict) -> str | None:
+    """What the deciding rule offers instead of its HOLD or REFUSE. Runs after the verdict is final (never before),
+    and only for the rule the verdict quotes: an offer from a rule that did not decide could contradict the one that
+    did."""
+    if verdict.verdict == "ALLOW":
+        return None
+    rule = next((o.rule for o in fired if o.rule.id == verdict.rule_id), None)
+    if rule is None or rule.alternative is None:
+        return None
+    value = resolve(ctx, rule.alternative)
+    return value if isinstance(value, str) and value else None
 
 
 def _neg(rule_id: str) -> tuple[int, ...]:

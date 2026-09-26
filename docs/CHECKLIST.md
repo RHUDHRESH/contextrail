@@ -96,7 +96,7 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 - [x] T064 `P0` POL-ACC-003: admin rights only for senior roles.
 - [x] T065 `P0` POL-ACC-004: contractor repos limited to SOW, read-only, Security approval if production-tagged.
 - [x] T066 `P0` POL-ACC-005: paid SaaS seats need manager approval.
-- [ ] T067 `P1` POL-DAT-001: raw customer PII only for analytics; suggest the masked view.
+- [x] T067 `P1` POL-DAT-001: raw customer PII only for analytics; suggest the masked view.
 - [ ] T068 `P1` POL-EMG-001: incident access read-only, 4-hour expiry, incident commander approval.
 - [x] T069 `P0` POL-OFF-001: revoke old-team access on transfer.
 - [x] T070 `P0` POL-SOD-001: requester cannot approve their own request (enforced in `door.decide` for every door).

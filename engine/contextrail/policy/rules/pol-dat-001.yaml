@@ -1,0 +1,16 @@
+id: POL-DAT-001
+title: Raw customer PII only for the analytics team; everyone else is offered the masked view
+source: {okf: knowledge/policies/access-control-standard.md, clause: "§8"}
+# Authored for Stage 2 (the Stage 1 corpus has no data-class rule); see docs/DECISIONS.md D-011.
+# Catalogue convention: a dataset grant carries target.data_class, 'raw_pii' or 'masked'. A raw_pii entry names its
+# masked counterpart's entitlement id in target.masked_view; that id is recorded alongside the refusal as the
+# alternative, and never changes the verdict. Masked data is governed by the ordinary access rules.
+clause_text: "Raw customer personal data is available only to members of the data analytics team. Anyone else is refused and offered the masked view of the same data instead."
+match:
+  kind: grant
+  target.data_class: raw_pii
+conditions:
+  - subject.team == 'data-analytics'
+verdict: ALLOW
+else_verdict: REFUSE
+alternative: target.masked_view

@@ -66,3 +66,15 @@ def test_misc_shape_rules():
         rule(verdict="ALLOW", terminal=False, expires_after="four hours")
     with pytest.raises(ValidationError, match="needs conditions"):
         rule(verdict="ALLOW", terminal=False, else_verdict="REFUSE")
+
+
+def test_alternative_is_a_readable_path_on_a_rule_that_can_hold_or_refuse():
+    ok = rule(verdict="ALLOW", terminal=False, conditions=["subject.team == 'data-analytics'"], else_verdict="REFUSE",
+              alternative="target.masked_view")
+    assert ok.alternative == "target.masked_view"
+    with pytest.raises(ValidationError, match="P6"):
+        rule(alternative="evidence.0.excerpt")            # retrieved text can never become the offer
+    with pytest.raises(ValidationError, match="dotted path"):
+        rule(alternative="target")
+    with pytest.raises(ValidationError, match="HOLD or REFUSE"):
+        rule(verdict="ALLOW", terminal=False, alternative="target.masked_view")

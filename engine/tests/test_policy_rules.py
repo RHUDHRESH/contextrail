@@ -225,3 +225,51 @@ def test_sod_001_requester_or_beneficiary_cannot_approve(engine, approver, reque
 
 def test_sod_001_unattributable_request_is_refused(engine):
     assert sod(engine, "p-dana", requested_by=None).verdict == "REFUSE"
+
+
+# --- POL-DAT-001 (T067) ------------------------------------------------------------------------------------
+
+ANALYST = person(source_id="E-0612", display_name="Aisha Bello", role="data-analyst", team="data-analytics",
+                 seniority="senior")
+RAW = {"system": "snowflake", "entitlement": "warehouse-customers-raw", "permission": "read", "data_class": "raw_pii"}
+
+
+def raw_pii(**extra):
+    return grant(**RAW, masked_view="warehouse-customers-masked", **extra)
+
+
+def test_dat_001_analytics_team_may_read_raw_customer_pii(engine):
+    d = engine.decide(raw_pii(), ANALYST)
+    assert (d.verdict.verdict, d.verdict.rule_id) == ("ALLOW", "POL-DAT-001")
+    assert d.alternative is None  # nothing to offer instead of an allowed grant
+
+
+@pytest.mark.parametrize("who", [ANIL, PRIYA, person(team=None)])
+def test_dat_001_everyone_else_is_refused_and_offered_the_masked_view(engine, who):
+    d = engine.decide(raw_pii(), who)
+    assert (d.verdict.verdict, d.verdict.rule_id) == ("REFUSE", "POL-DAT-001")
+    assert "masked view" in d.verdict.clause_text
+    assert d.alternative == "warehouse-customers-masked"
+
+
+def test_dat_001_the_alternative_is_recorded_alongside_and_never_changes_the_verdict(engine):
+    offered = engine.decide(raw_pii(), ANIL)
+    bare = engine.decide(grant(**RAW), ANIL)  # the catalogue names no masked view
+    assert bare.alternative is None
+    assert offered.verdict == bare.verdict
+    # The same rule with its `alternative` removed decides byte-for-byte the same.
+    stripped = [r.model_copy(update={"alternative": None}) if r.id == "POL-DAT-001" else r for r in engine.rules]
+    assert PolicyEngine(stripped, DIRECTORY).decide(raw_pii(), ANIL).verdict == offered.verdict
+
+
+def test_dat_001_masked_data_is_left_to_the_ordinary_access_rules(engine):
+    masked = grant(system="snowflake", entitlement="warehouse-customers-masked", permission="read", data_class="masked")
+    d = engine.decide(masked, ANIL, role={"baseline": ["warehouse-customers-masked"]})
+    assert (d.verdict.verdict, d.verdict.rule_id) == ("ALLOW", "POL-ACC-001")
+    assert engine.decide(masked, ANIL).verdict.rule_id == "DEFAULT-DENY"  # not on the baseline: still default deny
+
+
+def test_dat_001_offers_nothing_when_another_rule_decides(engine):
+    # Mirrored from a peer but outside Anil's role: POL-ACC-002 is quoted, so its (absent) alternative is used.
+    d = engine.decide(raw_pii(origin="same_as_peer", role_scope=["data-analyst"]), ANIL)
+    assert (d.verdict.verdict, d.verdict.rule_id, d.alternative) == ("REFUSE", "POL-ACC-002", None)
