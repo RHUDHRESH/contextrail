@@ -57,7 +57,7 @@ async def test_the_call_session_speaks_the_haiku_reply_and_a_fixed_apology_when_
     assert await session._llm() == "Sure."
     silent = agent.CallSession(FakeWS(), llm=Conversation(None))
     silent.conversation.append({"role": "user", "content": "hi"})
-    assert await silent._llm() == agent.LLM_FALLBACK
+    assert await silent._llm() == "माफ करें, मुझे समझने में परेशानी हो रही है।"  # upstream's Hindi apology
 
 
 def test_openai_is_no_longer_a_dependency():
