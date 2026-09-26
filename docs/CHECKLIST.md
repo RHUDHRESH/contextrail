@@ -8,10 +8,10 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 <!-- stats:start -->
 | Priority | Tasks | Done |
 |---|---|---|
-| P0 | 152 | 113 |
+| P0 | 152 | 114 |
 | P1 | 92 | 48 |
 | P2 | 10 | 4 |
-| **Total** | **254** | **165** |
+| **Total** | **254** | **166** |
 
 👤 human-owned tasks: 0
 <!-- stats:end -->
@@ -287,7 +287,7 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 - [ ] T219 `P0` 👤 DNS A record; confirm Caddy TLS.
 - [ ] T220 `P0` Point Workflow Automator, Slack request URLs, the Teams messaging endpoint, the Vobiz Answer URL, FDK iparams and SES links at the public host.
 - [ ] T221 `P0` Warm-up script: seed, reset fixtures, record replay outputs for the demo script.
-- [ ] T222 `P0` README: 10-second line, architecture, sponsors, the five doors, LIVE vs FIXTURE table, run steps, how to read the commit trail.
+- [x] T222 `P0` README: 10-second line, architecture, sponsors, the five doors, LIVE vs FIXTURE table, run steps, how to read the commit trail.
 - [ ] T223 `P0` Devpost description incl. the Stage 1 → Stage 2 evolution and the doors.
 - [ ] T224 `P0` Slide assets: Slack card, email confirm page, Teams card, ticket sidebar, receipt, MCP verdict in Claude Code.
 - [ ] T225 `P0` 👤 Backup demo video (60–90 s).
