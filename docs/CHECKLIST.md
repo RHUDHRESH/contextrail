@@ -272,7 +272,7 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 ## P. Audit, receipts and glass box (8)
 
 - [x] T209 `P0` Audit append with hash chaining.
-- [ ] T210 `P0` Receipt builder: short summary + full JSON.
+- [x] T210 `P0` Receipt builder: short summary + full JSON.
 - [ ] T211 `P0` Write the receipt to Freshservice (note; custom object when ready).
 - [ ] T212 `P0` SSE endpoint `/v1/runs/{id}/events`.
 - [ ] T213 `P1` OpenTelemetry spans for stages, LLM calls and connector calls.
