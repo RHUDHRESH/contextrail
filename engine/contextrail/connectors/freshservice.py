@@ -15,9 +15,11 @@ How outcomes map to the connector contract (connectors/base.py):
   but a write is an UnknownOutcome: reconcile with a read before any retry, never blind-retry (§8 Execute).
 
 FreshserviceConnector (T138) is what the rail and the doors use. It is LIVE only when FS_DOMAIN and FS_API_KEY are
-set. Every result carries the mode of the system that actually answered: FIXTURE when not configured, and FIXTURE
-with a `fallback_reason` (and a warning log) when a tenant call failed. A write with an unknown outcome is raised,
-never redone against the fixture, because the tenant may already hold it (D-004, CLAUDE.md §0 rule 4).
+set. Every result carries the mode of the system that actually answered: FIXTURE when not configured, and for a
+read, FIXTURE with a `fallback_reason` (and a warning log) when the tenant call failed. A write on a configured
+tenant never falls back: an approval or note the ticket never received cannot be stood in for by the fixture, and a
+stored fixture id would stop the real one from ever being made. Failed writes are raised (TransientError retries
+with read-first reconciliation; UnknownOutcome is reconciled; anything else is surfaced) (D-004, CLAUDE.md §0 rule 4).
 """
 
 from __future__ import annotations
@@ -593,7 +595,8 @@ class FreshserviceConnector:
         if self.live is not None:
             await self.live.aclose()
 
-    async def _call(self, op: str, fn: Callable[[FreshserviceClient], Awaitable[T]]) -> tuple[T, Mode, str | None]:
+    async def _call(self, op: str, fn: Callable[[FreshserviceClient], Awaitable[T]], *,
+                    write: bool = False) -> tuple[T, Mode, str | None]:
         if self.live is None:
             return await fn(self.fixture), "FIXTURE", None
         try:
@@ -601,6 +604,8 @@ class FreshserviceConnector:
         except UnknownOutcome:
             raise  # the tenant may hold the write already: reconcile, do not write it somewhere else
         except ConnectorError as e:
+            if write:  # a fixture write cannot stand in for one the ticket never got: raise, retry, reconcile
+                raise
             failure = e
         reason = f"tenant call failed: {failure}"
         get_logger("contextrail.freshservice").warning("freshservice.fixture_fallback", op=op, reason=reason)
@@ -612,8 +617,9 @@ class FreshserviceConnector:
 
     # --- reads -------------------------------------------------------------------------------------------------
 
-    async def _read(self, op: str, fn: Callable[[FreshserviceClient], Awaitable[Any]]) -> FsRead:
-        data, mode, why = await self._call(op, fn)
+    async def _read(self, op: str, fn: Callable[[FreshserviceClient], Awaitable[Any]], *, write: bool = False
+                    ) -> FsRead:
+        data, mode, why = await self._call(op, fn, write=write)
         return FsRead(data=data, mode=mode, fallback_reason=why)
 
     async def get_ticket(self, ticket_id: object) -> FsRead:
@@ -650,7 +656,7 @@ class FreshserviceConnector:
                                    requested_for: str | None = None) -> FsRead:
         """A new 'Access request (ContextRail)' ticket; `data` is the service request, labelled with its mode."""
         return await self._read("place_access_request", lambda c: c.place_access_request(
-            email, request_text, requested_for=requested_for))
+            email, request_text, requested_for=requested_for), write=True)
 
     async def get_approval(self, ticket_id: object, approval_id: object) -> FsApproval:
         tid, aid = fs_id(ticket_id), fs_id(approval_id)
@@ -663,12 +669,13 @@ class FreshserviceConnector:
                                approval_type: ApprovalType = ApprovalType.EVERYONE) -> FsApproval:
         tid, who = fs_id(ticket_id), fs_id(approver_id)
         (a, replayed), mode, why = await self._call("request_approval", lambda c: c.request_approval(
-            tid, who, approval_type=approval_type, email_content=email_content))
+            tid, who, approval_type=approval_type, email_content=email_content), write=True)
         return _approval(tid, a, mode, why, replayed)
 
     async def add_private_note(self, ticket_id: object, body_html: str, marker: str) -> FsNote:
         tid = fs_id(ticket_id)
-        out, mode, why = await self._call("add_private_note", lambda c: c.add_private_note(tid, body_html, marker))
+        out, mode, why = await self._call("add_private_note", lambda c: c.add_private_note(tid, body_html, marker),
+                                          write=True)
         return FsNote(ticket_id=tid, note_id=out.note["id"], marker=marker, replayed=out.replayed,
                       confirmed=out.confirmed, mode=mode, fallback_reason=why)
 
@@ -688,7 +695,7 @@ class FreshserviceConnector:
             await c.update_asset(did, {"user_id": uid})
             return await c.get_asset(did), False
 
-        (asset, replayed), mode, why = await self._call("assign_asset", op)
+        (asset, replayed), mode, why = await self._call("assign_asset", op, write=True)
         return FsAsset(display_id=did, user_id=asset.get("user_id"), replayed=replayed,
                        verified=asset.get("user_id") == uid, mode=mode, fallback_reason=why)
 
@@ -697,7 +704,7 @@ class FreshserviceConnector:
             out = await c.add_receipt_record(record, key)
             return (await c.receipts_object())["id"], out  # remembered by the first call: no extra request
 
-        (obj, out), mode, why = await self._call("add_receipt_record", op)
+        (obj, out), mode, why = await self._call("add_receipt_record", op, write=True)
         return FsReceipt(object_id=obj, display_id=out.record.get("bo_display_id"), receipt_key=key,
                          replayed=out.replayed, confirmed=out.confirmed, mode=mode, fallback_reason=why)
 
