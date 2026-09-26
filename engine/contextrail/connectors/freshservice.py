@@ -13,19 +13,35 @@ How outcomes map to the connector contract (connectors/base.py):
 - Transport failures: if the request never left (connect error/timeout, pool timeout) it is a TransientError for
   every method. Once it may have been sent (read/write timeout, dropped connection), a read is a TransientError,
   but a write is an UnknownOutcome: reconcile with a read before any retry, never blind-retry (§8 Execute).
+
+FreshserviceConnector (T138) is what the rail and the doors use. It is LIVE only when FS_DOMAIN and FS_API_KEY are
+set. Every result carries the mode of the system that actually answered: FIXTURE when not configured, and FIXTURE
+with a `fallback_reason` (and a warning log) when a tenant call failed. A write with an unknown outcome is raised,
+never redone against the fixture, because the tenant may already hold it (D-004, CLAUDE.md §0 rule 4).
 """
 
 from __future__ import annotations
 
 import re
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from enum import IntEnum
-from typing import Any, Self
+from typing import TYPE_CHECKING, Any, Literal, Self, TypeVar
 
 import httpx
+from pydantic import BaseModel, ConfigDict
 
-from contextrail.connectors.base import ConnectorError, TransientError, UnknownOutcome
+from contextrail.connectors.base import ConnectorError, Mode, TransientError, UnknownOutcome, WriteResult
+from contextrail.connectors.freshservice_fixture import FIXTURE_DOMAIN, FixtureTenant
 from contextrail.connectors.ratelimit import TokenBucket
+from contextrail.connectors.state import FixtureState
+from contextrail.logs import get_logger
+
+if TYPE_CHECKING:
+    from contextrail.models import Action
+    from contextrail.settings import Settings
+
+T = TypeVar("T")
 
 TIMEOUT = httpx.Timeout(15.0, connect=5.0)
 # One pooled client per process; idle connections are kept alive between the calls of a run.
@@ -353,3 +369,152 @@ class FreshserviceClient:
         note = await self.create_note(ticket_id, f"{body_html}\n<p>ContextRail ref {marker}</p>")
         seen = await self.find_note(ticket_id, marker)
         return NoteOutcome(note=note, replayed=False, confirmed=seen is not None and seen.get("id") == note.get("id"))
+
+
+# --- the connector: LIVE when configured, labelled FIXTURE otherwise or on failure (T138) ---------------------
+
+class FsRead(BaseModel):
+    """A record (or list) read from Freshservice, with the mode of the system that answered."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    data: Any
+    mode: Mode
+    fallback_reason: str | None = None  # set when a LIVE call failed and the fixture answered instead
+
+
+class FsApproval(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    ticket_id: int
+    approval_id: int
+    approver_id: int
+    status: Literal["requested", "approved", "rejected", "cancelled"]
+    replayed: bool = False  # an existing live approval for this approver was reused; nothing was created
+    mode: Mode
+    fallback_reason: str | None = None
+
+
+class FsNote(BaseModel):
+    """The receipt of a private note: where it is, whether a re-fetch showed it, and which system holds it."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    ticket_id: int
+    note_id: int
+    marker: str
+    replayed: bool
+    confirmed: bool
+    mode: Mode
+    fallback_reason: str | None = None
+
+
+def _approval(ticket_id: int, a: dict, mode: Mode, why: str | None, replayed: bool = False) -> FsApproval:
+    return FsApproval(ticket_id=ticket_id, approval_id=a["id"], approver_id=a["approver_id"],
+                      status=approval_status(a).name.lower(), replayed=replayed, mode=mode, fallback_reason=why)
+
+
+class FreshserviceConnector:
+    """Freshservice for the rail and the doors. Reads and ticket writes only: it is not an action target."""
+
+    name = "freshservice"
+
+    def __init__(self, settings: Settings | None = None, *, state: FixtureState | None = None,
+                 transport: httpx.AsyncBaseTransport | None = None, limiter: TokenBucket | None = None) -> None:
+        self.fixture = FreshserviceClient(FIXTURE_DOMAIN, "fixture",
+                                          transport=FixtureTenant(state or FixtureState("freshservice")).transport)
+        self.live: FreshserviceClient | None = None
+        if settings is not None and settings.freshservice_configured:
+            self.live = FreshserviceClient(settings.fs_domain, settings.fs_api_key.get_secret_value(),
+                                           transport=transport,
+                                           limiter=limiter or TokenBucket(settings.fs_rate_limit_per_min))
+        self.mode: Mode = "LIVE" if self.live is not None else "FIXTURE"
+
+    async def aclose(self) -> None:
+        await self.fixture.aclose()
+        if self.live is not None:
+            await self.live.aclose()
+
+    async def _call(self, op: str, fn: Callable[[FreshserviceClient], Awaitable[T]]) -> tuple[T, Mode, str | None]:
+        if self.live is None:
+            return await fn(self.fixture), "FIXTURE", None
+        try:
+            return await fn(self.live), "LIVE", None
+        except UnknownOutcome:
+            raise  # the tenant may hold the write already: reconcile, do not write it somewhere else
+        except ConnectorError as e:
+            failure = e
+        reason = f"tenant call failed: {failure}"
+        get_logger("contextrail.freshservice").warning("freshservice.fixture_fallback", op=op, reason=reason)
+        try:
+            return await fn(self.fixture), "FIXTURE", reason
+        except ConnectorError as e:
+            kind = TransientError if isinstance(failure, TransientError) else ConnectorError
+            raise kind(f"{reason}; the fixture fallback failed too: {e}") from e
+
+    # --- reads -------------------------------------------------------------------------------------------------
+
+    async def _read(self, op: str, fn: Callable[[FreshserviceClient], Awaitable[Any]]) -> FsRead:
+        data, mode, why = await self._call(op, fn)
+        return FsRead(data=data, mode=mode, fallback_reason=why)
+
+    async def get_ticket(self, ticket_id: object) -> FsRead:
+        tid = fs_id(ticket_id)
+        return await self._read("get_ticket", lambda c: c.get_ticket(tid))
+
+    async def get_requester(self, requester_id: object) -> FsRead:
+        rid = fs_id(requester_id)
+        return await self._read("get_requester", lambda c: c.get_requester(rid))
+
+    async def get_agent(self, agent_id: object) -> FsRead:
+        aid = fs_id(agent_id)
+        return await self._read("get_agent", lambda c: c.get_agent(aid))
+
+    async def find_agents_by_email(self, email: str) -> FsRead:
+        return await self._read("find_agents_by_email", lambda c: c.find_agents_by_email(email))
+
+    async def access_request_item(self) -> FsRead:
+        return await self._read("access_request_item", lambda c: c.access_request_item())
+
+    async def list_approvals(self, ticket_id: object) -> FsRead:
+        tid = fs_id(ticket_id)
+        return await self._read("list_approvals", lambda c: c.list_approvals(tid))
+
+    async def get_approval(self, ticket_id: object, approval_id: object) -> FsApproval:
+        tid, aid = fs_id(ticket_id), fs_id(approval_id)
+        a, mode, why = await self._call("get_approval", lambda c: c.get_approval(tid, aid))
+        return _approval(tid, a, mode, why)
+
+    # --- ticket writes -----------------------------------------------------------------------------------------
+
+    async def request_approval(self, ticket_id: object, approver_id: object, *, email_content: str | None = None,
+                               approval_type: ApprovalType = ApprovalType.EVERYONE) -> FsApproval:
+        tid, who = fs_id(ticket_id), fs_id(approver_id)
+        (a, replayed), mode, why = await self._call("request_approval", lambda c: c.request_approval(
+            tid, who, approval_type=approval_type, email_content=email_content))
+        return _approval(tid, a, mode, why, replayed)
+
+    async def add_private_note(self, ticket_id: object, body_html: str, marker: str) -> FsNote:
+        tid = fs_id(ticket_id)
+        out, mode, why = await self._call("add_private_note", lambda c: c.add_private_note(tid, body_html, marker))
+        return FsNote(ticket_id=tid, note_id=out.note["id"], marker=marker, replayed=out.replayed,
+                      confirmed=out.confirmed, mode=mode, fallback_reason=why)
+
+    # --- the Connector protocol --------------------------------------------------------------------------------
+
+    async def read(self, ref: dict) -> dict:
+        if "ticket_id" in ref:
+            return (await self.get_ticket(ref["ticket_id"])).model_dump()
+        if "requester_id" in ref:
+            return (await self.get_requester(ref["requester_id"])).model_dump()
+        if "agent_id" in ref:
+            return (await self.get_agent(ref["agent_id"])).model_dump()
+        if "agent_email" in ref:
+            return (await self.find_agents_by_email(ref["agent_email"])).model_dump()
+        raise ConnectorError(f"freshservice: cannot read {sorted(ref)}")
+
+    async def write(self, action: Action, idem_key: str) -> WriteResult:
+        raise ConnectorError("Freshservice holds tickets, people and approvals here; it is not an action target")
+
+    async def verify(self, action: Action) -> tuple[bool, dict]:
+        raise ConnectorError("Freshservice holds tickets, people and approvals here; it is not an action target")

@@ -42,7 +42,7 @@ def test_main_migrates_seeds_and_resets_state(empty_db, tmp_path, monkeypatch, c
     out = capsys.readouterr().out
     assert "identity rows: 10" in out and "slack_corpus" in out
     assert sorted(p.name for p in tmp_path.glob("*.json")) == [
-        "entitlements.json", "github.json", "hris.json", "slack_corpus.json"]
+        "entitlements.json", "freshservice.json", "github.json", "hris.json", "slack_corpus.json"]
 
 
 def test_reset_restores_seed_state(tmp_path):

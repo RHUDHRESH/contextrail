@@ -179,7 +179,7 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 - [ ] T135 `P0` 👤 Workflow Automator: ticket raised → item is Access request → Web Request to the engine.
 - [ ] T136 `P0` Check Workflow Automator execution logs; fix the `{{ticket.id_numeric}}` payload.
 - [ ] T137 `P1` Freshservice MCP client for exploratory reads, wrapped as a read-only tool.
-- [ ] T138 `P0` LIVE flag per call path; labelled fixture fallback if a tenant call fails.
+- [x] T138 `P0` LIVE flag per call path; labelled fixture fallback if a tenant call fails.
 
 ## J. Slack door (18)
 
