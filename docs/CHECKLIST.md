@@ -185,7 +185,7 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 
 - [x] T139 `P0` Slack app manifest YAML in the repo (scopes, slash command, interactivity, assistant).
 - [x] T140 `P0` Bolt app init (Socket Mode in dev, HTTP in prod).
-- [ ] T141 `P0` `/contextrail <request>` → `door.start_run`; ephemeral acknowledgement.
+- [x] T141 `P0` `/contextrail <request>` → `door.start_run`; ephemeral acknowledgement.
 - [ ] T142 `P0` Run status message updated in place per stage (`chat.update`).
 - [ ] T143 `P1` Assistant pane: thread started → suggested prompts.
 - [ ] T144 `P1` Assistant pane: user message → start run; `set_status` per stage.

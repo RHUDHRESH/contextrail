@@ -107,3 +107,62 @@ async def test_authorization_goes_through_the_door_client_once(no_slack_env, doo
 def test_socket_entrypoint_refuses_to_start_without_tokens(capsys):
     assert slack_socket.main(settings=_settings(slack_bot_token=BOT_TOKEN, slack_signing_secret=SIGNING_SECRET)) == 2
     assert "SLACK_APP_TOKEN" in capsys.readouterr().err
+
+# --- T141: /contextrail <request> -> ephemeral ack, then Door.start_run ------------------------------------------
+
+ANIL_SLACK, CHANNEL = "U0ANIL001", "C0ACCESS1"
+REQUEST = "Give Anil the same access as Rahul Mehta"
+
+
+def _command(text: str, user: str = ANIL_SLACK) -> dict:
+    return {"command": "/contextrail", "text": text, "user_id": user, "channel_id": CHANNEL, "team_id": "T0NORTH01",
+            "response_url": "https://hooks.slack.invalid/commands/1", "trigger_id": "13345224609.738474920.8088930838d"}
+
+
+async def _runs(door) -> list[dict]:
+    async with door.db.connection() as c:
+        return await (await c.execute("select * from runs order by created_at")).fetchall()
+
+
+class Ack:
+    """Records every ack and how many runs existed at that moment (the ack must come before the rail starts)."""
+
+    def __init__(self, door) -> None:
+        self.door, self.calls, self.runs_at_ack = door, [], []
+
+    async def __call__(self, text: str = "", **kw) -> None:
+        self.calls.append({"text": text, **kw})
+        self.runs_at_ack.append(len(await _runs(self.door)))
+
+
+async def test_slash_command_acks_ephemerally_then_starts_the_run(door):
+    fake = FakeSlackClient()
+    slack = SlackDoor(door, client=fake, signing_secret=SIGNING_SECRET)
+    ack = Ack(door)
+    await slack.on_command(ack=ack, command=_command(REQUEST))
+    [acked] = ack.calls
+    assert acked["response_type"] == "ephemeral" and REQUEST in acked["text"]
+    assert ack.runs_at_ack == [0]                      # acknowledged before any run existed
+    [run] = await _runs(door)
+    assert (run["source"], run["requested_by"], run["status"]) == ("slack", "p-anil", "awaiting_approval")
+
+
+async def test_empty_command_shows_usage_and_starts_nothing(door):
+    fake = FakeSlackClient()
+    slack = SlackDoor(door, client=fake, signing_secret=SIGNING_SECRET)
+    ack = Ack(door)
+    await slack.on_command(ack=ack, command=_command("   "))
+    assert ack.calls[0]["response_type"] == "ephemeral" and "/contextrail" in ack.calls[0]["text"]
+    assert await _runs(door) == [] and fake.calls == []
+
+
+async def test_signed_slash_command_through_the_http_route(no_slack_env, door):
+    app = create_app(_configured())
+    fake = FakeSlackClient()
+    app.state.slack = SlackDoor(door, client=fake, signing_secret=SIGNING_SECRET, process_before_response=True)
+    body = str(httpx.QueryParams(_command(REQUEST)))
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://engine") as h:
+        r = await h.post("/slack/events", content=body, headers=signed_headers(body))
+    assert r.status_code == 200 and r.json()["response_type"] == "ephemeral" and REQUEST in r.json()["text"]
+    [run] = await _runs(door)
+    assert run["requested_by"] == "p-anil"

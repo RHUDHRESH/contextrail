@@ -17,9 +17,11 @@ from slack_bolt.async_app import AsyncApp
 from slack_bolt.authorization import AuthorizeResult
 from slack_sdk.web.async_client import AsyncWebClient
 
+from contextrail.surfaces import slack_blocks as blocks
 from contextrail.surfaces.door import Door
 
 EVENTS_PATH = "/slack/events"
+COMMAND = "/contextrail"
 
 
 class SlackDoor:
@@ -43,6 +45,20 @@ class SlackDoor:
         self.app = AsyncApp(name="contextrail", client=client, authorize=authorize, signing_secret=signing_secret,
                             process_before_response=process_before_response)
         self.http = AsyncSlackRequestHandler(self.app)
+        self.app.command(COMMAND)(self.on_command)
+
+    # --- /contextrail <request> ---------------------------------------------------------------------------------
+
+    async def on_command(self, ack, command: dict) -> None:
+        """Acknowledge at once (Slack's 3 s deadline; ephemeral, so only the requester sees it), then hand the
+        request to the Door. Who asked is the Slack user id; the Door maps it through identity_map."""
+        text = (command.get("text") or "").strip()
+        if not text:
+            await ack(text=blocks.USAGE, response_type="ephemeral")
+            return
+        await ack(text=blocks.ack_text(text), response_type="ephemeral")
+        await self.door.start_run(text, channel="slack", actor_external_id=command.get("user_id"),
+                                  source_ref=command.get("channel_id"))
 
 
 router = APIRouter()
