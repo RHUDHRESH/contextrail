@@ -13,6 +13,7 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 
+from engine_client import Caller
 from intents import route
 from languages import Language, LanguageTable, detect_switch
 from llm import Conversation
@@ -42,15 +43,23 @@ async def _conversation_flow(dialogue: Dialogue, text: str) -> list[str]:
 
 
 FLOW_NAMES = ("request", "status", "policy", "approve", "human")
+REGISTERED_ONLY = frozenset({"request", "status", "approve"})  # unknown callers: policy questions (and a person)
 
 
 class Dialogue:
     def __init__(self, *, languages: LanguageTable, llm: Conversation, flows: dict[str, Flow] | None = None,
-                 lang: Language | None = None) -> None:
+                 lang: Language | None = None, caller: Caller | None = None,
+                 caller_phone: str | None = None) -> None:
         self.languages, self.llm = languages, llm
         self.lang = lang or languages.default
+        # Who is calling, as identity_map.phone resolved it; both None for an unknown or unverified number.
+        self.caller, self.caller_phone = caller, caller_phone if caller else None
         self.history: list[dict] = []  # the model's turns only; flows' turns never enter a prompt
         self.flows: dict[str, Flow] = {name: _conversation_flow for name in FLOW_NAMES} | (flows or {})
+
+    @property
+    def registered(self) -> bool:
+        return self.caller is not None
 
     def line(self, key: str) -> str:
         return self.lang.lines[key]
@@ -60,7 +69,7 @@ class Dialogue:
         return f"{self.line('disclosure')} {self.line(key)}"
 
     async def opening(self) -> Turn:
-        return Turn([self.disclosed("menu")])
+        return Turn([self.disclosed("menu" if self.registered else "unregistered")])
 
     async def on_utterance(self, text: str) -> Turn:
         switch = detect_switch(text)
@@ -70,6 +79,8 @@ class Dialogue:
         intent = await route(text, self.llm)
         if intent == "unclear":
             return Turn([await self.converse(text)])
+        if intent in REGISTERED_ONLY and not self.registered:
+            return Turn([self.line("unregistered")])
         result = await self.flows[intent](self, text)
         return result if isinstance(result, Turn) else Turn(list(result))
 

@@ -44,6 +44,8 @@ SUPPORTED: dict[str, Language] = {
         disclosure="नमस्ते, मैं कॉन्टेक्स्टरेल का एआई सहायक हूँ, कोई इंसान नहीं।",
         menu=("आप नया अनुरोध कर सकते हैं, किसी अनुरोध की स्थिति पूछ सकते हैं, नीति के बारे में सवाल पूछ सकते हैं, "
               "या अपनी मंज़ूरी के लिए रुके आइटम तय कर सकते हैं। भाषा बदलने के लिए English, Tamil या Kannada कहें।"),
+        unregistered=("आपका नंबर कॉन्टेक्स्टरेल में पंजीकृत नहीं है, इसलिए मैं केवल सामान्य नीति से जुड़े सवालों के "
+                      "जवाब दे सकता हूँ।"),
         fallback="माफ करें, मुझे समझने में परेशानी हो रही है।",
         switched="ठीक है, अब हम हिंदी में बात करेंगे।",
     ),
@@ -53,6 +55,8 @@ SUPPORTED: dict[str, Language] = {
         disclosure="Hello, I am ContextRail's AI assistant, not a person.",
         menu=("You can make a new request, ask about a request's status, ask a policy question, or decide items "
               "waiting for your approval. To change language, say Hindi, Tamil or Kannada."),
+        unregistered=("Your number is not registered with ContextRail, so I can only answer general policy "
+                      "questions."),
         fallback="Sorry, I'm having trouble understanding.",
         switched="Okay, we'll continue in English.",
     ),
@@ -62,6 +66,8 @@ SUPPORTED: dict[str, Language] = {
         menu=("நீங்கள் புதிய கோரிக்கை வைக்கலாம், ஒரு கோரிக்கையின் நிலையைக் கேட்கலாம், கொள்கை பற்றிக் கேட்கலாம், "
               "அல்லது உங்கள் ஒப்புதலுக்காகக் காத்திருப்பவற்றை முடிவு செய்யலாம். மொழியை மாற்ற Hindi, English அல்லது "
               "Kannada என்று சொல்லுங்கள்."),
+        unregistered=("உங்கள் எண் ContextRail-இல் பதிவு செய்யப்படவில்லை, எனவே பொதுவான கொள்கைக் கேள்விகளுக்கு "
+                      "மட்டுமே என்னால் பதில் சொல்ல முடியும்."),
         fallback="மன்னிக்கவும், எனக்குப் புரிந்துகொள்வதில் சிரமம் உள்ளது.",
         switched="சரி, இனி தமிழில் பேசலாம்.",
     ),
@@ -70,6 +76,8 @@ SUPPORTED: dict[str, Language] = {
         disclosure="ನಮಸ್ಕಾರ, ನಾನು ContextRail ನ AI ಸಹಾಯಕ, ಮನುಷ್ಯನಲ್ಲ.",
         menu=("ನೀವು ಹೊಸ ವಿನಂತಿ ಮಾಡಬಹುದು, ವಿನಂತಿಯ ಸ್ಥಿತಿ ಕೇಳಬಹುದು, ನೀತಿಯ ಬಗ್ಗೆ ಪ್ರಶ್ನೆ ಕೇಳಬಹುದು, ಅಥವಾ ನಿಮ್ಮ "
               "ಅನುಮೋದನೆಗಾಗಿ ಕಾಯುತ್ತಿರುವವನ್ನು ನಿರ್ಧರಿಸಬಹುದು. ಭಾಷೆ ಬದಲಾಯಿಸಲು Hindi, English ಅಥವಾ Tamil ಎಂದು ಹೇಳಿ."),
+        unregistered=("ನಿಮ್ಮ ಸಂಖ್ಯೆ ContextRail ನಲ್ಲಿ ನೋಂದಣಿಯಾಗಿಲ್ಲ, ಆದ್ದರಿಂದ ನಾನು ಸಾಮಾನ್ಯ ನೀತಿ ಪ್ರಶ್ನೆಗಳಿಗೆ ಮಾತ್ರ "
+                      "ಉತ್ತರಿಸಬಲ್ಲೆ."),
         fallback="ಕ್ಷಮಿಸಿ, ನನಗೆ ಅರ್ಥಮಾಡಿಕೊಳ್ಳಲು ತೊಂದರೆಯಾಗುತ್ತಿದೆ.",
         switched="ಸರಿ, ಇನ್ನು ಕನ್ನಡದಲ್ಲಿ ಮಾತನಾಡೋಣ.",
     ),

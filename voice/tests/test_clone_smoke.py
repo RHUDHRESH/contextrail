@@ -1,6 +1,5 @@
-"""The copied Vobiz-Sarvam base boots and behaves as upstream documents it, before ContextRail changes anything.
-
-Offline: no Sarvam, Vobiz, model or ngrok call is made. main() (which opens the ngrok tunnel) is never called.
+"""The Vobiz-Sarvam base still behaves as upstream documents it: health, the answer XML, the audio conversions and
+the 800 ms VAD. Offline: no Sarvam, Vobiz, model or engine call is made.
 """
 
 import audioop
@@ -13,12 +12,17 @@ import pytest
 
 import agent
 import server
+from engine_client import EngineClient
+from languages import configure
+from llm import Conversation
 
 
 @pytest.fixture
-def client(monkeypatch):
-    monkeypatch.setattr(server, "BASE_URL", "https://voice.test")
-    return httpx.AsyncClient(transport=httpx.ASGITransport(app=server.app), base_url="http://voice.test")
+def client():
+    app = server.create_app(public_url="https://voice.test", vobiz_auth_token="",
+                            engine=EngineClient("http://engine.test", ""), languages=configure("hi-IN"),
+                            llm=Conversation(None))
+    return httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://voice.test")
 
 
 async def test_health_reports_ok(client):
@@ -27,12 +31,12 @@ async def test_health_reports_ok(client):
 
 
 async def test_answer_returns_a_bidirectional_mulaw_stream(client):
-    r = await client.post("/answer")
+    r = await client.post("/answer", data={"CallUUID": "call-1", "From": "919990000150"})
     assert r.status_code == 200 and r.headers["content-type"].startswith("application/xml")
     xml = r.text
     assert 'bidirectional="true"' in xml and 'keepCallAlive="true"' in xml
     assert 'contentType="audio/x-mulaw;rate=8000"' in xml
-    assert "wss://voice.test/ws" in xml
+    assert "wss://voice.test/ws/" in xml
 
 
 def _tone(ms: int, amplitude: int) -> bytes:

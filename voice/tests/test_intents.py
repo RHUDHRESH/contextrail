@@ -5,6 +5,7 @@ only pick from the same fixed list. Routing picks a flow; each flow still confir
 import pytest
 
 from dialogue import Dialogue
+from engine_client import Caller
 from intents import INTENTS, match_keywords, route
 from languages import configure
 from llm import Conversation
@@ -79,7 +80,8 @@ class Recorder:
 def _dialogue(fake=None, rec=None):
     rec = rec or Recorder()
     flows = {name: rec.flow(name) for name in ("request", "status", "policy", "approve", "human")}
-    return Dialogue(languages=configure("hi-IN"), llm=Conversation(fake or FakeAnthropic()), flows=flows), rec
+    return Dialogue(languages=configure("hi-IN"), llm=Conversation(fake or FakeAnthropic()), flows=flows,
+                    caller=Caller(person_id="p-dana", display_name="Dana Osei"), caller_phone="+919990000150"), rec
 
 
 async def test_the_dialogue_dispatches_each_intent_to_its_flow():
