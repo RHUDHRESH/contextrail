@@ -1,117 +1,19 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { FileText, Play, Rewind, ShieldCheck, TriangleAlert } from "lucide-react";
-import type {
-  ActionPlan,
-  Approval,
-  ContextCapsule,
-  Decision,
-  Evidence,
-  ExecutionRecord,
-  PolicyDecision,
-  RailEvent,
-  Run,
-  StageId,
-} from "@/lib/contextrail/types";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { StageRail, EMPTY_STAGES, type StageState } from "./stage-rail";
-import { EvidenceCard } from "./evidence-card";
-import { CapsuleView } from "./capsule-view";
-import { PolicyList, Empty } from "./policy-list";
-import { PlanTable } from "./plan-table";
-import { HandoffGraph, HandoffLedger, type HandoffEvent } from "./handoff-graph";
+import { ArrowLeft, ArrowRight, ChevronDown, FileText, Play } from "lucide-react";
+import type { RailEvent, Run } from "@/lib/contextrail/types";
 import { ApprovalQueue } from "./approval-queue";
-import { ExecutionTimeline } from "./execution-timeline";
-import { AuditLog } from "./audit-log";
-import { AdversaryConsole } from "./adversary-console";
-import { IntegritySeal } from "./integrity-seal";
-import { Stat, StatStrip } from "./metrics";
-import { statusTone, Signal } from "./signal";
-import { cn } from "@/lib/utils";
 
-type State = {
-  stages: StageState;
-  evidence: Evidence[];
-  capsule: ContextCapsule | null;
-  policies: PolicyDecision[];
-  plan: ActionPlan | null;
-  handoffs: HandoffEvent[];
-  approvals: Approval[];
-  executions: ExecutionRecord[];
-  audit: Decision[];
-  run: Run | null;
-};
+type Launch = { request: string; requesterId?: string; scenarioId?: string | null };
 
-const BLANK: State = {
-  stages: EMPTY_STAGES,
-  evidence: [],
-  capsule: null,
-  policies: [],
-  plan: null,
-  handoffs: [],
-  approvals: [],
-  executions: [],
-  audit: [],
-  run: null,
-};
-
-function hydrate(run: Run): State {
-  const stages = { ...EMPTY_STAGES } as StageState;
-  (["discover", "compile", "govern", "plan", "handoff"] as StageId[]).forEach((s) => {
-    stages[s] = { status: "done", note: stages[s].note };
-  });
-  if (run.executions.length) {
-    stages.execute = { status: "done", note: `${run.metrics.actions_completed} action(s) executed` };
-    const verified = run.executions.filter((e) => e.verified).length;
-    stages.verify = {
-      status: run.metrics.actions_blocked ? "blocked" : "done",
-      note: run.metrics.actions_blocked
-        ? `${verified} outcome(s) verified · ${run.metrics.actions_blocked} refused by policy`
-        : `${verified} outcome(s) verified`,
-    };
-  }
-  stages.approve = {
-    status: run.approvals.length === 0 ? "done" : run.approvals.every((a) => a.state !== "pending") ? "done" : "running",
-    note: run.approvals.length ? `${run.approvals.length} privileged action(s)` : "No privileged actions",
-  };
-
-  return {
-    stages,
-    evidence: run.capsule.sources,
-    capsule: run.capsule,
-    policies: run.policies,
-    plan: run.plan,
-    handoffs: run.capsule.handoff_chain.map((to, i) => {
-      const owned = run.plan.actions.filter((a) => a.agent === to && !a.blockedBy);
-      return {
-        from: i === 0 ? ("ORCHESTRATOR" as const) : run.capsule.handoff_chain[i - 1],
-        to,
-        carries: [
-          `${run.capsule.sources.length} evidence items`,
-          `${run.capsule.constraints.length} active constraints`,
-          `${run.audit.length} prior decisions`,
-          `${owned.length} assigned action(s)`,
-          ...(run.capsule.open_blockers.length ? [`${run.capsule.open_blockers.length} open blocker(s)`] : []),
-        ],
-      };
-    }),
-    approvals: run.approvals,
-    executions: run.executions,
-    audit: run.audit,
-    run,
-  };
-}
-
-async function consume(res: Response, onEvent: (e: RailEvent) => void) {
+async function consume(res: Response, onEvent: (event: RailEvent) => void) {
   const reader = res.body?.getReader();
-  if (!reader) return;
+  if (!reader) throw new Error("No response received.");
   const decoder = new TextDecoder();
   let buffer = "";
-
   for (;;) {
     const { done, value } = await reader.read();
     if (done) break;
@@ -121,295 +23,131 @@ async function consume(res: Response, onEvent: (e: RailEvent) => void) {
     for (const frame of frames) {
       const line = frame.trim();
       if (!line.startsWith("data:")) continue;
-      const payload = JSON.parse(line.slice(5).trim());
-      if (payload.type === "end") continue;
-      onEvent(payload as RailEvent);
+      const event = JSON.parse(line.slice(5).trim()) as RailEvent | { type: "end" };
+      if (event.type === "end") continue;
+      if (event.type === "error") throw new Error(event.message);
+      onEvent(event);
     }
   }
 }
 
-export function RunConsole({ initialRun, autoStart }: { initialRun?: Run; autoStart?: { request: string; requesterId?: string; scenarioId?: string | null } }) {
+function status(run: Run | null, loading: boolean) {
+  if (loading) return { title: "Putting your request together", text: "Checking the sample records and preparing next steps." };
+  if (!run) return { title: "Preparing your request", text: "This usually takes a few seconds." };
+  if (run.approvals.some((item) => item.state === "pending")) return { title: "Approval needed", text: "Someone needs to review a step before this can continue." };
+  if (run.status === "complete") return { title: "Done", text: "The simulated workflow has finished." };
+  if (run.status === "partial") return { title: "Partly done", text: "Some steps could not be completed. Open details to see why." };
+  if (run.status === "failed") return { title: "Needs attention", text: "The simulated workflow stopped. Open details to see why." };
+  if (run.executions.length) return { title: "Work in progress", text: "Some actions have run in the sample environment." };
+  return { title: "Ready to continue", text: "Review the proposed next steps, then continue the simulation." };
+}
+
+export function RunConsole({ initialRun, autoStart }: { initialRun?: Run; autoStart?: Launch }) {
   const router = useRouter();
-  const [state, setState] = useState<State>(initialRun ? hydrate(initialRun) : BLANK);
-  const [phase, setPhase] = useState<"idle" | "assembling" | "ready" | "executing" | "done">(
-    initialRun ? (initialRun.executions.length ? "done" : "ready") : "idle",
-  );
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<{ what: string; detail: string } | null>(null);
-  // Tab lives in the URL hash so an operator can send a colleague
-  // straight to "the Policy tab of REQ-24082".
-  const [tab, setTabState] = useState("capsule");
-  useEffect(() => {
-    // Deliberate: the hash is client-only, so a lazy initialiser would
-    // desync from the server render. Restoring after mount is correct.
-    const fromHash = window.location.hash.replace("#", "");
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    if (fromHash) setTabState(fromHash);
-  }, []);
-  const setTab = useCallback((next: string) => {
-    setTabState(next);
-    window.history.replaceState(null, "", `#${next}`);
-  }, []);
   const started = useRef(false);
-
-  const apply = useCallback((e: RailEvent) => {
-    setState((s) => {
-      switch (e.type) {
-        case "stage":
-          return { ...s, stages: { ...s.stages, [e.stage]: { status: e.status, note: e.note } } };
-        case "evidence":
-          return { ...s, evidence: [...s.evidence, e.evidence] };
-        case "capsule":
-          return { ...s, capsule: e.capsule };
-        case "policy":
-          return { ...s, policies: [...s.policies, e.decision] };
-        case "plan":
-          return { ...s, plan: e.plan };
-        case "handoff":
-          return { ...s, handoffs: [...s.handoffs, e] };
-        case "approval":
-          return { ...s, approvals: [...s.approvals, e.approval] };
-        case "execution":
-          return { ...s, executions: [...s.executions, e.record] };
-        case "audit":
-          return { ...s, audit: [...s.audit, e.decision] };
-        case "run":
-          return { ...s, run: e.run, approvals: e.run.approvals, audit: e.run.audit };
-        default:
-          return s;
-      }
-    });
-  }, []);
-
-  const start = useCallback(
-    async (input: { request: string; requesterId?: string; scenarioId?: string | null }) => {
-      setState(BLANK);
-      setError(null);
-      setPhase("assembling");
-      try {
-        const res = await fetch("/api/runs", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(input),
-        });
-        if (!res.ok) throw new Error(`The orchestrator returned ${res.status}.`);
-        await consume(res, apply);
-        setPhase("ready");
-      } catch (e) {
-        // A dropped stream used to leave the rail spinning forever with
-        // no message. Say what failed and let the operator retry.
-        setError({
-          what: "The rail stopped before the capsule was complete.",
-          detail: e instanceof Error ? e.message : String(e),
-        });
-        setPhase("idle");
-      }
-    },
-    [apply],
-  );
+  const [run, setRun] = useState<Run | null>(initialRun ?? null);
+  const [loading, setLoading] = useState(Boolean(autoStart));
+  const [busy, setBusy] = useState(false);
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const [error, setError] = useState("");
+  const [progress, setProgress] = useState("");
 
   useEffect(() => {
-    if (autoStart && !started.current) {
-      started.current = true;
-      void start(autoStart);
-    }
-  }, [autoStart, start]);
-
-  const decide = useCallback(
-    async (approvalId: string, decision: "approved" | "denied", note?: string) => {
-      const runId = state.run?.id;
-      if (!runId) return;
-      setBusy(true);
-      setError(null);
+    if (!autoStart || started.current) return;
+    started.current = true;
+    let active = true;
+    async function start() {
       try {
-        const res = await fetch(`/api/runs/${runId}/approvals`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ approvalId, state: decision, note }),
+        const res = await fetch("/api/runs", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(autoStart) });
+        if (!res.ok) throw new Error(`Request failed (${res.status}).`);
+        let finalRun: Run | null = null;
+        await consume(res, (event) => {
+          if (!active) return;
+          if (event.type === "stage" && event.status === "running") setProgress(event.note);
+          if (event.type === "run") { finalRun = event.run; setRun(event.run); }
         });
-        if (!res.ok) throw new Error(`The approval was not recorded (${res.status}).`);
-        const { run } = (await res.json()) as { run: Run };
-        setState((s) => ({ ...s, approvals: run.approvals, audit: run.audit, run }));
-      } catch (e) {
-        setError({
-          what: "That decision was not recorded.",
-          detail: `${e instanceof Error ? e.message : String(e)} Nothing was executed — the action is still held.`,
-        });
-      } finally {
-        setBusy(false);
+        if (!finalRun) throw new Error("The request ended without a result.");
+        if (active) { setLoading(false); router.replace(`/runs/${(finalRun as Run).id}`); }
+      } catch (cause) {
+        if (active) { setLoading(false); setError(cause instanceof Error ? cause.message : "Could not prepare request."); }
       }
-    },
-    [state.run?.id],
-  );
+    }
+    void start();
+    return () => { active = false; };
+  }, [autoStart, router]);
+
+  const decide = useCallback(async (approvalId: string, decision: "approved" | "denied", note?: string) => {
+    if (!run) return;
+    setBusy(true); setError("");
+    try {
+      const res = await fetch(`/api/runs/${run.id}/approvals`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ approvalId, state: decision, note }) });
+      if (!res.ok) throw new Error(`Decision failed (${res.status}).`);
+      const body = (await res.json()) as { run: Run };
+      setRun(body.run);
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not record decision."); }
+    finally { setBusy(false); }
+  }, [run]);
 
   const execute = useCallback(async () => {
-    const runId = state.run?.id;
-    if (!runId) return;
-    setPhase("executing");
-    setError(null);
+    if (!run) return;
+    setBusy(true); setError("");
     try {
-      const res = await fetch(`/api/runs/${runId}/execute`, { method: "POST" });
-      if (!res.ok) throw new Error(`The executor returned ${res.status}.`);
-      await consume(res, apply);
-      setPhase("done");
+      const res = await fetch(`/api/runs/${run.id}/execute`, { method: "POST" });
+      if (!res.ok) throw new Error(`Could not continue (${res.status}).`);
+      let nextRun: Run | null = null;
+      await consume(res, (event) => { if (event.type === "run") { nextRun = event.run; setRun(event.run); } });
+      if (!nextRun) throw new Error("No updated result was returned.");
       router.refresh();
-    } catch (e) {
-      setError({
-        what: "Execution stopped part-way.",
-        detail: `${e instanceof Error ? e.message : String(e)} Completed actions are idempotent — running again will not duplicate them.`,
-      });
-      setPhase("ready");
-    }
-  }, [state.run?.id, apply, router]);
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not continue."); }
+    finally { setBusy(false); }
+  }, [run, router]);
 
-  const { capsule, run } = state;
-  const pendingApprovals = state.approvals.filter((a) => a.state === "pending").length;
-  const canExecute = phase === "ready" && state.approvals.length > 0 && pendingApprovals === 0;
-  const noApprovalsNeeded = phase === "ready" && state.approvals.length === 0;
-
-  const m = run?.metrics;
-  const completed = state.executions.filter((e) => e.status === "succeeded").length;
-  const blocked = state.plan?.actions.filter((a) => a.blockedBy).length ?? 0;
-
-  return (
-    <div className="flex min-h-dvh flex-col">
-      {/* ─────────────────────────── header ─────────────────────────── */}
-      <header className="sticky top-0 z-20 border-b border-line bg-ink/85 px-6 py-3.5 backdrop-blur">
-        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between md:gap-6">
-          <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <Signal tone={phase === "assembling" || phase === "executing" ? "live" : statusTone(run?.status ?? "idle")} />
-              <span className="eyebrow">{run?.id ?? "assembling"}</span>
-              {run && <Badge tone={statusTone(run.status) === "clear" ? "clear" : statusTone(run.status) === "stop" ? "stop" : "caution"}>{run.status.replace("_", " ")}</Badge>}
-            </div>
-            <h1 className="mt-1.5 max-w-3xl font-display text-[17px] font-semibold leading-snug tracking-tight text-text">
-              {autoStart?.request ?? run?.request ?? "…"}
-            </h1>
-          </div>
-
-          <div className="flex w-full flex-wrap items-center gap-2 md:w-auto md:shrink-0">
-            {pendingApprovals > 0 && (
-              <span className="inline-flex items-center gap-1.5 rounded-md border border-caution/35 bg-caution/10 px-2.5 py-1.5 font-mono text-[10.5px] uppercase tracking-[0.1em] text-caution">
-                <ShieldCheck className="size-3.5" strokeWidth={2} />
-                {pendingApprovals} awaiting you
-              </span>
-            )}
-            {(canExecute || noApprovalsNeeded) && (
-              <Button onClick={execute}>
-                <Play className="size-3.5" /> Execute approved actions
-              </Button>
-            )}
-            {state.run?.id && (
-              <Button variant="outline" onClick={() => router.push(`/runs/${state.run!.id}/receipt`)}>
-                <FileText className="size-3.5" /> Governed receipt
-              </Button>
-            )}
-            {phase === "done" && (
-              <Button variant="outline" onClick={() => router.push("/request")}>
-                <Rewind className="size-3.5" /> New request
-              </Button>
-            )}
-          </div>
-        </div>
-
-        {/* impact strip */}
-        <StatStrip className="mt-3 grid-cols-2 sm:grid-cols-3 lg:grid-cols-5">
-          <Stat label="systems touched" value={m?.sources_touched ?? new Set(state.evidence.map((e) => e.system)).size} hint="evidence sources" />
-          <Stat label="evidence" value={state.evidence.length} hint="cited sources" />
-          <Stat label="actions" value={`${completed}/${state.plan?.actions.length ?? 0}`} hint="executed / planned" />
-          <Stat label="blocked by policy" value={blocked} tone={blocked ? "stop" : "text"} hint="violations prevented" />
-          <Stat label="handoffs" value={state.handoffs.length} tone="rail" hint="context preserved" wideOnMobile />
-        </StatStrip>
-      </header>
-
-      {error && (
-        <div role="alert" className="mx-6 mt-4 rounded-lg border border-stop/40 bg-stop/[0.06] px-4 py-3">
-          <div className="flex items-start gap-2.5">
-            <TriangleAlert className="mt-[2px] size-4 shrink-0 text-stop" strokeWidth={2} aria-hidden />
-            <div className="min-w-0 flex-1">
-              <p className="text-[13px] font-semibold text-text">{error.what}</p>
-              <p className="mt-0.5 text-[12px] leading-relaxed text-muted">{error.detail}</p>
-            </div>
-            <Button size="sm" variant="outline" onClick={() => setError(null)}>
-              Dismiss
-            </Button>
-          </div>
-        </div>
-      )}
-
-      {/* ─────────────────────────── body ─────────────────────────── */}
-      <div className="grid flex-1 grid-cols-1 gap-6 px-6 py-6 lg:grid-cols-[228px_minmax(0,1fr)]">
-        <aside className="lg:sticky lg:top-[188px] lg:self-start">
-          <div className="eyebrow mb-3">orchestration</div>
-          <StageRail state={state.stages} />
-        </aside>
-
-        <div className="min-w-0">
-          <Tabs value={tab} onValueChange={setTab}>
-            <TabsList className="-mx-1 flex-wrap">
-              <TabsTrigger value="capsule">Capsule</TabsTrigger>
-              <TabsTrigger value="evidence">Evidence {state.evidence.length > 0 && `· ${state.evidence.length}`}</TabsTrigger>
-              <TabsTrigger value="policy">Policy {state.policies.length > 0 && `· ${state.policies.length}`}</TabsTrigger>
-              <TabsTrigger value="plan">Plan {state.plan && `· ${state.plan.actions.length}`}</TabsTrigger>
-              <TabsTrigger value="handoff">Handoff {state.handoffs.length > 0 && `· ${state.handoffs.length}`}</TabsTrigger>
-              <TabsTrigger value="approvals" className={cn(pendingApprovals > 0 && "text-caution")}>
-                Approvals {pendingApprovals > 0 && `· ${pendingApprovals}`}
-              </TabsTrigger>
-              <TabsTrigger value="execution">Execution {state.executions.length > 0 && `· ${state.executions.length}`}</TabsTrigger>
-              <TabsTrigger value="audit">Audit {state.audit.length > 0 && `· ${state.audit.length}`}</TabsTrigger>
-              <TabsTrigger value="adversary" className="text-caution">Attack it</TabsTrigger>
-            </TabsList>
-
-            <div className="pt-4">
-              <TabsContent value="capsule">
-                {capsule ? <CapsuleView capsule={capsule} /> : <Empty>Compiling the capsule…</Empty>}
-              </TabsContent>
-
-              <TabsContent value="evidence">
-                {state.evidence.length === 0 ? (
-                  <Empty>Sweeping connected knowledge sources…</Empty>
-                ) : (
-                  <div className="grid gap-2.5 sm:grid-cols-2 xl:grid-cols-3">
-                    {state.evidence.map((e) => (
-                      <EvidenceCard key={e.id} e={e} />
-                    ))}
-                  </div>
-                )}
-              </TabsContent>
-
-              <TabsContent value="policy">
-                <PolicyList decisions={state.policies} />
-              </TabsContent>
-
-              <TabsContent value="plan">
-                <PlanTable plan={state.plan} />
-              </TabsContent>
-
-              <TabsContent value="handoff">
-                <HandoffGraph handoffs={state.handoffs} plan={state.plan} />
-                <IntegritySeal capsule={capsule} handoffs={state.handoffs} />
-                <HandoffLedger handoffs={state.handoffs} />
-              </TabsContent>
-
-              <TabsContent value="approvals">
-                <ApprovalQueue approvals={state.approvals} policies={state.policies} onDecide={decide} busy={busy} />
-              </TabsContent>
-
-              <TabsContent value="execution">
-                <ExecutionTimeline records={state.executions} />
-              </TabsContent>
-
-              <TabsContent value="audit">
-                <AuditLog decisions={state.audit} />
-              </TabsContent>
-
-              <TabsContent value="adversary">
-                <AdversaryConsole runId={state.run?.id ?? null} ready={Boolean(capsule && state.plan)} />
-              </TabsContent>
-            </div>
-          </Tabs>
-        </div>
-      </div>
+  const message = status(run, loading);
+  const pending = run?.approvals.filter((item) => item.state === "pending") ?? [];
+  const hasExecution = Boolean(run?.executions.length);
+  const canContinue = Boolean(run && !hasExecution && pending.length === 0 && !busy);
+  const requestText = (run?.request ?? autoStart?.request ?? "").split("\n")[0];
+  const addedContext = (run?.request ?? autoStart?.request ?? "").split("\n").slice(1);
+  return <div className="mx-auto max-w-[760px] px-5 pb-20 pt-10 md:px-8 md:pt-16">
+    <Link href="/" className="inline-flex items-center gap-2 text-sm text-muted hover:text-text"><ArrowLeft className="size-4" /> Home</Link>
+    <div className="mt-10">
+      <div className="flex items-center gap-2"><span className={`size-2.5 rounded-full ${pending.length ? "bg-caution" : run?.status === "complete" ? "bg-clear" : "bg-rail"}`} /><span className="text-sm font-semibold text-muted">{run?.id ?? "New request"} · Demo</span></div>
+      <h1 className="mt-4 font-display text-3xl font-semibold tracking-tight text-text md:text-4xl">{message.title}</h1>
+      <p className="mt-2 text-[15px] leading-relaxed text-muted">{message.text}</p>
+      {loading && <p role="status" className="mt-4 text-sm text-rail">{progress || "Getting started…"}</p>}
     </div>
-  );
+
+    <div className="mt-8 rounded-2xl border border-line-strong bg-panel p-5">
+      <p className="text-xs font-semibold uppercase tracking-wide text-dim">Your request</p>
+      <p className="mt-2 text-base leading-relaxed text-text">{requestText}</p>
+      {addedContext.length > 0 && <div className="mt-3 space-y-1 border-t border-line pt-3 text-xs text-muted">{addedContext.map((line) => <p key={line}>{line}</p>)}</div>}
+      {run && <p className="mt-2 text-xs text-dim">Simulated using sample people, records, and tools.</p>}
+    </div>
+
+    {error && <div role="alert" className="mt-5 rounded-xl border border-stop/40 bg-stop/5 p-4 text-sm text-text">{error}</div>}
+
+    {pending.length > 0 && run && <section className="mt-8 rounded-xl border border-caution/30 bg-caution/5 p-5">
+      <h2 className="font-display text-lg font-semibold text-text">Waiting for {pending[0].approver}</h2>
+      <p className="mt-1 text-sm text-muted">The next step needs their approval. You can come back to this request later.</p>
+      <button type="button" onClick={() => setReviewOpen((value) => !value)} className="mt-3 text-sm text-rail hover:underline">{reviewOpen ? "Hide approval demo" : "Open approval demo"}</button>
+      {reviewOpen && <div className="mt-4"><ApprovalQueue approvals={run.approvals} policies={run.policies} onDecide={decide} busy={busy} /></div>}
+    </section>}
+
+    {canContinue && <div className="mt-8">
+      <button type="button" onClick={execute} className="inline-flex h-11 items-center gap-2 rounded-lg bg-rail px-5 text-sm font-semibold text-ink hover:bg-rail/90"><Play className="size-4" /> Continue demo <ArrowRight className="size-4" /></button>
+      <p className="mt-2 text-xs text-dim">Runs actions against sample data only.</p>
+    </div>}
+
+    {run && <div className="mt-8">
+      <details className="group rounded-xl border border-line bg-panel">
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 text-sm font-medium text-text">Details <ChevronDown className="size-4 text-muted transition-transform group-open:rotate-180" /></summary>
+        <div className="space-y-6 border-t border-line px-4 py-5">
+          <section><h2 className="text-sm font-semibold text-text">Next steps</h2><ol className="mt-3 space-y-2">{run.plan.actions.map((action) => <li key={action.id} className="rounded-lg bg-panel-2 px-3 py-2 text-sm text-muted">{action.title}{action.blockedBy ? <span className="ml-2 text-stop">Blocked by policy</span> : null}</li>)}</ol></section>
+          <section><h2 className="text-sm font-semibold text-text">Why</h2><p className="mt-2 text-sm leading-relaxed text-muted">{run.plan.summary}</p></section>
+          <section><h2 className="text-sm font-semibold text-text">Sources and decisions</h2><p className="mt-2 text-sm text-muted">{run.capsule.sources.length} sample sources · {run.audit.length} decisions · {run.policies.length} policy checks</p><Link href={`/runs/${run.id}/receipt`} className="mt-3 inline-flex items-center gap-2 text-sm text-rail hover:underline"><FileText className="size-4" /> Full receipt</Link></section>
+        </div>
+      </details>
+    </div>}
+    <p className="mt-8 text-xs text-dim">This page is a fixture demo. No live Freshservice ticket is created, and no outbound call is placed.</p>
+  </div>;
 }

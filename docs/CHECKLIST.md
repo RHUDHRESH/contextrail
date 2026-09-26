@@ -329,3 +329,7 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 - [x] T252 `P0` RAG: chunked OKF knowledge + receipts indexed in Postgres full-text search, hybrid retrieval (lexical + rule/tag links), Haiku answers grounded only in retrieved chunks with citations, and an explicit "not in the knowledge base" refusal when nothing supports an answer.
 - [x] T253 `P0` Tools: a bounded, read-only tool-use loop (Haiku) for questions (search knowledge, run status, my runs, precedents), with a step limit and cost cap; it can read and explain, never approve, execute or change a verdict; the same tools exposed to other agents via MCP (section M).
 - [x] T254 `P0` Capabilities: a machine-readable capability manifest (GET /v1/capabilities and /.well-known/agent.json) listing skills, tools, doors, connector modes and limits, generated from code so it cannot drift.
+
+## U. Requester experience (1) — added 2026-09-26
+
+- [x] T255 `P0` A simple requester screen: describe the outcome, optionally add people/workflow/call preference, submit to the fixture, and see status and next action; keep technical details behind disclosure.

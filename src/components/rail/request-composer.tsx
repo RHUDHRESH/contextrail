@@ -1,123 +1,102 @@
 "use client";
 
 import { useState } from "react";
-import { AnimatePresence, motion } from "framer-motion";
-import { ArrowRight, CornerDownLeft } from "lucide-react";
-import { SCENARIOS, getScenario } from "@/lib/contextrail/scenarios";
+import { Check, ChevronDown, Phone, Plus, X } from "lucide-react";
+import { getScenario } from "@/lib/contextrail/scenarios";
+import { resolveIntent } from "@/lib/contextrail/intent";
 import { RunConsole } from "./run-console";
 
-/* ------------------------------------------------------------------ *
- * The entry point: one plain-language box, three prepared scenarios.
- * Once a request is submitted the composer hands off to RunConsole,
- * which owns the live rail from there.
- * ------------------------------------------------------------------ */
-
 type Launch = { request: string; requesterId?: string; scenarioId?: string | null };
-
-const REQUESTERS = [
-  { id: "U-2201", label: "Marc Liu · Engineering Manager" },
-  { id: "U-3310", label: "Alicia Fenn · Customer Success" },
-  { id: "U-1120", label: "Priyanka Rao · IT Provisioning" },
+const PEOPLE = ["Priya Raghunathan", "Marc Liu", "Alicia Fenn", "Priyanka Rao", "Dana Osei"];
+const WORKFLOWS = [
+  { id: "contractor", name: "Onboard someone", example: "Get Priya ready for her first day." },
+  { id: "access", name: "Request access", example: "Give Priya access to fleet-api." },
+  { id: "refund", name: "Resolve a customer issue", example: "Review Meridian Freight's outage credit." },
 ];
 
 export function RequestComposer({ preset }: { preset?: string | null }) {
   const seeded = getScenario(preset);
-  const [launch, setLaunch] = useState<Launch | null>(
-    seeded ? { request: seeded.request, requesterId: seeded.requesterId, scenarioId: seeded.id } : null,
-  );
   const [request, setRequest] = useState(seeded?.request ?? "");
-  const [requesterId, setRequesterId] = useState(seeded?.requesterId ?? "U-2201");
-
+  const [people, setPeople] = useState<string[]>([]);
+  const [personInput, setPersonInput] = useState("");
+  const [workflow, setWorkflow] = useState(seeded ? WORKFLOWS.find((item) => item.id === seeded.id)?.name ?? "" : "");
+  const [workflowInput, setWorkflowInput] = useState("");
+  const [callRequested, setCallRequested] = useState(false);
+  const [addOpen, setAddOpen] = useState(false);
+  const [launch, setLaunch] = useState<Launch | null>(null);
+  const [unsupported, setUnsupported] = useState(false);
   if (launch) return <RunConsole autoStart={launch} />;
 
-  const submit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (request.trim().length < 8) return;
-    setLaunch({ request: request.trim(), requesterId, scenarioId: null });
-  };
+  function addPerson(value: string) {
+    const name = value.trim();
+    if (!name || people.some((person) => person.toLowerCase() === name.toLowerCase())) return;
+    setPeople((current) => [...current, name]);
+    setPersonInput("");
+  }
 
-  const runScenario = (id: string) => {
-    const s = getScenario(id);
-    if (!s) return;
-    setLaunch({ request: s.request, requesterId: s.requesterId, scenarioId: s.id });
-  };
+  function submit(event: React.FormEvent) {
+    event.preventDefault();
+    const words = request.trim();
+    if (words.length < 8) return;
+    const knownWorkflow = !workflow || WORKFLOWS.some((item) => item.name === workflow);
+    const sampleSubject = /\b(priya|meridian)\b/i.test(words);
+    const recognizedIntent = resolveIntent([words, workflow].join(" ")).matchedSignals.length > 0;
+    if (!knownWorkflow || !sampleSubject || !recognizedIntent) {
+      setUnsupported(true);
+      return;
+    }
+    const context = [
+      people.length ? `People involved: ${people.join(", ")}.` : "",
+      workflow ? `Workflow: ${workflow}.` : "",
+      callRequested ? "Contact preference: Please call me about this request." : "",
+    ].filter(Boolean);
+    setLaunch({
+      request: [words, ...context].join("\n"),
+      requesterId: seeded?.requesterId ?? (workflow === "Resolve a customer issue" ? "U-3310" : "U-2201"),
+      scenarioId: WORKFLOWS.find((item) => item.name === workflow)?.id ?? null,
+    });
+  }
 
   return (
-    <div className="mx-auto max-w-[1100px] px-5 py-6 md:px-8 md:py-10">
-      <AnimatePresence initial={false}>
-        <motion.header initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="mb-7">
-          <div className="eyebrow">New request</div>
-          <h1 className="mt-2 max-w-3xl font-display text-[28px] leading-[1.08] font-bold tracking-tight md:text-[38px] md:leading-[1.12]">
-            Say what needs to happen.
-            <br />
-            <span className="text-muted">The rail works out what that means, and what it is allowed to do.</span>
-          </h1>
-          <p className="mt-3 text-sm text-muted">
-            Fixture demo · Requests here use sample data and do not create live Freshservice tickets.
-          </p>
-        </motion.header>
-      </AnimatePresence>
-
-      <form onSubmit={submit}>
-        <div className="panel-raised relative overflow-hidden">
-          <textarea
-            value={request}
-            onChange={(e) => setRequest(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) submit(e);
-            }}
-            rows={3}
-            placeholder="Priya joins engineering on Monday. Give her everything she needs to start."
-            aria-label="Describe the request"
-            className="w-full resize-none bg-transparent px-4 pt-4 pb-2 text-[15px] leading-relaxed text-text placeholder:text-dim"
-          />
-          <div className="flex flex-col items-stretch justify-between gap-3 border-t border-line px-3 py-3 sm:flex-row sm:items-center sm:py-2">
-            <label className="flex flex-col items-stretch gap-2 sm:flex-row sm:items-center">
-              <span className="eyebrow">Requesting as</span>
-              <select
-                value={requesterId}
-                onChange={(e) => setRequesterId(e.target.value)}
-                className="h-11 w-full rounded border border-line-strong bg-panel-2 px-3 font-mono text-[14px] text-muted sm:w-auto md:h-7 md:px-2 md:text-[11px]"
-              >
-                {REQUESTERS.map((r) => (
-                  <option key={r.id} value={r.id}>
-                    {r.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <button
-              type="submit"
-              disabled={request.trim().length < 8}
-              className="inline-flex h-11 items-center justify-center gap-2 rounded-md bg-rail px-3.5 text-[13px] font-semibold text-ink transition-colors hover:bg-rail/90 disabled:pointer-events-none disabled:opacity-45 md:h-9"
-            >
-              Run the rail
-              <CornerDownLeft className="size-3.5" />
-            </button>
+    <div className="mx-auto w-full max-w-[760px] px-5 pb-14 pt-12 md:px-8 md:pt-20">
+      <div className="mb-9">
+        <p className="text-sm font-medium text-rail">New request</p>
+        <h1 className="mt-3 font-display text-4xl font-semibold tracking-tight text-text md:text-5xl">What needs to happen?</h1>
+        <p className="mt-3 max-w-xl text-[15px] leading-relaxed text-muted">Describe the outcome. Add people or a workflow if it helps. We’ll show you what happens next.</p>
+      </div>
+      <form onSubmit={submit} className="rounded-2xl border border-line-strong bg-panel p-4 shadow-[0_24px_80px_rgba(0,0,0,.16)] md:p-5">
+        <label htmlFor="request" className="sr-only">Describe your request</label>
+        <textarea id="request" value={request} onChange={(event) => { setRequest(event.target.value); setUnsupported(false); }} placeholder="For example, get Priya ready to join engineering on Monday…" rows={4} className="w-full resize-y bg-transparent text-[17px] leading-7 text-text outline-none placeholder:text-dim" />
+        {(people.length > 0 || workflow || callRequested) && (
+          <div className="mb-4 flex flex-wrap gap-2" aria-label="Added request context">
+            {people.map((person) => <span key={person} className="inline-flex items-center gap-1.5 rounded-full border border-line-strong bg-panel-2 px-3 py-1.5 text-xs text-text">{person}<button type="button" onClick={() => setPeople((current) => current.filter((item) => item !== person))} aria-label={`Remove ${person}`} className="text-muted hover:text-text"><X className="size-3" /></button></span>)}
+            {workflow && <span className="inline-flex items-center gap-1.5 rounded-full border border-rail/40 bg-rail/10 px-3 py-1.5 text-xs text-text">{workflow}<button type="button" onClick={() => setWorkflow("")} aria-label="Remove workflow" className="text-muted hover:text-text"><X className="size-3" /></button></span>}
+            {callRequested && <span className="inline-flex items-center gap-1.5 rounded-full border border-line-strong bg-panel-2 px-3 py-1.5 text-xs text-text"><Phone className="size-3" /> Ask for a call<button type="button" onClick={() => setCallRequested(false)} aria-label="Remove call preference" className="text-muted hover:text-text"><X className="size-3" /></button></span>}
           </div>
+        )}
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line pt-4">
+          <button type="button" onClick={() => setAddOpen((open) => !open)} aria-expanded={addOpen} className="inline-flex h-10 items-center gap-2 rounded-lg border border-line-strong px-3 text-sm font-medium text-text hover:bg-panel-2"><Plus className="size-4" /> Add <ChevronDown className="size-4 text-muted" /></button>
+          <button type="submit" disabled={request.trim().length < 8} className="inline-flex h-10 items-center justify-center rounded-lg bg-rail px-5 text-sm font-semibold text-ink hover:bg-rail/90 disabled:cursor-not-allowed disabled:opacity-40">Send request</button>
         </div>
+        {addOpen && <div className="mt-4 grid gap-5 rounded-xl border border-line-strong bg-panel-2 p-4 md:grid-cols-2">
+          <div>
+            <label htmlFor="person-input" className="text-sm font-semibold text-text">People</label>
+            <p className="mt-1 text-xs text-muted">Mention anyone involved.</p>
+            <div className="mt-3 flex gap-2"><input id="person-input" value={personInput} onChange={(event) => setPersonInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); addPerson(personInput); } }} placeholder="Name" className="h-10 min-w-0 flex-1 rounded-lg border border-line-strong bg-panel px-3 text-sm text-text placeholder:text-dim" /><button type="button" onClick={() => addPerson(personInput)} aria-label="Add person" className="grid size-10 place-items-center rounded-lg border border-line-strong text-text hover:bg-panel-3"><Plus className="size-4" /></button></div>
+            <div className="mt-2 flex flex-wrap gap-1.5">{PEOPLE.filter((person) => !people.includes(person) && (!personInput || person.toLowerCase().includes(personInput.toLowerCase()))).slice(0, 3).map((person) => <button key={person} type="button" onClick={() => addPerson(person)} className="rounded-full border border-line-strong px-2.5 py-1 text-xs text-muted hover:border-rail hover:text-text">+ {person}</button>)}</div>
+          </div>
+          <div>
+            <label htmlFor="workflow-input" className="text-sm font-semibold text-text">Workflow</label>
+            <p className="mt-1 text-xs text-muted">Name the kind of help you need.</p>
+            <div className="mt-3 flex gap-2"><input id="workflow-input" value={workflowInput} onChange={(event) => setWorkflowInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); if (workflowInput.trim()) { setWorkflow(workflowInput.trim()); setWorkflowInput(""); } } }} placeholder="Workflow name" className="h-10 min-w-0 flex-1 rounded-lg border border-line-strong bg-panel px-3 text-sm text-text placeholder:text-dim" /><button type="button" onClick={() => { if (workflowInput.trim()) { setWorkflow(workflowInput.trim()); setWorkflowInput(""); } }} aria-label="Add workflow" className="grid size-10 place-items-center rounded-lg border border-line-strong text-text hover:bg-panel-3"><Plus className="size-4" /></button></div>
+            <div className="mt-2 space-y-1">{WORKFLOWS.filter((item) => !workflowInput || item.name.toLowerCase().includes(workflowInput.toLowerCase())).map((item) => <button key={item.id} type="button" onClick={() => { setWorkflow(item.name); if (!request.trim()) setRequest(item.example); }} aria-pressed={workflow === item.name} className="flex w-full items-center justify-between rounded-lg px-2 py-1.5 text-left text-sm text-text hover:bg-panel-3">{item.name}{workflow === item.name && <Check className="size-4 text-rail" />}</button>)}</div>
+            <label className="mt-3 flex cursor-pointer items-center gap-2 border-t border-line pt-3 text-sm text-text"><input type="checkbox" checked={callRequested} onChange={(event) => setCallRequested(event.target.checked)} className="size-4 accent-rail" /><Phone className="size-4 text-muted" /> Ask someone to call me</label>
+            {callRequested && <p className="mt-1 pl-6 text-xs text-muted">Recorded as a preference in this demo. No call is placed.</p>}
+          </div>
+        </div>}
       </form>
-
-      <section className="mt-8">
-        <div className="eyebrow mb-3">Or run a prepared scenario</div>
-        <div className="grid gap-3 md:grid-cols-3">
-          {SCENARIOS.map((s) => (
-            <button
-              key={s.id}
-              onClick={() => runScenario(s.id)}
-              className="panel group flex flex-col p-4 text-left transition-colors hover:border-rail/45 hover:bg-panel-2"
-            >
-              <div className="flex items-center justify-between gap-2">
-                <span className="font-display text-[14px] font-semibold tracking-tight">{s.label}</span>
-                <ArrowRight className="size-3.5 shrink-0 text-dim transition-transform group-hover:translate-x-0.5 group-hover:text-rail" />
-              </div>
-              <div className="eyebrow mt-1.5">{s.domain}</div>
-              <p className="mt-2.5 flex-1 text-[14px] leading-relaxed text-muted md:text-[12px]">{s.hook}</p>
-              <p className="mt-3 border-t border-line pt-2 text-[13px] leading-relaxed text-muted md:text-[11px] md:text-dim">{s.proves}</p>
-            </button>
-          ))}
-        </div>
-      </section>
+      {unsupported && <div role="status" className="mt-4 rounded-xl border border-caution/35 bg-caution/5 px-4 py-3 text-sm leading-relaxed text-text">This demo only has sample records for Priya and Meridian Freight, and three prepared workflows. Your request was not sent or acted on. Try a sample person and workflow to see the flow.</div>}
+      <p className="mt-4 text-xs leading-relaxed text-dim">Demo with sample data. Sending a request here does not create a live Freshservice ticket or place a call.</p>
     </div>
   );
 }
