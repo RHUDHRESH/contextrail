@@ -55,6 +55,33 @@ def test_github_page_lists_every_repository_with_its_tags():
     assert listed == {repo: sorted(r["tags"]) for repo, r in load("github")["repos"].items()}
 
 
+def test_emergency_access_approvers_are_the_incident_commander_roster():
+    ident = load("identity")
+    names = {p["person_id"]: p["display_name"] for p in ident["people"]}
+    roster = {names[pid] for pid in ident["roster"]["incident-commander"]}
+    text = _page("runbooks/emergency-access.md").section("Who approves").text
+    named = {" ".join(n.split()) for n, _ in _PERSON.findall(text)}
+    assert named == roster == {"Omar Haddad", "Dana Osei"}
+
+
+def test_precedent_quotes_its_source_message_verbatim():
+    section = _page("precedents/github-readonly-contractors.md").section("Reported history").text
+    msg = next(m for m in load("slack_corpus")["messages"] if m["id"] == "slk_sec_thread_1")
+    assert "slk_sec_thread_1" in section and msg["posted_at"].startswith("2026-08-18") and "2026-08-18" in section
+    quotes = [" ".join(q.split()) for q in re.findall(r'"([^"]+)"', section)]   # a Markdown line wrap is a space
+    assert len(quotes) == 2
+    for q in quotes:
+        assert q in msg["text"], f"not verbatim in {msg['id']}: {q!r}"
+
+
+def test_transfer_example_names_exactly_what_the_rail_revokes_for_anil():
+    anil = HRIS["E-1042"]
+    held = load("entitlements")["holdings"]["E-1042"]
+    revoked = {e for e in held if anil["role"] not in CATALOG[e]["role_scope"]}   # plan.transfer_revokes
+    assert set(_keys(_page("runbooks/offboarding.md").section("Transfers").text)) == revoked == {
+        "looker-risk-dashboards", "slack-risk-analytics"}
+
+
 @pytest.mark.parametrize("page", sorted(p.path for p in BUNDLE.concepts()))
 def test_every_person_named_with_an_id_matches_the_hr_record(page):
     for raw_name, source_id in _PERSON.findall(BUNDLE.pages[page].body):
