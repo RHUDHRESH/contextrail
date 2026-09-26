@@ -171,7 +171,7 @@ async def send_requester_ack(door: Door, replier: TicketReplier, view: RunView, 
 
 # --- the approval email, rendered from RunView ---------------------------------------------------------------
 
-class ApprovalEmail(BaseModel):
+class RenderedEmail(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     subject: str
@@ -241,11 +241,11 @@ def _html(view: RunView, row: RowView, facts, approve_url: str, refuse_url: str,
 
 
 def render_approval_email(view: RunView, row: RowView, *, approve_url: str, refuse_url: str, delivery_mode: str,
-                          expires_at: datetime) -> ApprovalEmail:
+                          expires_at: datetime) -> RenderedEmail:
     """Everything shown comes from the view: the lamp, the action, the rule and clause verbatim, the named approver,
     the explanation and who wrote it, and the honest mode of this email and of the system it would change."""
     facts = _facts(view, row, delivery_mode)
-    return ApprovalEmail(subject=f"{row.lamp} Approval needed: {row.label}",
+    return RenderedEmail(subject=f"{row.lamp} Approval needed: {row.label}",
                          text=_plain(view, row, facts, approve_url, refuse_url, expires_at),
                          html=_html(view, row, facts, approve_url, refuse_url, expires_at))
 
@@ -314,5 +314,98 @@ async def handle_approval_dispatch_email(payload: dict, ctx: EmailDoorContext) -
         async with db.transaction() as c:
             await chain.append(c, run_id=run_id, event="approval.email_sent", payload={
                 "action_id": action_id, "approver": approver, "mode": out.mode, "message_id": out.message_id})
+    return EmailDispatchResult(outcome="replayed" if out.replayed else "sent", mode=out.mode,
+                               message_id=out.message_id, outbox_path=out.outbox_path)
+
+
+# --- the receipt email, on finalize (T235) ------------------------------------------------------------------
+
+FINAL_STATUSES = {"partial", "done", "failed"}
+RECEIPT_ACTION_ID = "receipt"   # door_messages key: one receipt email per run (final statuses are terminal)
+_OUTCOME = {"done": "Done", "partial": "Partly done", "failed": "Stopped"}
+
+
+def _receipt_sections(view: RunView) -> list[tuple[str, list[str]]]:
+    """(heading, lines) groups, in the order a reader checks them: what happened, what was refused, what is left."""
+    rows = view.rows
+    groups = [
+        (f"✅ {view.counts['verified']} done and verified", [r.label for r in rows if r.state == "verified"]),
+        (f"⛔ {view.counts['refuse']} refused",
+         [f"{r.label} | Rule: {r.rule_id} | Clause: “{r.clause}”" for r in rows if r.verdict == "REFUSE"]),
+        (f"🟠 {view.counts['awaiting']} still waiting",
+         [f"{r.label} | for {r.approver_name or r.approver_id}" for r in rows if r.state == "awaiting"]),
+        (f"❗ {view.counts['failed']} failed or unconfirmed",
+         [f"{r.label} ({r.state})" for r in rows if r.state in ("failed", "unknown")]),
+    ]
+    return [(heading, lines) for heading, lines in groups if lines]
+
+
+def render_receipt_email(view: RunView, *, audit_from: int | None, audit_to: int | None,
+                         delivery_mode: str) -> RenderedEmail:
+    """The requester's receipt, from the view and the audit seq range it covers. No model writes any of it."""
+    outcome = _OUTCOME.get(view.status, view.status)
+    who = f"{view.subject} (same as {view.peer})" if view.peer else (view.subject or "")
+    modes = ", ".join(f"{k} {v}" for k, v in view.modes.items())
+    audit = f"seq {audit_from} to {audit_to}" if audit_from is not None else "no rows"
+    digest, run = (view.capsule_digest or "")[:8], str(view.run_id)[:8]
+    footer = [f"Mode: {modes}; this email {delivery_mode}.",
+              f"Audit: {audit} (hash-chained); case digest {digest}; run {run}."]
+    if view.replay:
+        footer.insert(0, "REPLAY: model-written explanations here are a recorded demo output.")
+    sections = _receipt_sections(view)
+    lines = [f"Receipt · {outcome}", "", *_wrap(f"Request: “{view.request_text}”", indent="  "),
+             *_wrap(f"For: {who}", indent="  ")]
+    for heading, items in sections:
+        lines += ["", heading]
+        for item in items:
+            for part in item.split(" | "):
+                lines += _wrap(f"  {part}", indent="    ")
+    lines += [""]
+    for f in footer:
+        lines += _wrap(f, indent="  ")
+    blocks = "".join(
+        f"<h2 style=\"font-size:16px;margin:16px 0 4px\">{_t(h)}</h2><ul>"
+        + "".join(f"<li>{'<br>'.join(_t(p) for p in item.split(' | '))}</li>" for item in items) + "</ul>"
+        for h, items in sections)
+    html_doc = (
+        '<!doctype html><html lang="en"><head><meta charset="utf-8">'
+        '<meta name="viewport" content="width=device-width, initial-scale=1"></head>'
+        '<body style="margin:0;padding:16px;background:#f6f7f9;font:15px/1.5 Arial,Helvetica,sans-serif;'
+        'color:#1d2330"><div style="max-width:560px;margin:0 auto;background:#ffffff;border-radius:8px;'
+        f'padding:20px"><h1 style="font-size:20px;margin:0 0 8px">Receipt · {_t(outcome)}</h1>'
+        f"<p>Request: “{_t(view.request_text)}”<br>For: {_t(who)}</p>{blocks}"
+        + "".join(f'<p style="font-size:12px;color:#5b6475">{_t(f)}</p>' for f in footer)
+        + "</div></body></html>")
+    return RenderedEmail(subject=f"Receipt · {outcome}: {view.request_text[:60]}", text="\n".join(lines) + "\n",
+                         html=html_doc)
+
+
+async def handle_receipt_email(payload: dict, ctx: EmailDoorContext) -> EmailDispatchResult:
+    """Job kind 'receipt.build' (rail/finalize.request_receipt): email the requester once the run is final, when the
+    request came in by email or the requester prefers email. Other requesters get their receipt in their door."""
+    run_id = UUID(str(payload["run_id"]))
+    view = await ctx.door.get_status(run_id)
+    if view.status not in FINAL_STATUSES:
+        return EmailDispatchResult(outcome="skipped", reason=f"run is {view.status}; the receipt waits for the end")
+    db = ctx.door.db
+    async with db.connection() as c:
+        run = await (await c.execute("select source, requested_by from runs where id = %s", (run_id,))).fetchone()
+        person = await (await c.execute("select email, preferred_door from identity_map where person_id = %s",
+                                        (run["requested_by"],))).fetchone()
+        seqs = await (await c.execute("select min(seq) as lo, max(seq) as hi from audit where run_id = %s",
+                                      (run_id,))).fetchone()
+    if person is None or not person["email"]:
+        return EmailDispatchResult(outcome="skipped", reason="the requester has no email address on record")
+    if run["source"] != "email" and person["preferred_door"] != "email":
+        return EmailDispatchResult(outcome="skipped",
+                                   reason=f"the requester follows this run in {person['preferred_door']}")
+    rendered = render_receipt_email(view, audit_from=seqs["lo"], audit_to=seqs["hi"], delivery_mode=ctx.ses.mode)
+    out = await ctx.ses.send(db, run_id=run_id, action_id=RECEIPT_ACTION_ID,
+                             message=OutboundEmail(to=person["email"], **rendered.model_dump()))
+    if not out.replayed:
+        async with db.transaction() as c:
+            await chain.append(c, run_id=run_id, event="receipt.email_sent", payload={
+                "status": view.status, "mode": out.mode, "message_id": out.message_id,
+                "audit_from": seqs["lo"], "audit_to": seqs["hi"]})
     return EmailDispatchResult(outcome="replayed" if out.replayed else "sent", mode=out.mode,
                                message_id=out.message_id, outbox_path=out.outbox_path)

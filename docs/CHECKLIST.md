@@ -303,7 +303,7 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 - [x] T232 `P0` Signed decision links: HMAC token; `GET /a/{token}` renders a confirm page only; `POST` decides.
 - [x] T233 `P0` Email decisions go through `door.decide` → mirrored to Freshservice and every other door.
 - [ ] T234 `P0` Requester acknowledgement via Freshservice ticket reply (verify the endpoint).
-- [ ] T235 `P1` Receipt email to the requester on finalize.
+- [x] T235 `P1` Receipt email to the requester on finalize.
 - [ ] T236 `P1` Status/query emails answered only from receipts, citing audit seq numbers.
 - [ ] T237 `P1` SES bounce/complaint SNS handler (`/v1/webhooks/ses`, signature verified).
 - [ ] T238 `P1` Copy pass: same verbs and lamps as Slack; plain-text version readable on phones.
