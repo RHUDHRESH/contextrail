@@ -25,7 +25,7 @@ from contextrail import repo
 from contextrail.logs import get_logger
 from contextrail.models import RunStatus, StageEvent
 from contextrail.surfaces import slack_blocks as blocks
-from contextrail.surfaces.door import Door
+from contextrail.surfaces.door import DecisionResult, Door
 
 EVENTS_PATH = "/slack/events"
 COMMAND = "/contextrail"
@@ -54,6 +54,8 @@ class SlackDoor:
                             process_before_response=process_before_response)
         self.http = AsyncSlackRequestHandler(self.app)
         self.app.command(COMMAND)(self.on_command)
+        self.app.action("approve")(self.on_decision)
+        self.app.action("refuse")(self.on_decision)
         self._status: dict[UUID, dict | None] = {}  # run id -> its status message {channel, ts, request_text}
         door.runner.d.events.on_every_run(self.on_stage_event)
 
@@ -106,6 +108,20 @@ class SlackDoor:
         async with self.door.db.transaction() as c:
             await repo.upsert_door_message(c, run_id, "slack", ref, action_id=action_id)
         return {"status": "delivered", "ref": ref}
+
+    async def on_decision(self, ack, body: dict, action: dict) -> DecisionResult | None:
+        """Approve / Refuse on a card. The button says which action and which parameters; the clicker is whoever
+        Slack says clicked. Door.decide checks everything else (identity, named approver, state, params_hash,
+        separation of duties, first decision wins)."""
+        await ack()
+        parsed = blocks.parse_decision_value(action.get("value"))
+        if parsed is None:
+            log.warning("slack_decision_value_invalid", action_id=action.get("action_id"))
+            return None
+        run_id, action_id, params_hash = parsed
+        return await self.door.decide(run_id, action_id, params_hash, channel="slack",
+                                      actor_external_id=body["user"]["id"],
+                                      decision="approved" if action["action_id"] == "approve" else "refused")
 
     # --- identity: person -> Slack user, for delivering cards ---------------------------------------------------
 

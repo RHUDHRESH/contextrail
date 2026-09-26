@@ -8,6 +8,9 @@ Text we did not write (request text, labels, clauses) is escaped: `&`, `<` and `
 
 from __future__ import annotations
 
+import re
+from uuid import UUID
+
 from contextrail.models import STAGE_ORDER, StageEvent
 from contextrail.surfaces.presenter import RowView, RunView
 
@@ -105,6 +108,21 @@ def _row_sections(rows: list[RowView]) -> list[dict]:
 def decision_value(view: RunView, row: RowView) -> str:
     """What both buttons carry back: the exact action and the exact parameters the approver saw (P0-5)."""
     return f"{view.run_id}|{row.action_id}|{row.params_hash}"
+
+
+_DECISION_VALUE = re.compile(r"^(?P<run>[0-9a-f-]{36})\|(?P<action>[^|]{1,200})\|(?P<hash>[0-9a-f]{64})$")
+
+
+def parse_decision_value(value: str | None) -> tuple[UUID, str, str] | None:
+    """(run_id, action_id, params_hash) from a button, or None if it is not exactly what decision_value makes.
+    A well-formed value proves nothing: Door.decide still checks the actor, the state and the params_hash."""
+    m = _DECISION_VALUE.match(value or "")
+    if m is None:
+        return None
+    try:
+        return UUID(m["run"]), m["action"], m["hash"]
+    except ValueError:
+        return None
 
 
 def _card_body(view: RunView, row: RowView) -> list[dict]:

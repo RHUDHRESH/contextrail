@@ -2,12 +2,16 @@
 update themselves after a decision in any door. No network: FakeSlackClient records every Web API call."""
 
 import json
+from urllib.parse import urlencode
 from uuid import UUID
 
+import httpx
 import pytest
-from slack_fake import SIGNING_SECRET, FakeSlackClient, forbid_real_slack_calls
+from slack_fake import BOT_TOKEN, SIGNING_SECRET, FakeSlackClient, forbid_real_slack_calls, signed_headers
 
 from contextrail.fixtures import load
+from contextrail.main import create_app
+from contextrail.settings import Settings
 from contextrail.surfaces.door import Door
 from contextrail.surfaces.slack_app import SlackDoor, handle_approval_dispatch
 
@@ -19,6 +23,12 @@ REQUEST = "Give Anil the same access as Rahul Mehta"
 @pytest.fixture(autouse=True)
 def _no_network(monkeypatch):
     forbid_real_slack_calls(monkeypatch)
+
+
+@pytest.fixture
+def no_slack_env(monkeypatch):
+    for k in ("SLACK_BOT_TOKEN", "SLACK_SIGNING_SECRET", "SLACK_APP_TOKEN"):
+        monkeypatch.delenv(k, raising=False)
 
 
 @pytest.fixture
@@ -110,3 +120,79 @@ async def test_an_approver_without_a_slack_account_gets_no_slack_card(door, fake
     assert fake.called("users.lookupByEmail") == [{"email": "meera.iyer@northbeam.example"}]
     assert fake.called("chat.postMessage") == []
     assert await _slack_cards(door, UUID(job["run_id"])) == {}
+
+
+# --- T148: Approve / Refuse -> Door.decide --------------------------------------------------------------------------
+
+class Ack:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def __call__(self, *a, **kw) -> None:
+        self.calls += 1
+
+
+async def _deliver(door, slack, approver: str) -> dict:
+    job = next(j for j in await _dispatch_jobs(door) if j["approver"] == approver)
+    return (await handle_approval_dispatch(job, slack))["ref"] | {"action_id": job["action_id"]}
+
+
+def _click(fake: FakeSlackClient, ref: dict, user: str, button: str) -> tuple[dict, dict]:
+    """The block_actions body Slack sends when `user` clicks `button` on the card recorded at `ref`."""
+    card = next(p for p in fake.called("chat.postMessage") if p["channel"] == ref["channel"])
+    action = next(b for b in _buttons(card) if b["action_id"] == button) | {"block_id": "decision"}
+    body = {"type": "block_actions", "user": {"id": user}, "team": {"id": "T0NORTH01"},
+            "channel": {"id": ref["channel"]}, "container": {"type": "message", "message_ts": ref["ts"],
+                                                              "channel_id": ref["channel"]},
+            "message": {"ts": ref["ts"]}, "actions": [action], "trigger_id": "1.2.3",
+            "response_url": "https://hooks.slack.invalid/actions/1"}
+    return body, action
+
+
+async def _approval(door, run_id, action_id) -> dict | None:
+    async with door.db.connection() as c:
+        return await (await c.execute("select approver, decision, channel from approvals where run_id = %s "
+                                      "and action_id = %s", (run_id, action_id))).fetchone()
+
+
+async def test_approve_click_is_decided_by_the_door_and_the_run_resumes(door, fake, slack):
+    view, _ = await _anil_run(door)
+    ref = await _deliver(door, slack, "p-dana")
+    ack = Ack()
+    body, action = _click(fake, ref, DANA_SLACK, "approve")
+    result = await slack.on_decision(ack=ack, body=body, action=action)
+    assert ack.calls == 1 and result.outcome == "recorded"
+    assert await _approval(door, view.run_id, ref["action_id"]) == {"approver": "p-dana", "decision": "approved",
+                                                                    "channel": "slack"}
+    row = next(r for r in (await door.get_status(view.run_id)).rows if r.action_id == ref["action_id"])
+    assert row.state == "verified"                          # approved, executed and read back
+
+
+async def test_refuse_click_refuses_the_action(door, fake, slack):
+    view, _ = await _anil_run(door)
+    ref = await _deliver(door, slack, "p-meera")
+    body, action = _click(fake, ref, MEERA_SLACK, "refuse")
+    assert (await slack.on_decision(ack=Ack(), body=body, action=action)).outcome == "recorded"
+    assert (await _approval(door, view.run_id, ref["action_id"]))["decision"] == "refused"
+
+
+async def test_a_damaged_button_value_decides_nothing(door, fake, slack):
+    view, _ = await _anil_run(door)
+    ref = await _deliver(door, slack, "p-dana")
+    body, action = _click(fake, ref, DANA_SLACK, "approve")
+    action = action | {"value": action["value"].replace("|", ";")}
+    assert await slack.on_decision(ack=Ack(), body=body, action=action) is None
+    assert await _approval(door, view.run_id, ref["action_id"]) is None
+
+
+async def test_signed_button_click_through_the_http_route(no_slack_env, door, fake):
+    app = create_app(Settings(_env_file=None, slack_bot_token=BOT_TOKEN, slack_signing_secret=SIGNING_SECRET))
+    slack = app.state.slack = SlackDoor(door, client=fake, signing_secret=SIGNING_SECRET, process_before_response=True)
+    view, _ = await _anil_run(door)
+    ref = await _deliver(door, slack, "p-dana")
+    body, _ = _click(fake, ref, DANA_SLACK, "approve")
+    form = urlencode({"payload": json.dumps(body)})
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://engine") as h:
+        r = await h.post("/slack/events", content=form, headers=signed_headers(form))
+    assert r.status_code == 200
+    assert (await _approval(door, view.run_id, ref["action_id"]))["channel"] == "slack"

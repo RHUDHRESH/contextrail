@@ -111,6 +111,14 @@ def test_approval_card_labels_replay_and_respects_slack_limits():
     assert "replay" in context["elements"][0]["text"]
 
 
+def test_decision_value_round_trips_and_anything_else_is_rejected():
+    value = blocks.decision_value(_view(), _hold(_view()))
+    assert blocks.parse_decision_value(value) == (RUN_ID, "a-github", HASH)
+    for bad in ("", "x|y|z", f"{RUN_ID}|a-github", f"{RUN_ID}|a-github|{HASH[:-1]}", f"not-a-uuid|a|{HASH}",
+                f"{RUN_ID}||{HASH}", f"{RUN_ID}|a-github|{HASH}|extra", f"{RUN_ID}|a-github|{HASH.upper()}"):
+        assert blocks.parse_decision_value(bad) is None, bad
+
+
 def test_run_summary_after_decisions_says_who_approved_and_who_refused():
     view = _view(status="partial", rows=[
         _row("a-github", "HOLD", "verified", approver_id="p-dana", approver_name="Dana Osei"),
