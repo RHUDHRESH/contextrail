@@ -119,6 +119,30 @@ def test_decision_value_round_trips_and_anything_else_is_rejected():
         assert blocks.parse_decision_value(bad) is None, bad
 
 
+# --- T150: the card after a decision --------------------------------------------------------------------------------
+
+DECIDED_AT = datetime(2026, 9, 26, 8, 32, tzinfo=UTC)
+
+
+def test_decided_card_says_who_where_when_and_has_no_buttons():
+    decision = {"approver": "p-dana", "decision": "approved", "channel": "teams", "decided_at": DECIDED_AT,
+                "reason": None}
+    content = blocks.decided_card(_view(), _hold(_view()), decision)
+    assert "actions" not in [b["type"] for b in content["blocks"]]
+    assert content["blocks"][0]["text"]["text"] == "Approved · GitHub northbeam/perception-sdk (read)"
+    text = _all_text(content)
+    assert "✅ *Approved* by Dana Osei in Teams" in text
+    assert f"<!date^{int(DECIDED_AT.timestamp())}^{{date_short_pretty}} at {{time}}|2026-09-26 08:32 UTC>" in text
+    assert "POL-ACC-004" in text and content["text"].startswith("Approved by Dana Osei")
+
+
+def test_refused_card_quotes_the_reason():
+    decision = {"approver": "p-dana", "decision": "refused", "channel": "email", "decided_at": DECIDED_AT,
+                "reason": "No production access <this> quarter"}
+    text = _all_text(blocks.decided_card(_view(), _hold(_view()), decision))
+    assert "⛔ *Refused* by Dana Osei in email" in text and "No production access &lt;this&gt; quarter" in text
+
+
 def test_run_summary_after_decisions_says_who_approved_and_who_refused():
     view = _view(status="partial", rows=[
         _row("a-github", "HOLD", "verified", approver_id="p-dana", approver_name="Dana Osei"),

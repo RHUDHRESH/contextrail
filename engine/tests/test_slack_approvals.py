@@ -13,7 +13,7 @@ from contextrail.fixtures import load
 from contextrail.main import create_app
 from contextrail.settings import Settings
 from contextrail.surfaces.door import Door
-from contextrail.surfaces.slack_app import SlackDoor, handle_approval_dispatch
+from contextrail.surfaces.slack_app import SlackDoor, handle_approval_dispatch, handle_door_update
 
 PEOPLE = {p["person_id"]: p["display_name"] for p in load("identity")["people"]}
 ANIL_SLACK, DANA_SLACK, MEERA_SLACK = "U0ANIL001", "U0DANA050", "U0MEER301"
@@ -219,6 +219,67 @@ async def test_a_slack_user_outside_the_identity_map_is_rejected_and_told(door, 
     await _anil_run(door)
     ref = await _deliver(door, slack, "p-dana")
     await _click_and_expect_rejection(door, fake, slack, ref, "U0STRANGER", "unknown identity")
+
+
+# --- T150: the card updates itself after a decision, in whichever door it was made -------------------------------
+
+DANA_TEAMS = "00000000-0000-4000-8000-000000000050"
+
+
+async def _door_update_jobs(door) -> list[dict]:
+    async with door.db.connection() as c:
+        rows = await (await c.execute("select payload from jobs where kind = 'door.update' order by id")).fetchall()
+    return [r["payload"] for r in rows]
+
+
+def _is_decided(update: dict, ref: dict, fragment: str) -> bool:
+    shown = json.dumps(update, ensure_ascii=False)
+    return ((update["channel"], update["ts"]) == (ref["channel"], ref["ts"]) and fragment in shown
+            and '"actions"' not in shown)
+
+
+async def test_a_slack_decision_updates_the_card_in_place(door, fake, slack):
+    await _anil_run(door)
+    ref = await _deliver(door, slack, "p-dana")
+    body, action = _click(fake, ref, DANA_SLACK, "approve")
+    await slack.on_decision(ack=Ack(), body=body, action=action)
+    [update] = fake.called("chat.update")
+    assert _is_decided(update, ref, "✅ *Approved* by Dana Osei in Slack")
+
+
+async def test_a_decision_in_teams_updates_the_slack_card_through_the_door_update_job(door, fake, slack):
+    view, holds = await _anil_run(door)
+    ref = await _deliver(door, slack, "p-dana")
+    h = holds["p-dana"]
+    decided = await door.decide(view.run_id, h.action_id, h.params_hash, channel="teams",
+                                actor_external_id=DANA_TEAMS, decision="approved")
+    assert decided.outcome == "recorded" and fake.called("chat.update") == []
+    [job] = await _door_update_jobs(door)                        # queued by Door.decide itself
+    assert (await handle_door_update(job, slack))["status"] == "updated"
+    [update] = fake.called("chat.update")
+    assert _is_decided(update, ref, "✅ *Approved* by Dana Osei in Teams")
+
+
+async def test_a_late_slack_click_learns_who_decided_first(door, fake, slack):
+    view, holds = await _anil_run(door)
+    ref = await _deliver(door, slack, "p-dana")
+    h = holds["p-dana"]
+    await door.decide(view.run_id, h.action_id, h.params_hash, channel="teams", actor_external_id=DANA_TEAMS,
+                      decision="approved")
+    body, action = _click(fake, ref, DANA_SLACK, "refuse")
+    assert (await slack.on_decision(ack=Ack(), body=body, action=action)).outcome == "already_decided"
+    [update] = fake.called("chat.update")
+    assert _is_decided(update, ref, "Approved* by Dana Osei in Teams")        # first decision wins, shown
+
+
+async def test_door_update_for_an_action_with_no_slack_card_does_nothing(door, fake, slack):
+    view, holds = await _anil_run(door)
+    h = holds["p-meera"]
+    await door.decide(view.run_id, h.action_id, h.params_hash, channel="email",
+                      actor_external_id="meera.iyer@northbeam.example", decision="approved")
+    [job] = await _door_update_jobs(door)
+    assert (await handle_door_update(job, slack))["status"] == "no_card"
+    assert fake.called("chat.update") == []
 
 
 async def test_signed_button_click_through_the_http_route(no_slack_env, door, fake):

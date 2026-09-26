@@ -9,6 +9,7 @@ Text we did not write (request text, labels, clauses) is escaped: `&`, `<` and `
 from __future__ import annotations
 
 import re
+from datetime import UTC, datetime
 from uuid import UUID
 
 from contextrail.models import STAGE_ORDER, StageEvent
@@ -125,14 +126,14 @@ def parse_decision_value(value: str | None) -> tuple[UUID, str, str] | None:
         return None
 
 
-def _card_body(view: RunView, row: RowView) -> list[dict]:
+def _card_body(view: RunView, row: RowView, *, title: str) -> list[dict]:
     lines = [f"*{esc(view.subject or 'Unknown subject')}* · requested: “{esc(view.request_text)}”",
              f"*Action:* {esc(row.kind)} · {esc(row.label)}",
              f"*Rule:* {esc(row.rule_id)} — {esc(row.clause)}",
              f"*Approver:* {esc(row.approver_name or row.approver_id)}"]
     if row.explanation:
         lines.append(f"*Why:* {esc(row.explanation)}")
-    return [{"type": "header", "text": {"type": "plain_text", "text": f"Approval needed · {row.label}"[:150]}},
+    return [{"type": "header", "text": {"type": "plain_text", "text": f"{title} · {row.label}"[:150]}},
             _section("\n".join(lines)),
             _context(f"{context_line(view)} · this action: {row.connector_mode}")]
 
@@ -146,7 +147,32 @@ def approval_card(view: RunView, row: RowView) -> dict:
                {"type": "button", "action_id": "refuse", "style": "danger", "value": value,
                 "text": {"type": "plain_text", "text": "Refuse"}}]
     return {"text": f"Approval needed: {row.label} for {view.subject or 'a request'}",
-            "blocks": [*_card_body(view, row), {"type": "actions", "block_id": "decision", "elements": buttons}]}
+            "blocks": [*_card_body(view, row, title="Approval needed"),
+                       {"type": "actions", "block_id": "decision", "elements": buttons}]}
+
+
+DOOR_NAME = {"slack": "Slack", "teams": "Teams", "email": "email", "voice": "a phone call",
+             "freshservice": "Freshservice", "mcp": "MCP"}
+
+
+def slack_date(at: datetime) -> str:
+    """Slack renders <!date^...> in each reader's own time zone; the fallback is UTC."""
+    at = at.astimezone(UTC)
+    return f"<!date^{int(at.timestamp())}^{{date_short_pretty}} at {{time}}|{at:%Y-%m-%d %H:%M} UTC>"
+
+
+def decided_card(view: RunView, row: RowView, decision: dict) -> dict:
+    """The card after a decision in any door: who, in which door, when, the outcome; no buttons left to press.
+    `decision` is the stored approvals row (approver, decision, channel, decided_at, reason)."""
+    approved = decision["decision"] == "approved"
+    who = row.approver_name if decision["approver"] == row.approver_id and row.approver_name else decision["approver"]
+    door = DOOR_NAME.get(decision["channel"], decision["channel"])
+    outcome = "Approved" if approved else "Refused"
+    line = f"{'✅' if approved else '⛔'} *{outcome}* by {esc(who)} in {door} · {slack_date(decision['decided_at'])}"
+    if decision.get("reason"):
+        line += f"\n*Reason:* {esc(decision['reason'])}"
+    return {"text": f"{outcome} by {who} in {door}: {row.label}",
+            "blocks": [*_card_body(view, row, title=outcome), _section(line)]}
 
 
 def rejected_text(reason: str | None) -> str:

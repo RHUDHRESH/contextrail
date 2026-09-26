@@ -125,7 +125,26 @@ class SlackDoor:
                                         decision="approved" if action["action_id"] == "approve" else "refused")
         if result.outcome == "rejected":  # the card stays as it is, for the person who can decide it
             await self._tell(body, blocks.rejected_text(result.reason))
+        else:  # recorded here, or already decided in some door: the card shows who, where and when, at once
+            await self.refresh_card(run_id, action_id)
         return result
+
+    async def refresh_card(self, run_id: UUID, action_id: str) -> dict:
+        """Re-render this action's Slack card from the stored decision and the current RunView. Idempotent: the
+        door.update job and the click handler may both call it."""
+        async with self.door.db.connection() as c:
+            cards = [m["ref"] for m in await repo.list_door_messages(c, run_id, action_id) if m["channel"] == "slack"]
+            decision = await repo.get_approval(c, run_id, action_id)
+        if not cards:
+            return {"status": "no_card"}
+        if decision is None:
+            return {"status": "undecided"}
+        view = await self.door.get_status(run_id)
+        row = next(r for r in view.rows if r.action_id == action_id)
+        content = blocks.decided_card(view, row, decision)
+        for ref in cards:
+            await self.client.chat_update(channel=ref["channel"], ts=ref["ts"], **content)
+        return {"status": "updated"}
 
     async def _tell(self, body: dict, text: str) -> None:
         """An ephemeral note to whoever clicked, where they clicked; nobody else sees it."""
@@ -193,6 +212,11 @@ class SlackDoor:
 async def handle_approval_dispatch(payload: dict, ctx: SlackDoor) -> dict:
     """Job kind 'approval.dispatch' (enqueued per held action by rail/approve.dispatch_holds)."""
     return await ctx.deliver_approval_card(UUID(str(payload["run_id"])), payload["action_id"])
+
+
+async def handle_door_update(payload: dict, ctx: SlackDoor) -> dict:
+    """Job kind 'door.update' (enqueued by Door.decide after a decision in any door): refresh the Slack card."""
+    return await ctx.refresh_card(UUID(str(payload["run_id"])), payload["action_id"])
 
 
 _SETTLED = {RunStatus.DONE, RunStatus.PARTIAL, RunStatus.FAILED}
