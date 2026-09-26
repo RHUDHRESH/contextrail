@@ -2,7 +2,7 @@
   "_meta": {
     "mode": "FIXTURE",
     "system": "incidents",
-    "note": "Fictional incident records, as the Freshservice incident module would hold them. INC-4412 is open and carries one read-only incident access request; the rule that decides it, POL-EMG-001 (read-only, 4-hour expiry, incident commander approval), is checklist T068 and is not built yet, so this is data only."
+    "note": "Fictional incident records, as the Freshservice incident module would hold them. INC-4412 is open and carries one read-only incident access request; the rule that decides it, POL-EMG-001 (read-only, 4-hour expiry, incident commander approval), is checklist T068 and is not built yet, so this is data only. INC-2481 (resolved) is the outage behind the service-credit scenario in payments.json; INC-2307 and INC-2140 are the incidents behind earlier credits."
   },
   "incidents": [
     {
@@ -24,6 +24,30 @@
           "requested_at": "2026-09-25T18:40:00Z", "status": "pending"
         }
       ]
+    },
+    {
+      "id": "INC-2481", "title": "Telemetry ingest unavailable (Sev-2)",
+      "severity": "Sev-2", "status": "resolved", "service": "ingest", "region": "ap-south-1",
+      "opened_at": "2026-08-17T09:12:00Z", "resolved_at": "2026-08-20T07:40:00Z", "duration_hours": 70.47,
+      "commander_id": "E-0140", "responder_ids": ["E-0237", "E-0195"],
+      "affected_accounts": ["ACC-1042", "ACC-2210", "ACC-3318"], "sla_breached": true,
+      "root_cause": "partition rebalance deadlock in the ap-south-1 ingest cluster"
+    },
+    {
+      "id": "INC-2307", "title": "Telemetry export delayed beyond SLA (Sev-2)",
+      "severity": "Sev-2", "status": "resolved", "service": "export", "region": "eu-central-1",
+      "opened_at": "2026-06-03T14:20:00Z", "resolved_at": "2026-06-04T16:05:00Z", "duration_hours": 25.75,
+      "commander_id": "E-0051", "responder_ids": ["E-0195"],
+      "affected_accounts": ["ACC-4051"], "sla_breached": true,
+      "root_cause": "export queue consumer stalled after a config push"
+    },
+    {
+      "id": "INC-2140", "title": "Fleet map tiles stale for enterprise dashboards (Sev-2)",
+      "severity": "Sev-2", "status": "resolved", "service": "maps", "region": "ap-south-1",
+      "opened_at": "2026-03-02T06:45:00Z", "resolved_at": "2026-03-03T09:30:00Z", "duration_hours": 26.75,
+      "commander_id": "E-0050", "responder_ids": ["E-0237"],
+      "affected_accounts": ["ACC-1042"], "sla_breached": true,
+      "root_cause": "tile cache invalidation job disabled during a migration"
     }
   ]
 }

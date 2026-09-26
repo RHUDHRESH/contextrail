@@ -454,3 +454,67 @@ def test_incident_access_request_is_read_only_time_boxed_and_not_already_held():
     assert req["subject_id"] in inc["responder_ids"] and req["status"] == "pending"
     assert (target["permission"], target["resource_class"], req["duration"]) == ("read", "production_read", "4h")
     assert req["entitlement"] not in holdings()[req["subject_id"]]
+
+
+# --- payments: customers, plans, prior credits, the outage (T078) ------------------------------------------
+
+APPROVAL_LIMIT_USD = {"support-agent": 2000, "customer-success-manager": 2000, "support-manager": 2000,
+                      "finance-manager": 10000, "vp-finance": float("inf")}  # Stage 1 refund policy §3
+
+
+def payments():
+    return load("payments")
+
+
+def customers():
+    return {c["account_id"]: c for c in payments()["customers"]}
+
+
+def test_payments_fixture_is_labelled_and_honest_that_no_refund_rail_reads_it():
+    meta = payments()["_meta"]
+    assert meta["mode"] == "FIXTURE" and "not built" in meta["note"]
+
+
+def test_customers_are_fictional_accounts_on_known_plans_with_support_owners():
+    ids = by_id()
+    for acc, c in customers().items():
+        assert re.fullmatch(r"ACC-\d{4}", acc) and c["domain"].endswith(".example"), acc
+        assert c["plan"] in payments()["plans"], acc
+        assert c["csm_id"] is None or ids[c["csm_id"]]["team"] == "support", acc
+    assert customers()["ACC-1042"]["name"] == "Meridian Freight"  # the Stage 1 account
+
+
+def test_inc_2481_matches_stage1_and_hit_exactly_the_customers_in_its_region():
+    inc = incidents()["INC-2481"]
+    assert (inc["opened_at"], inc["resolved_at"], inc["duration_hours"]) == (
+        "2026-08-17T09:12:00Z", "2026-08-20T07:40:00Z", 70.47)
+    assert inc["status"] == "resolved" and inc["sla_breached"] and inc["region"] == "ap-south-1"
+    in_region = sorted(a for a, c in customers().items() if c["region"] == inc["region"])
+    assert sorted(inc["affected_accounts"]) == in_region == ["ACC-1042", "ACC-2210", "ACC-3318"]
+
+
+def test_every_incident_has_a_rostered_commander_and_real_responders():
+    roster = load("identity")["roster"]["incident-commander"]
+    person = {r["hris_id"]: r["person_id"] for r in identities()}
+    for inc in incidents().values():
+        assert person[inc["commander_id"]] in roster, inc["id"]
+        assert set(inc["responder_ids"]) <= set(by_id()), inc["id"]
+
+
+def test_prior_credits_are_consistent_and_include_the_one_duplicate():
+    ids = by_id()
+    for cr in payments()["credits"]:
+        assert cr["account_id"] in customers() and cr["incident_id"] in incidents(), cr["id"]
+        issued = date.fromisoformat(cr["issued_at"])
+        assert cr["quarter"] == f"{issued.year}-Q{(issued.month - 1) // 3 + 1}", cr["id"]
+        assert cr["amount_usd"] <= APPROVAL_LIMIT_USD[ids[cr["approved_by"]]["role"]], cr["id"]
+    already = [cr for cr in payments()["credits"] if cr["incident_id"] == "INC-2481"]
+    assert [(c["account_id"], c["quarter"]) for c in already] == [("ACC-3318", "2026-Q3")]
+
+
+def test_one_credit_request_per_affected_account_and_one_of_them_is_the_duplicate():
+    reqs = [r for r in payments()["credit_requests"] if r["incident_id"] == "INC-2481"]
+    assert sorted(r["account_id"] for r in reqs) == sorted(incidents()["INC-2481"]["affected_accounts"])
+    credited = {(c["account_id"], c["quarter"]) for c in payments()["credits"]}
+    dupes = [r["account_id"] for r in reqs if (r["account_id"], "2026-Q3") in credited]
+    assert dupes == ["ACC-3318"]  # POL-REF-002 (T071): one outage credit per customer per quarter
