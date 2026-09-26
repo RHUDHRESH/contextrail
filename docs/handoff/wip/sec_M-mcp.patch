@@ -1,0 +1,84 @@
+diff --git a/engine/contextrail/repo.py b/engine/contextrail/repo.py
+index 614094d..65db373 100644
+--- a/engine/contextrail/repo.py
++++ b/engine/contextrail/repo.py
+@@ -203,3 +203,28 @@ async def dedupe_webhook(conn: AsyncConnection, source: str, external_id: str,
+         insert into webhook_dedupe (source, external_id, run_id) values (%s, %s, %s)
+         on conflict do nothing returning external_id""", (source, external_id, run_id))
+     return row is not None
++
++
++# --- listing -----------------------------------------------------------------------------------------------
++
++async def list_runs(conn: AsyncConnection, *, status: str | None = None, source: str | None = None,
++                    requested_by: str | None = None, subject_id: str | None = None, limit: int = 20) -> list[dict]:
++    """Runs, newest first, with verdict and verification counts from their actions. Every filter is optional."""
++    cur = await conn.execute("""
++        select r.id, r.status, r.stage, r.source, r.intent, r.request_text, r.subject_id, r.requested_by,
++               r.capsule_digest, r.created_at, r.updated_at,
++               count(a.id) filter (where a.verdict = 'ALLOW')  as allow,
++               count(a.id) filter (where a.verdict = 'HOLD')   as hold,
++               count(a.id) filter (where a.verdict = 'REFUSE') as refuse,
++               count(a.id) filter (where a.state = 'verified') as verified,
++               count(a.id) filter (where a.state = 'awaiting') as awaiting
++        from runs r left join actions a on a.run_id = r.id
++        where (%(status)s::text is null or r.status = %(status)s)
++          and (%(source)s::text is null or r.source = %(source)s)
++          and (%(requested_by)s::text is null or r.requested_by = %(requested_by)s)
++          and (%(subject_id)s::text is null or r.subject_id = %(subject_id)s)
++        group by r.id
++        order by r.created_at desc, r.id
++        limit %(limit)s""", {"status": status, "source": source, "requested_by": requested_by,
++                             "subject_id": subject_id, "limit": limit})
++    return await cur.fetchall()
+diff --git a/engine/tests/test_mcp_tools.py b/engine/tests/test_mcp_tools.py
+index 9e9feb0..45ae60d 100644
+--- a/engine/tests/test_mcp_tools.py
++++ b/engine/tests/test_mcp_tools.py
+@@ -392,6 +392,46 @@ async def test_unknown_action_ids_are_an_error(door):
+     assert r.is_error and "A99" in r.content[0].text
+ 
+ 
++# --- list_runs (T188) ---------------------------------------------------------------------------------------
++
++async def _two_runs(door) -> tuple[dict, dict]:
++    mcp_run = (await call(server(door), "compile_context_capsule",
++                          {"request_text": SAME_AS_RAHUL, **ANIL})).structured_content
++    slack_run = await door.start_run("Give Anil the same access as Rahul", channel="slack",
++                                     actor_external_id="U0ANIL001")          # ambiguous -> needs_input
++    return mcp_run, slack_run.model_dump(mode="json")
++
++
++async def test_list_runs_newest_first_with_handles_and_verdict_counts(door):
++    mcp_run, slack_run = await _two_runs(door)
++    out = (await call(server(door), "list_runs", {})).structured_content
++    assert [r["run_id"] for r in out["runs"]] == [slack_run["run_id"], mcp_run["run_id"]]
++    listed = out["runs"][1]
++    assert listed["capsule_handle"] == mcp_run["capsule_handle"] and listed["source"] == "mcp"
++    assert (listed["counts"]["hold"], listed["counts"]["refuse"]) == (2, 1)
++    assert listed["requested_by"] == "p-anil" and listed["subject_id"] == "E-1042"
++    assert out["runs"][0]["capsule_handle"] is None and out["runs"][0]["status"] == "needs_input"
++
++
++@pytest.mark.parametrize(("filters", "expect"), [
++    ({"status": "needs_input"}, ["slack"]),
++    ({"source": "mcp"}, ["mcp"]),
++    ({"requested_by": "p-anil"}, ["slack", "mcp"]),
++    ({"requested_by": "p-rahul"}, []),
++    ({"subject_id": "E-1042"}, ["mcp"]),
++    ({"limit": 1}, ["slack"]),
++])
++async def test_list_runs_filters(door, filters, expect):
++    await _two_runs(door)
++    out = (await call(server(door), "list_runs", filters)).structured_content
++    assert [r["source"] for r in out["runs"]] == expect
++
++
++async def test_list_runs_rejects_an_unknown_status(door):
++    r = await call(server(door), "list_runs", {"status": "approved-by-me"})
++    assert r.is_error
++
++
+ async def test_an_unknown_run_is_an_error(door):
+     r = await call(server(door), "check_policy_and_permissions",
+                    {"capsule_handle": {"run_id": "00000000-0000-4000-8000-000000000000", "digest": "a" * 64}})

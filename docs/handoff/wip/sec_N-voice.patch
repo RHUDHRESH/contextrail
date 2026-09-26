@@ -1,0 +1,604 @@
+diff --git a/voice/dialogue.py b/voice/dialogue.py
+index 5792e77..9858979 100644
+--- a/voice/dialogue.py
++++ b/voice/dialogue.py
+@@ -11,10 +11,10 @@ The model only talks (llm.Conversation). Flows call the engine's door contract a
+ from __future__ import annotations
+ 
+ from collections.abc import Awaitable, Callable
+-from dataclasses import dataclass, field
+ 
+ import flows as door_flows
+-from engine_client import Caller, EngineClient
++from engine_client import Caller, EngineClient, RowView, RunView
++from flows import Turn
+ from intents import route
+ from languages import Language, LanguageTable, detect_switch
+ from llm import Conversation
+@@ -30,12 +30,6 @@ SYSTEM_PROMPT = (
+ )
+ 
+ 
+-@dataclass
+-class Turn:
+-    say: list[str] = field(default_factory=list)
+-    control: str | None = None  # set by flows that must leave the media stream (later: DTMF, transfer)
+-
+-
+ Flow = Callable[["Dialogue", str], Awaitable["Turn | list[str]"]]
+ 
+ 
+@@ -46,7 +40,7 @@ async def _conversation_flow(dialogue: Dialogue, text: str) -> list[str]:
+ FLOW_NAMES = ("request", "status", "policy", "approve", "human")
+ REGISTERED_ONLY = frozenset({"request", "status", "approve"})  # unknown callers: policy questions (and a person)
+ DOOR_FLOWS: dict[str, Flow] = {"request": door_flows.request_flow, "status": door_flows.query_flow,
+-                               "policy": door_flows.query_flow}
++                               "policy": door_flows.query_flow, "approve": door_flows.approve_flow}
+ 
+ 
+ class Dialogue:
+@@ -62,6 +56,12 @@ class Dialogue:
+         self.flows: dict[str, Flow] = ({name: _conversation_flow for name in FLOW_NAMES} | DOOR_FLOWS
+                                        | (flows or {}))
+         self.expect: Flow | None = None  # a flow waiting for the caller's next answer (e.g. yes/no)
++        # Approver flow state: the items awaiting this caller, where we are, and the one waiting for a key press.
++        self.queue: list[tuple[RunView, RowView]] = []
++        self.position = 0
++        self.awaiting_keys: tuple[RunView, RowView] | None = None
++        self._next_step: str | None = None  # what the server does when the stream stops (gather_dtmf, transfer)
++        self._resume: list[str] | None = None  # said first when the stream comes back
+ 
+     @property
+     def registered(self) -> bool:
+@@ -75,6 +75,11 @@ class Dialogue:
+         return f"{self.line('disclosure')} {self.line(key)}"
+ 
+     async def opening(self) -> Turn:
++        """What the caller hears when a stream starts: the disclosure first on a new call, or, when the stream comes
++        back after a key press or a failed transfer, what happened while it was away."""
++        if self._resume is not None:
++            say, self._resume = self._resume, None
++            return Turn(say)
+         return Turn([self.disclosed("menu" if self.registered else "unregistered")])
+ 
+     async def on_utterance(self, text: str) -> Turn:
+@@ -92,9 +97,23 @@ class Dialogue:
+             return Turn([self.line("unregistered")])
+         return self._turn(await self.flows[intent](self, text))
+ 
+-    @staticmethod
+-    def _turn(result: Turn | list[str]) -> Turn:
+-        return result if isinstance(result, Turn) else Turn(list(result))
++    async def on_dtmf(self, digits: str) -> Turn:
++        """The key the caller pressed in the Gather that followed a stream stop. Its outcome is spoken first when
++        the stream resumes."""
++        turn = self._turn(await door_flows.decide_by_keys(self, digits))
++        self._resume = turn.say
++        return turn
++
++    def take_next_step(self) -> str | None:
++        """Read once by the server when the stream stops: gather_dtmf, transfer, or None (hang up)."""
++        step, self._next_step = self._next_step, None
++        return step
++
++    def _turn(self, result: Turn | list[str]) -> Turn:
++        turn = result if isinstance(result, Turn) else Turn(list(result))
++        if turn.control:
++            self._next_step = turn.control
++        return turn
+ 
+     async def converse(self, text: str) -> str:
+         """A conversational turn by Haiku; without a reply, the fixed apology and the menu."""
+diff --git a/voice/flows.py b/voice/flows.py
+index fa7d4cb..2faf944 100644
+--- a/voice/flows.py
++++ b/voice/flows.py
+@@ -8,17 +8,35 @@ answer (yes/no after a read-back), it sets dialogue.expect to the handler for th
+ 
+ from __future__ import annotations
+ 
++from dataclasses import dataclass, field
+ from functools import partial
+ from typing import TYPE_CHECKING
+ from uuid import UUID
+ 
+-from engine_client import EngineError, RunView
+-from intents import asks_to_request, match_yes_no
++from engine_client import DecisionResult, EngineError, RowView, RunView
++from intents import asks_to_request, match_next, match_yes_no
+ 
+ if TYPE_CHECKING:
+     from dialogue import Dialogue
+ 
+ 
++@dataclass
++class Turn:
++    say: list[str] = field(default_factory=list)
++    control: str | None = None  # "gather_dtmf" or "transfer": the call must leave the media stream
++
++# High-risk items (CLAUDE.md §13.3 item 7, §16: "terminal-adjacent, production-tagged") are never decided by phone.
++# The phone cannot hold half an approval (the engine's first decision wins), so these need a tap in Slack or Teams.
++# This only narrows what the phone may do; the engine still decides whether any decision is valid.
++HIGH_RISK_RULES = frozenset({
++    "POL-ACC-003",  # administrator rights
++    "POL-ACC-004",  # production-tagged repositories
++    "POL-EMG-001",  # emergency production access
++    "POL-DAT-001",  # raw customer PII
++})
++_KEYS = {"1": "approved", "2": "refused"}
++
++
+ def spoken_ref(run_id: UUID) -> str:
+     """The run's reference as the caller hears it: its first 8 characters, one at a time ("A 3 F 9 1 C 2 E")."""
+     return " ".join(run_id.hex[:8].upper())
+@@ -73,3 +91,78 @@ async def query_flow(d: Dialogue, text: str) -> list[str]:
+     if not answer.text.strip():
+         return [d.line("no_answer")]
+     return [d.line("from_records"), answer.text]
++
++
++# --- approver: list pending -> spoken confirm -> DTMF 1/2 -> engine decision (T203) -----------------------------
++
++def high_risk(row: RowView) -> bool:
++    text = f"{row.label} {row.clause}".casefold()
++    return row.rule_id in HIGH_RISK_RULES or "production" in text or "admin" in text
++
++
++async def approve_flow(d: Dialogue, text: str) -> list[str]:
++    try:
++        runs = await d.engine.pending_approvals(actor=d.caller_phone)
++    except EngineError:
++        return [d.line("engine_down")]
++    # Only rows the engine says await this very person; the engine re-checks all of it on decide.
++    d.queue = [(v, r) for v in runs for r in v.rows if r.state == "awaiting" and r.approver_id == d.caller.person_id]
++    d.position = 0
++    if not d.queue:
++        return [d.line("nothing_pending")]
++    return [d.line("pending_count").format(n=len(d.queue)), *_offer(d)]
++
++
++def _offer(d: Dialogue) -> list[str]:
++    if d.position >= len(d.queue):
++        d.queue = []
++        return [d.line("no_more")]
++    view, row = d.queue[d.position]
++    d.expect = _choose
++    return [d.line("item").format(i=d.position + 1, label=row.label, subject=view.subject or "", rule=row.rule_id),
++            d.line("decide_this")]
++
++
++async def _choose(d: Dialogue, said: str) -> Turn | list[str]:
++    yes = match_yes_no(said)
++    if yes is None and not match_next(said):
++        d.expect = _choose
++        return [d.line("decide_this")]
++    view, row = d.queue[d.position]
++    if not yes:
++        d.position += 1
++        return _offer(d)
++    if high_risk(row):
++        d.position += 1
++        return [d.line("high_risk"), *_offer(d)]
++    d.awaiting_keys = (view, row)
++    return Turn([d.line("press_keys")], control="gather_dtmf")
++
++
++async def decide_by_keys(d: Dialogue, digits: str) -> list[str]:
++    """The Gather result: 1 approves, 2 refuses, anything else decides nothing. A repeated callback finds nothing
++    waiting for keys and decides nothing again (and the engine's first decision wins regardless)."""
++    pending, d.awaiting_keys = d.awaiting_keys, None
++    if pending is None:
++        return []
++    view, row = pending
++    d.position += 1
++    decision = _KEYS.get((digits or "").strip())
++    if decision is None:
++        return [d.line("no_key"), *_offer(d)]
++    try:
++        result = await d.engine.decide(view.run_id, row.action_id, row.params_hash, actor=d.caller_phone,
++                                       decision=decision)
++    except EngineError:
++        return [d.line("engine_down"), *_offer(d)]
++    return [_outcome(d, result, decision), *_offer(d)]
++
++
++def _outcome(d: Dialogue, result: DecisionResult, decision: str) -> str:
++    if result.outcome == "recorded":
++        return d.line(f"decided_{decision}")
++    if result.outcome == "already_decided":
++        if result.decided_by == d.caller.person_id:
++            return d.line("already_yours")
++        return d.line("already_decided").format(channel=result.decided_channel or "")
++    return f"{d.line('rejected')} {result.reason or ''}".strip()  # the engine's reason, verbatim
+diff --git a/voice/intents.py b/voice/intents.py
+index 23d3463..a626e95 100644
+--- a/voice/intents.py
++++ b/voice/intents.py
+@@ -73,6 +73,14 @@ def asks_to_request(text: str) -> bool:
+     return len(said.split()) <= _ASK_MAX_WORDS and _any(said, _ASKS_TO_REQUEST[:1], _ASKS_TO_REQUEST[1:])
+ 
+ 
++_NEXT = ((r"\b(next|skip|later)\b",), ("अगला", "अगले", "छोड़", "बाद में", "அடுத்த", "தவிர்", "பிறகு",
++                                      "ಮುಂದಿನ", "ಬಿಟ್ಟು", "ನಂತರ"))
++
++
++def match_next(text: str) -> bool:
++    return _any(text.casefold(), *_NEXT)
++
++
+ def match_yes_no(text: str) -> bool | None:
+     said = text.casefold()
+     if _any(said, *_NO):
+diff --git a/voice/languages.py b/voice/languages.py
+index 5d59af9..1044aa3 100644
+--- a/voice/languages.py
++++ b/voice/languages.py
+@@ -60,6 +60,20 @@ SUPPORTED: dict[str, Language] = {
+         st_partial="आंशिक रूप से पूरा", st_done="पूरा", st_failed="विफल",
+         from_records="कॉन्टेक्स्टरेल के रिकॉर्ड के अनुसार:",
+         no_answer="इसका कोई दर्ज जवाब कॉन्टेक्स्टरेल के पास नहीं है।",
++        nothing_pending="आपकी मंज़ूरी के लिए कुछ भी रुका नहीं है।",
++        pending_count="{n} आइटम आपकी मंज़ूरी का इंतज़ार कर रहे हैं।",
++        item="आइटम {i}: {label}, {subject} के लिए, नियम {rule} के तहत।",
++        decide_this="इस आइटम पर फ़ैसला करने के लिए हाँ कहिए, या छोड़ने के लिए अगला कहिए।",
++        press_keys="मंज़ूर करने के लिए 1 दबाइए, या अस्वीकार करने के लिए 2 दबाइए।",
++        high_risk=("यह आइटम उच्च जोखिम वाला है, इसलिए इसका फ़ैसला फ़ोन पर नहीं हो सकता। कृपया इसे Slack या Teams "
++                   "में एक टैप से मंज़ूर या अस्वीकार करें।"),
++        decided_approved="दर्ज हो गया: आपने इसे मंज़ूर किया।",
++        decided_refused="दर्ज हो गया: आपने इसे अस्वीकार किया।",
++        already_decided="इस आइटम का फ़ैसला पहले ही {channel} में हो चुका है।",
++        already_yours="आप इस आइटम का फ़ैसला पहले ही कर चुके हैं।",
++        rejected="कॉन्टेक्स्टरेल ने यह फ़ैसला स्वीकार नहीं किया:",
++        no_key="कोई बटन नहीं दबाया गया, इसलिए कोई फ़ैसला नहीं हुआ।",
++        no_more="आपके लिए रुका यह आख़िरी आइटम था।",
+     ),
+     "en-IN": _lang(
+         "en-IN", "English", "priya",
+@@ -83,6 +97,20 @@ SUPPORTED: dict[str, Language] = {
+         st_partial="partly done", st_done="done", st_failed="failed",
+         from_records="Here is what ContextRail's records say:",
+         no_answer="ContextRail has no recorded answer to that.",
++        nothing_pending="Nothing is waiting for your approval.",
++        pending_count="{n} items are waiting for your approval.",
++        item="Item {i}: {label}, for {subject}, under rule {rule}.",
++        decide_this="Say yes to decide this item, or next to skip it.",
++        press_keys="Press 1 to approve, or 2 to refuse.",
++        high_risk=("This item is high risk, so it cannot be decided by phone. Please approve or refuse it with a tap "
++                   "in Slack or Teams."),
++        decided_approved="Recorded: you approved it.",
++        decided_refused="Recorded: you refused it.",
++        already_decided="This item was already decided, in {channel}.",
++        already_yours="You have already decided this item.",
++        rejected="ContextRail did not accept that decision:",
++        no_key="No key was pressed, so nothing was decided.",
++        no_more="That was the last item waiting for you.",
+     ),
+     "ta-IN": _lang(
+         "ta-IN", "Tamil", "kavitha", ("tamil", "तमिल", "தமிழ்", "ತಮಿಳು"),
+@@ -107,6 +135,20 @@ SUPPORTED: dict[str, Language] = {
+         st_done="முடிந்தது", st_failed="தோல்வியடைந்தது",
+         from_records="ContextRail பதிவுகளின்படி:",
+         no_answer="அதற்கு ContextRail-இடம் பதிவு செய்யப்பட்ட பதில் இல்லை.",
++        nothing_pending="உங்கள் ஒப்புதலுக்காக எதுவும் காத்திருக்கவில்லை.",
++        pending_count="{n} உருப்படிகள் உங்கள் ஒப்புதலுக்காகக் காத்திருக்கின்றன.",
++        item="உருப்படி {i}: {label}, {subject}-க்காக, விதி {rule}-இன் கீழ்.",
++        decide_this="இதை முடிவு செய்ய ஆம் என்றும், தவிர்க்க அடுத்தது என்றும் சொல்லுங்கள்.",
++        press_keys="ஒப்புதல் அளிக்க 1-ஐ அழுத்துங்கள், மறுக்க 2-ஐ அழுத்துங்கள்.",
++        high_risk=("இந்த உருப்படி அதிக அபாயம் கொண்டது, எனவே தொலைபேசியில் முடிவு செய்ய முடியாது. Slack அல்லது "
++                   "Teams-இல் ஒரு தட்டலில் ஒப்புதல் அளிக்கவும் அல்லது மறுக்கவும்."),
++        decided_approved="பதிவு செய்யப்பட்டது: நீங்கள் ஒப்புதல் அளித்தீர்கள்.",
++        decided_refused="பதிவு செய்யப்பட்டது: நீங்கள் மறுத்தீர்கள்.",
++        already_decided="இந்த உருப்படி ஏற்கனவே {channel}-இல் முடிவு செய்யப்பட்டது.",
++        already_yours="இந்த உருப்படியை நீங்கள் ஏற்கனவே முடிவு செய்துவிட்டீர்கள்.",
++        rejected="ContextRail அந்த முடிவை ஏற்கவில்லை:",
++        no_key="எந்த விசையும் அழுத்தப்படவில்லை, எனவே எதுவும் முடிவு செய்யப்படவில்லை.",
++        no_more="உங்களுக்காகக் காத்திருந்த கடைசி உருப்படி இதுதான்.",
+     ),
+     "kn-IN": _lang(
+         "kn-IN", "Kannada", "roopa", ("kannada", "कन्नड़", "कन्नड", "கன்னடம்", "ಕನ್ನಡ"),
+@@ -130,6 +172,20 @@ SUPPORTED: dict[str, Language] = {
+         st_failed="ವಿಫಲವಾಗಿದೆ",
+         from_records="ContextRail ದಾಖಲೆಗಳ ಪ್ರಕಾರ:",
+         no_answer="ಅದಕ್ಕೆ ContextRail ನಲ್ಲಿ ದಾಖಲಾದ ಉತ್ತರವಿಲ್ಲ.",
++        nothing_pending="ನಿಮ್ಮ ಅನುಮೋದನೆಗಾಗಿ ಏನೂ ಕಾಯುತ್ತಿಲ್ಲ.",
++        pending_count="{n} ಐಟಂಗಳು ನಿಮ್ಮ ಅನುಮೋದನೆಗಾಗಿ ಕಾಯುತ್ತಿವೆ.",
++        item="ಐಟಂ {i}: {label}, {subject} ಅವರಿಗಾಗಿ, ನಿಯಮ {rule} ಅಡಿಯಲ್ಲಿ.",
++        decide_this="ಇದನ್ನು ನಿರ್ಧರಿಸಲು ಹೌದು ಎಂದು, ಬಿಟ್ಟುಬಿಡಲು ಮುಂದಿನದು ಎಂದು ಹೇಳಿ.",
++        press_keys="ಅನುಮೋದಿಸಲು 1 ಒತ್ತಿರಿ, ನಿರಾಕರಿಸಲು 2 ಒತ್ತಿರಿ.",
++        high_risk=("ಈ ಐಟಂ ಹೆಚ್ಚಿನ ಅಪಾಯದ್ದು, ಆದ್ದರಿಂದ ಫೋನ್‌ನಲ್ಲಿ ನಿರ್ಧರಿಸಲು ಸಾಧ್ಯವಿಲ್ಲ. ದಯವಿಟ್ಟು Slack ಅಥವಾ Teams "
++                   "ನಲ್ಲಿ ಒಂದು ಟ್ಯಾಪ್ ಮೂಲಕ ಅನುಮೋದಿಸಿ ಅಥವಾ ನಿರಾಕರಿಸಿ."),
++        decided_approved="ದಾಖಲಾಗಿದೆ: ನೀವು ಅನುಮೋದಿಸಿದ್ದೀರಿ.",
++        decided_refused="ದಾಖಲಾಗಿದೆ: ನೀವು ನಿರಾಕರಿಸಿದ್ದೀರಿ.",
++        already_decided="ಈ ಐಟಂ ಈಗಾಗಲೇ {channel} ನಲ್ಲಿ ನಿರ್ಧಾರವಾಗಿದೆ.",
++        already_yours="ನೀವು ಈ ಐಟಂ ಅನ್ನು ಈಗಾಗಲೇ ನಿರ್ಧರಿಸಿದ್ದೀರಿ.",
++        rejected="ContextRail ಆ ನಿರ್ಧಾರವನ್ನು ಸ್ವೀಕರಿಸಲಿಲ್ಲ:",
++        no_key="ಯಾವುದೇ ಕೀ ಒತ್ತಲಿಲ್ಲ, ಆದ್ದರಿಂದ ಏನೂ ನಿರ್ಧಾರವಾಗಿಲ್ಲ.",
++        no_more="ನಿಮಗಾಗಿ ಕಾಯುತ್ತಿದ್ದ ಕೊನೆಯ ಐಟಂ ಇದು.",
+     ),
+ }
+ 
+diff --git a/voice/tests/test_approver_flow.py b/voice/tests/test_approver_flow.py
+new file mode 100644
+index 0000000..1f5e4e2
+--- /dev/null
++++ b/voice/tests/test_approver_flow.py
+@@ -0,0 +1,148 @@
++"""T203: a registered approver hears only the items awaiting them, confirms one by voice, then decides it with DTMF
++1 (approve) or 2 (refuse) through the engine's decision endpoint. High-risk items are never decided by phone: they
++need a tap in Slack or Teams (CLAUDE.md §13.3 item 7, §16). The engine checks everything else (D-005)."""
++
++import pytest
++
++from dialogue import Dialogue
++from engine_client import Caller, EngineClient, RowView
++from flows import high_risk
++from languages import configure
++from llm import Conversation
++from tests.fake_engine import HASH_A, HASH_B, HASH_C, TOKEN, FakeEngine, row, run_view
++from tests.fakes import FakeAnthropic
++
++DANA_PHONE = "+919990000150"
++FIGMA = row("a-figma", label="Figma professional seat", rule_id="POL-ACC-005", params_hash=HASH_A)
++REPO = row("a-repo", label="GitHub read on northbeam/payments-core", rule_id="POL-ACC-004",
++           clause="Production-tagged repositories need Security approval.", params_hash=HASH_B)
++MEERAS = row("a-pii", label="Raw PII view", rule_id="POL-DAT-001", approver_id="p-meera",
++             approver_name="Meera Iyer", params_hash=HASH_C)
++
++
++def make():
++    engine = FakeEngine()
++    view = run_view(rows=[FIGMA, REPO, MEERAS, row("a-slack", label="Slack", verdict="ALLOW", state="verified",
++                                                   approver_id=None, rule_id="POL-ACC-001")])
++    engine.pending["p-dana"] = [view]
++    fake = FakeAnthropic(error=RuntimeError("the model must not be called in the approver flow"))
++    d = Dialogue(languages=configure("en-IN"), llm=Conversation(fake),
++                 engine=EngineClient("http://engine.test", TOKEN, transport=engine.transport()),
++                 caller=Caller(person_id="p-dana", display_name="Dana Osei"), caller_phone=DANA_PHONE)
++    return d, engine, view
++
++
++def decisions(engine):
++    return [r for r in engine.requests if r.url.path.endswith("/decisions")]
++
++
++async def test_only_items_awaiting_this_caller_are_offered_and_nothing_is_decided_by_voice_alone():
++    d, engine, _ = make()
++    turn = await d.on_utterance("approve my pending items")
++    assert engine.body(0) == {"channel": "voice", "actor_external_id": DANA_PHONE}
++    assert turn.say == [d.line("pending_count").format(n=2),
++                        d.line("item").format(i=1, label=FIGMA["label"], subject="Anil Kumar", rule="POL-ACC-005"),
++                        d.line("decide_this")]
++    assert turn.control is None and decisions(engine) == []
++
++
++async def test_a_spoken_yes_asks_for_a_key_and_leaves_the_stream_for_dtmf():
++    d, engine, _ = make()
++    await d.on_utterance("approve my pending items")
++    turn = await d.on_utterance("yes")
++    assert turn.say == [d.line("press_keys")] and turn.control == "gather_dtmf"
++    assert d.take_next_step() == "gather_dtmf" and d.take_next_step() is None
++    assert decisions(engine) == []
++
++
++@pytest.mark.parametrize(("key", "decision"), [("1", "approved"), ("2", "refused")])
++async def test_dtmf_1_approves_and_2_refuses_through_the_engine_bound_to_params_hash(key, decision):
++    d, engine, view = make()
++    await d.on_utterance("approve my pending items")
++    await d.on_utterance("yes")
++    turn = await d.on_dtmf(key)
++    [req] = decisions(engine)
++    assert req.url.path == f"/v1/runs/{view['run_id']}/decisions"
++    assert engine.body() == {"action_id": "a-figma", "params_hash": HASH_A, "channel": "voice",
++                             "actor_external_id": DANA_PHONE, "decision": decision, "reason": None}
++    assert turn.say[0] == d.line(f"decided_{decision}")
++    assert turn.say[1] == d.line("item").format(i=2, label=REPO["label"], subject="Anil Kumar", rule="POL-ACC-004")
++
++
++async def test_the_resumed_stream_speaks_the_outcome_instead_of_the_opening():
++    d, _, _ = make()
++    await d.on_utterance("approve my pending items")
++    await d.on_utterance("yes")
++    decided = await d.on_dtmf("1")
++    assert (await d.opening()).say == decided.say
++    assert (await d.opening()).say == [d.disclosed("menu")]  # only once
++
++
++async def test_a_high_risk_item_is_not_decidable_by_phone():
++    d, engine, _ = make()
++    await d.on_utterance("approve my pending items")
++    await d.on_utterance("next")                     # skip the Figma seat
++    turn = await d.on_utterance("yes")               # the production-tagged repository
++    assert turn.say == [d.line("high_risk"), d.line("no_more")] and turn.control is None
++    assert (await d.on_dtmf("1")).say == []  # no key capture was asked for: nothing to decide
++    assert decisions(engine) == []
++
++
++async def test_no_key_or_another_key_decides_nothing():
++    d, engine, _ = make()
++    await d.on_utterance("approve my pending items")
++    await d.on_utterance("yes")
++    turn = await d.on_dtmf("")
++    assert turn.say[0] == d.line("no_key") and decisions(engine) == []
++
++
++async def test_a_duplicate_dtmf_callback_decides_once():
++    d, engine, _ = make()
++    await d.on_utterance("approve my pending items")
++    await d.on_utterance("yes")
++    await d.on_dtmf("1")
++    await d.on_dtmf("1")
++    assert len(decisions(engine)) == 1
++
++
++@pytest.mark.parametrize(("result", "expected"), [
++    ({"outcome": "already_decided", "decided_by": "p-meera", "decided_channel": "teams", "reason": "already approved"},
++     "already_decided"),
++    ({"outcome": "already_decided", "decided_by": "p-dana", "decided_channel": "slack", "reason": "already refused"},
++     "already_yours"),
++    ({"outcome": "rejected", "reason": "this card is out of date: the action's parameters changed"}, "rejected"),
++])
++async def test_the_engines_outcome_is_what_the_caller_hears(result, expected):
++    d, engine, _ = make()
++    engine.decision = {"outcome": "recorded", "reason": None, "rule_id": None, "decided_by": None,
++                       "decided_channel": None, "view": None} | result
++    await d.on_utterance("approve my pending items")
++    await d.on_utterance("yes")
++    said = (await d.on_dtmf("2")).say[0]
++    if expected == "already_decided":
++        assert said == d.line("already_decided").format(channel="teams")
++    elif expected == "already_yours":
++        assert said == d.line("already_yours")
++    else:
++        assert said == f"{d.line('rejected')} {result['reason']}"
++
++
++async def test_nothing_waiting_is_said_plainly():
++    d, engine, _ = make()
++    engine.pending.clear()
++    assert (await d.on_utterance("approve my pending items")).say == [d.line("nothing_pending")]
++
++
++def _row(**kw) -> RowView:
++    return RowView.model_validate(row("a", label=kw.pop("label", "Figma seat"), **kw))
++
++
++@pytest.mark.parametrize(("r", "risky"), [
++    (_row(rule_id="POL-ACC-005"), False),
++    (_row(rule_id="POL-ACC-004"), True),                                     # production-tagged repository
++    (_row(rule_id="POL-ACC-003", label="Admin on the billing console"), True),  # administrator rights
++    (_row(rule_id="POL-EMG-001"), True), (_row(rule_id="POL-DAT-001"), True),
++    (_row(rule_id="POL-ACC-005", label="Production dashboard seat"), True),  # anything naming production
++])
++def test_high_risk_means_production_admin_emergency_or_raw_pii(r, risky):
++    assert high_risk(r) is risky
+diff --git a/voice/tests/test_dtmf_capture.py b/voice/tests/test_dtmf_capture.py
+new file mode 100644
+index 0000000..52c7b50
+--- /dev/null
++++ b/voice/tests/test_dtmf_capture.py
+@@ -0,0 +1,125 @@
++"""T203 on the wire: Vobiz does not send key presses on the media WebSocket (its stream events are start, media,
++playedStream, clearedAudio), so the door captures DTMF the documented way. It finishes speaking, stops the stream,
++Vobiz runs the <Redirect> after <Stream>, the door answers with a <Gather inputType="dtmf">, the key goes to the
++engine's decision endpoint, and a new stream resumes the same conversation.
++XML shapes follow vobiz-ai/Vobiz-IVR-XML-Python and Agent-Skills vobiz-voice-xml."""
++
++import asyncio
++import json
++import re
++
++import pytest
++
++import agent
++from dialogue import Dialogue
++from engine_client import Caller
++from flows import Turn
++from languages import configure
++from llm import Conversation
++from tests.fake_sarvam import FakeSarvam
++from tests.fakes import FakeAnthropic, FakeWS
++from tests.test_approver_flow import FIGMA, HASH_A
++from tests.test_caller_id import DANA_RAW, PUBLIC, START, World, signed
++
++NESTED_START = json.dumps({"sequenceNumber": 0, "event": "start",
++                           "start": {"callId": "call-9", "streamId": "stream-9", "tracks": ["inbound"],
++                                     "mediaFormat": {"encoding": "audio/x-mulaw", "sampleRate": 8000}}})
++
++
++async def test_the_start_event_ids_are_read_from_the_nested_start_object():
++    s = agent.CallSession(FakeWS(), sarvam_transport=FakeSarvam().transport())
++    await s.handle_message(NESTED_START)
++    assert (s.stream_id, s.call_id) == ("stream-9", "call-9")
++
++
++def _session_with_control(ws):
++    async def press_keys(dialogue, text):
++        return Turn(["Press 1 to approve, or 2 to refuse."], control="gather_dtmf")
++
++    d = Dialogue(languages=configure("en-IN"), llm=Conversation(FakeAnthropic()), flows={"approve": press_keys},
++                 caller=Caller(person_id="p-dana", display_name="Dana Osei"), caller_phone="+919990000150")
++    return agent.CallSession(ws, dialogue=d, sarvam_transport=FakeSarvam(["approve my pending items"]).transport())
++
++
++async def test_the_stream_stops_only_after_vobiz_says_the_prompt_was_played(monkeypatch):
++    monkeypatch.setattr(agent, "PLAYBACK_GRACE_S", 30.0)
++    ws = FakeWS()
++    s = _session_with_control(ws)
++    await s.handle_message(NESTED_START)
++    task = asyncio.create_task(s._process(b"\xff" * 1600))
++    while not any(e["event"] == "checkpoint" and e["name"] == f"tts-{s._played}" for e in ws.sent[1:]) \
++            or s._played < 2:
++        await asyncio.sleep(0.01)
++    await asyncio.sleep(0.05)
++    assert not any(e["event"] == "stop" for e in ws.sent)
++    await s.handle_message(json.dumps({"event": "playedStream", "name": f"tts-{s._played}"}))
++    await asyncio.wait_for(task, 5)
++    assert ws.sent[-1] == {"event": "stop", "streamId": "stream-9"}
++    assert s.dialogue.take_next_step() == "gather_dtmf"
++
++
++async def test_without_an_acknowledgement_the_stream_still_stops_after_the_audio_and_a_grace(monkeypatch):
++    monkeypatch.setattr(agent, "PLAYBACK_GRACE_S", 0.05)
++    ws = FakeWS()
++    s = _session_with_control(ws)
++    await s.handle_message(NESTED_START)
++    await asyncio.wait_for(s._process(b"\xff" * 1600), 5)
++    assert ws.sent[-1] == {"event": "stop", "streamId": "stream-9"}
++
++
++def test_the_answer_xml_hands_control_back_to_the_door_when_the_stream_stops():
++    w = World()
++    xml = w.answer(DANA_RAW).text
++    assert xml.rstrip().endswith(f'<Redirect method="POST">{PUBLIC}/next</Redirect>\n</Response>')
++    assert "<Hangup/>" not in xml
++
++
++def test_next_serves_a_one_digit_gather_when_a_key_is_wanted_and_hangs_up_otherwise():
++    w = World()
++    w.answer(DANA_RAW)
++    call = w.app.state.calls.get("call-1")
++    call.dialogue = Dialogue(languages=configure("en-IN"), llm=Conversation(None))
++    call.dialogue._turn(Turn([], control="gather_dtmf"))
++    gather = w.client.post("/next", data={"CallUUID": "call-1"}, headers=signed("/next")).text
++    assert (f'<Gather action="{PUBLIC}/dtmf" method="POST" inputType="dtmf" numDigits="1" '
++            f'executionTimeout="15">') in gather
++    assert f'<Redirect method="POST">{PUBLIC}/dtmf</Redirect>' in gather  # no input: the door still hears back
++    again = w.client.post("/next", data={"CallUUID": "call-1"}, headers=signed("/next")).text
++    assert "<Hangup/>" in again and "<Gather" not in again
++    assert w.client.post("/next", data={"CallUUID": "call-1"}).status_code == 403
++
++
++async def test_a_pressed_key_is_decided_by_the_engine_and_the_stream_resumes_with_the_outcome():
++    w = World()
++    w.engine.pending["p-dana"] = [__import__("tests.fake_engine", fromlist=["run_view"]).run_view(rows=[FIGMA])]
++    r = w.answer(DANA_RAW)
++    ws_path = w.ws_path(r.text)
++    with w.client.websocket_connect(ws_path) as ws:
++        ws.send_text(START)
++        ws.receive_json()
++    dialogue = w.app.state.calls.get("call-1").dialogue
++    await dialogue.on_utterance("approve my pending items")
++    assert (await dialogue.on_utterance("yes")).control == "gather_dtmf"
++
++    assert w.client.post("/dtmf", data={"CallUUID": "call-1", "Digits": "1"}).status_code == 403
++    assert not [q for q in w.engine.requests if q.url.path.endswith("/decisions")]
++
++    resumed = w.client.post("/dtmf", data={"CallUUID": "call-1", "Digits": "1", "InputType": "dtmf"},
++                            headers=signed("/dtmf"))
++    [decision] = [q for q in w.engine.requests if q.url.path.endswith("/decisions")]
++    assert json.loads(decision.content) | {} == {"action_id": "a-figma", "params_hash": HASH_A, "channel": "voice",
++                                                 "actor_external_id": "+919990000150", "decision": "approved",
++                                                 "reason": None}
++    assert w.ws_path(resumed.text) == ws_path  # the same call's stream, resumed
++    spoken = len(w.sarvam.tts)
++    with w.client.websocket_connect(ws_path) as ws:
++        ws.send_text(START)
++        ws.receive_json()
++    assert w.sarvam.spoken()[spoken].startswith(dialogue.line("decided_approved"))
++
++
++@pytest.mark.parametrize("path", ["/next", "/dtmf"])
++def test_callbacks_for_an_unknown_call_just_hang_up(path):
++    w = World()
++    r = w.client.post(path, data={"CallUUID": "no-such-call", "Digits": "1"}, headers=signed(path))
++    assert r.status_code == 200 and re.search(r"<Hangup/>", r.text)

@@ -1,0 +1,85 @@
+diff --git a/engine/contextrail/surfaces/webhooks.py b/engine/contextrail/surfaces/webhooks.py
+index 59b4697..f16ef29 100644
+--- a/engine/contextrail/surfaces/webhooks.py
++++ b/engine/contextrail/surfaces/webhooks.py
+@@ -54,7 +54,7 @@ def verify_signature(secret: str, body: bytes, signature: str | None, timestamp:
+     """Raise SignatureError unless `signature` is sign(secret, body, timestamp) and the timestamp is fresh."""
+     if not signature or not timestamp:
+         raise SignatureError("missing X-ContextRail-Signature or X-ContextRail-Timestamp")
+-    if not (timestamp.isascii() and timestamp.isdigit()):
++    if not (timestamp.isascii() and timestamp.isdigit()) or len(timestamp) > 12:  # int() of 400 digits overflows
+         raise SignatureError("timestamp must be unix seconds")
+     if abs(now - int(timestamp)) > TOLERANCE_SECONDS:
+         raise SignatureError(f"timestamp is outside the {TOLERANCE_SECONDS} s window")
+@@ -81,13 +81,26 @@ class FreshserviceDelivery(BaseModel):
+             raise ValueError(f"ticket_id must be a positive integer ({{{{ticket.id_numeric}}}}): {e}") from e
+ 
+ 
++async def _read_capped(request: Request) -> bytes:
++    """The body, refused (413) as soon as it is known to exceed the cap: by its Content-Length, or while streaming.
++    Nothing past the cap is held in memory, and this runs before authentication."""
++    too_big = HTTPException(413, f"body larger than {MAX_BODY_BYTES} bytes")
++    declared = request.headers.get("content-length")
++    if declared is not None and (not declared.isdigit() or int(declared[:12]) > MAX_BODY_BYTES):
++        raise too_big
++    body = bytearray()
++    async for chunk in request.stream():
++        body += chunk
++        if len(body) > MAX_BODY_BYTES:
++            raise too_big
++    return bytes(body)
++
++
+ async def _signed_body(request: Request) -> bytes:
+     secret = request.app.state.settings.fs_webhook_secret.get_secret_value()
+     if not secret:
+         raise HTTPException(503, "FS_WEBHOOK_SECRET is not configured; unsigned webhooks are refused")
+-    body = await request.body()
+-    if len(body) > MAX_BODY_BYTES:
+-        raise HTTPException(413, f"body larger than {MAX_BODY_BYTES} bytes")
++    body = await _read_capped(request)
+     try:
+         verify_signature(secret, body, request.headers.get("x-contextrail-signature"),
+                          request.headers.get("x-contextrail-timestamp"), now=time.time())
+diff --git a/engine/tests/test_webhooks.py b/engine/tests/test_webhooks.py
+index f21f6ec..4b6165f 100644
+--- a/engine/tests/test_webhooks.py
++++ b/engine/tests/test_webhooks.py
+@@ -90,6 +90,37 @@ def test_bad_signatures_are_refused_with_a_reason(signature, timestamp, now, rea
+         verify_signature(SECRET, BODY, signature, timestamp, now=now)
+ 
+ 
++@pytest.mark.parametrize("timestamp", ["9" * 400, "9" * 5000])
++def test_an_absurd_timestamp_is_a_signature_error_not_a_crash(timestamp):
++    with pytest.raises(SignatureError, match="timestamp"):  # used to raise OverflowError / ValueError -> 500
++        verify_signature(SECRET, BODY, sign(SECRET, BODY, 1000), timestamp, now=1000)
++
++
++async def test_an_absurd_timestamp_header_is_401():
++    headers = {**signed(BODY), "X-ContextRail-Timestamp": "9" * 400}
++    assert (await post(app(), BODY, headers)).status_code == 401
++
++
++async def test_a_declared_oversized_body_is_refused_from_its_content_length():
++    headers = {**signed(BODY), "Content-Length": str(10 * 1024 * 1024)}
++    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app()), base_url="http://test") as c:
++        r = await c.send(c.build_request("POST", URL, content=BODY, headers=headers))
++    assert r.status_code == 413
++
++
++async def test_a_streamed_oversized_body_is_cut_off_without_reading_it_all():
++    sent = []
++
++    async def chunks():
++        for _ in range(200):          # 200 KB offered in 1 KB chunks, no Content-Length
++            sent.append(1)
++            yield b"x" * 1024
++
++    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app()), base_url="http://test") as c:
++        r = await c.post(URL, content=chunks(), headers=signed(BODY))
++    assert r.status_code == 413 and len(sent) <= 20  # stopped just past the 16 KB cap
++
++
+ def test_the_comparison_is_constant_time(monkeypatch):
+     calls = []
+     real = hmac.compare_digest

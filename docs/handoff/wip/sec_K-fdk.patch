@@ -1,0 +1,249 @@
+diff --git a/fdk-app/app/scripts/view.js b/fdk-app/app/scripts/view.js
+index 573c086..176b54e 100644
+--- a/fdk-app/app/scripts/view.js
++++ b/fdk-app/app/scripts/view.js
+@@ -26,6 +26,16 @@
+     ['failed', 'Failed'],
+     ['unknown', 'Outcome unknown: reconciling before any retry']
+   ]);
++  const FINAL = new Set(['done', 'partial', 'failed']);
++  const WAITING = new Set(['awaiting_approval', 'needs_input']);
++  const RUN_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
++  const TOKEN_REJECTED = 'The ContextRail engine rejected this app\'s credentials. Ask an admin to check the app settings.';
++  const ENGINE_ERRORS = new Map([
++    [401, TOKEN_REJECTED],
++    [403, TOKEN_REJECTED],
++    [429, 'Too many requests reached the ContextRail engine. Wait a minute, then try again.'],
++    [504, 'The ContextRail engine did not answer in time. Try again in a moment.']
++  ]);
+ 
+   function el(doc, tag, attrs, text) {
+     const node = doc.createElement(tag);
+@@ -84,7 +94,7 @@
+     return box;
+   }
+ 
+-  function formatDeadline(iso) {
++  function formatTime(iso) {
+     const at = new Date(iso);
+     if (Number.isNaN(at.getTime())) {
+       return String(iso);
+@@ -128,7 +138,7 @@
+       verified: row.verified === true,
+       stateText: stateTextOf(row),
+       rule: row.rule_id || '',
+-      lines: linesFor(verdict.tone, row, fmt || formatDeadline),
++      lines: linesFor(verdict.tone, row, fmt || formatTime),
+       mode: row.connector_mode || 'unknown'
+     };
+   }
+@@ -194,14 +204,87 @@
+     };
+   }
+ 
++  function isRunId(value) {
++    return typeof value === 'string' && RUN_ID.test(value);
++  }
++
++  function engineErrorText(err) {
++    const status = err && err.status;
++    return ENGINE_ERRORS.get(status) ||
++      'The ContextRail engine returned an error (HTTP ' + (status || 'unknown') + '). Try again in a moment.';
++  }
++
++  function receiptErrorText(err) {
++    if (err && err.status === 404) {
++      return 'No receipt yet. ContextRail writes the receipt when the run finishes.';
++    }
++    return engineErrorText(err);
++  }
++
++  function button(doc, id, text) {
++    return el(doc, 'fw-button', { id: id, color: 'secondary', size: 'small' }, text);
++  }
++
++  // Finished runs offer the receipt. Runs waiting on people, or still running after the poll window, offer a
++  // manual refresh instead of more automatic polling.
++  function renderActions(doc, view, stalled) {
++    const box = el(doc, 'div', { class: 'cr-actions' });
++    if (FINAL.has(view.status)) {
++      box.append(button(doc, 'cr-receipt', 'View receipt'));
++      return box;
++    }
++    if (stalled) {
++      box.append(el(doc, 'p', { class: 'cr-stalled' },
++        'Still running, so automatic refresh has paused. Refresh to check again.'));
++    }
++    if (stalled || WAITING.has(view.status)) {
++      box.append(button(doc, 'cr-refresh', 'Refresh'));
++    }
++    return box;
++  }
++
++  function renderError(doc, text) {
++    const box = el(doc, 'div', { class: 'cr-error' });
++    box.append(el(doc, 'fw-inline-message', { type: 'error', closable: 'false' }, text));
++    box.append(button(doc, 'cr-retry', 'Try again'));
++    return box;
++  }
++
++  function receiptFacts(r) {
++    return [
++      typeof r.audit_from === 'number' ? 'Audit entries #' + r.audit_from + ' to #' + r.audit_to : 'Audit range: not recorded',
++      r.fs_note_id ? 'Private note ' + r.fs_note_id + ' on this ticket' : 'Private note: not written',
++      r.fs_record_id ? 'Custom object record ' + r.fs_record_id : 'Custom object record: not written',
++      r.created_at ? 'Written ' + formatTime(r.created_at) : 'Written: time not recorded'
++    ];
++  }
++
++  function renderReceipt(doc, receipt) {
++    const box = el(doc, 'div', { class: 'cr-receipt' });
++    box.append(el(doc, 'p', { class: 'cr-receipt-summary' }, String(receipt.summary || 'No summary recorded.')));
++    const facts = el(doc, 'ul', { class: 'cr-receipt-facts' });
++    receiptFacts(receipt).forEach(function (fact) {
++      facts.append(el(doc, 'li', {}, fact));
++    });
++    box.append(facts, el(doc, 'p', { class: 'cr-receipt-json-title' }, 'Full receipt'));
++    box.append(el(doc, 'pre', { class: 'cr-receipt-json' }, JSON.stringify(receipt.body || {}, null, 2)));
++    return box;
++  }
++
+   window.CRView = {
+     el: el,
++    isRunId: isRunId,
++    engineErrorText: engineErrorText,
++    receiptErrorText: receiptErrorText,
++    renderActions: renderActions,
++    renderError: renderError,
++    renderReceipt: renderReceipt,
+     renderEmpty: renderEmpty,
+     startRunBody: startRunBody,
+     statusModel: statusModel,
+     modeModel: modeModel,
+     renderHeader: renderHeader,
+-    formatDeadline: formatDeadline,
++    formatTime: formatTime,
+     rowModel: rowModel,
+     renderRows: renderRows
+   };
+diff --git a/fdk-app/tests/view-receipt.test.js b/fdk-app/tests/view-receipt.test.js
+new file mode 100644
+index 0000000..aa42777
+--- /dev/null
++++ b/fdk-app/tests/view-receipt.test.js
+@@ -0,0 +1,98 @@
++/**
++ * @vitest-environment jsdom
++ */
++// Footer actions (receipt, refresh), error-with-retry, and the receipt itself.
++
++let V;
++
++beforeEach(async () => {
++  vi.resetModules();
++  delete window.CRView;
++  await import('../app/scripts/view.js');
++  V = window.CRView;
++});
++
++describe('renderActions', () => {
++  test.each(['done', 'partial', 'failed'])('a %s run offers the receipt', (status) => {
++    const box = V.renderActions(document, { status }, false);
++    expect(box.querySelector('fw-button#cr-receipt').textContent).toBe('View receipt');
++    expect(box.querySelector('fw-button#cr-refresh')).toBeNull();
++  });
++
++  test.each(['awaiting_approval', 'needs_input'])('a %s run offers a manual refresh instead of polling', (status) => {
++    const box = V.renderActions(document, { status }, false);
++    expect(box.querySelector('fw-button#cr-refresh').textContent).toBe('Refresh');
++    expect(box.querySelector('fw-button#cr-receipt')).toBeNull();
++  });
++
++  test('a running run shows no buttons while it is being polled', () => {
++    expect(V.renderActions(document, { status: 'running' }, false).querySelector('fw-button')).toBeNull();
++  });
++
++  test('a run that is still running after the poll window says so and offers refresh', () => {
++    const box = V.renderActions(document, { status: 'running' }, true);
++    expect(box.querySelector('.cr-stalled').textContent).toMatch(/still running/i);
++    expect(box.querySelector('fw-button#cr-refresh')).not.toBeNull();
++  });
++});
++
++describe('renderError', () => {
++  test('shows the error and a Try again button', () => {
++    const box = V.renderError(document, 'The engine did not answer in time.');
++    expect(box.querySelector('fw-inline-message').getAttribute('type')).toBe('error');
++    expect(box.querySelector('fw-inline-message').textContent).toBe('The engine did not answer in time.');
++    expect(box.querySelector('fw-button#cr-retry').textContent).toBe('Try again');
++  });
++});
++
++describe('renderReceipt', () => {
++  const receipt = {
++    run_id: '3f2b6c1e-8d4a-4b7e-9c1a-2e5f7a9b0c3d',
++    summary: '13 granted and verified, 2 held, 1 refused (POL-CTR-001).',
++    audit_from: 12,
++    audit_to: 40,
++    fs_note_id: '9001',
++    fs_record_id: null,
++    created_at: '2026-09-26T11:30:00Z',
++    body: { counts: { allow: 13, hold: 2, refuse: 1 } }
++  };
++
++  test('shows the summary, the audit range and where the receipt lives', () => {
++    const box = V.renderReceipt(document, receipt);
++    expect(box.querySelector('.cr-receipt-summary').textContent).toBe(receipt.summary);
++    const facts = [...box.querySelectorAll('.cr-receipt-facts li')].map((li) => li.textContent);
++    expect(facts).toContain('Audit entries #12 to #40');
++    expect(facts).toContain('Private note 9001 on this ticket');
++    expect(facts).toContain('Custom object record: not written');
++  });
++
++  test('prints the full receipt JSON as text', () => {
++    const pre = V.renderReceipt(document, receipt).querySelector('pre.cr-receipt-json');
++    expect(JSON.parse(pre.textContent)).toEqual(receipt.body);
++  });
++
++  test('receipt text is inert', () => {
++    const box = V.renderReceipt(document, { ...receipt, summary: '<img src=x onerror=alert(1)>' });
++    expect(box.querySelector('img')).toBeNull();
++  });
++});
++
++describe('receiptErrorText', () => {
++  test('a missing receipt is explained, not reported as a failure', () => {
++    expect(V.receiptErrorText({ status: 404 })).toMatch(/no receipt yet/i);
++  });
++
++  test('a timeout and other failures name what happened', () => {
++    expect(V.receiptErrorText({ status: 504 })).toMatch(/did not answer in time/i);
++    expect(V.receiptErrorText({ status: 500 })).toContain('HTTP 500');
++  });
++});
++
++describe('isRunId', () => {
++  test('accepts a UUID and rejects anything that could change the request path', () => {
++    expect(V.isRunId('3f2b6c1e-8d4a-4b7e-9c1a-2e5f7a9b0c3d')).toBe(true);
++    expect(V.isRunId('../admin')).toBe(false);
++    expect(V.isRunId('3f2b6c1e-8d4a-4b7e-9c1a-2e5f7a9b0c3d/../x')).toBe(false);
++    expect(V.isRunId(undefined)).toBe(false);
++  });
++});
+diff --git a/fdk-app/tests/view-rows.test.js b/fdk-app/tests/view-rows.test.js
+index 7d3e3cc..4cc3b24 100644
+--- a/fdk-app/tests/view-rows.test.js
++++ b/fdk-app/tests/view-rows.test.js
+@@ -117,9 +117,9 @@ describe('renderRows', () => {
+   });
+ });
+ 
+-describe('formatDeadline', () => {
++describe('formatTime', () => {
+   test('formats an ISO timestamp and leaves anything unparseable as written', () => {
+-    expect(V.formatDeadline('2026-09-26T11:30:00Z')).toMatch(/26|Sep|09/);
+-    expect(V.formatDeadline('end of day')).toBe('end of day');
++    expect(V.formatTime('2026-09-26T11:30:00Z')).toMatch(/26|Sep|09/);
++    expect(V.formatTime('end of day')).toBe('end of day');
+   });
+ });

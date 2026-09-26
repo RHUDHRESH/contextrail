@@ -1,0 +1,313 @@
+diff --git a/engine/contextrail/surfaces/decision_page.py b/engine/contextrail/surfaces/decision_page.py
+index dc19e0b..0ababe0 100644
+--- a/engine/contextrail/surfaces/decision_page.py
++++ b/engine/contextrail/surfaces/decision_page.py
+@@ -17,6 +17,7 @@ from __future__ import annotations
+ 
+ import hashlib
+ import html
++from datetime import UTC, datetime
+ from urllib.parse import parse_qs
+ 
+ from fastapi import APIRouter, Request
+@@ -47,7 +48,14 @@ _LINK_ERRORS = {
+                       "It was not issued by ContextRail, or it was altered after it was sent."),
+     "expired": (410, "This link has expired", "Ask for a new approval request if this still needs a decision."),
+ }
+-_VERB = {"approved": "approve", "refused": "refuse"}
++_VERB = {"approved": "Approve", "refused": "Refuse"}   # the Slack card's button verbs
++_DOOR_NAMES = {"email": "Email", "slack": "Slack", "teams": "Teams", "voice": "Voice", "freshservice": "Freshservice",
++               "mcp": "MCP"}
++
++
++def door_name(channel: str | None) -> str:
++    """How people say the door: 'Decided by Anil in Teams at 14:02' (CLAUDE.md §13.0)."""
++    return _DOOR_NAMES.get(channel or "", channel or "")
+ _STYLE = ("body{font:16px/1.5 system-ui,sans-serif;margin:0;background:#f6f7f9;color:#1d2330}"
+           "main{max-width:34rem;margin:0 auto;padding:1.5rem}h1{font-size:1.4rem}"
+           "dt{font-weight:600;margin-top:.6rem}dd{margin:0}blockquote{margin:.2rem 0;padding-left:.7rem;"
+@@ -122,8 +130,9 @@ async def confirm_page(token: str, request: Request) -> HTMLResponse:
+         existing = await repo.get_approval(c, claims.run_id, claims.action_id)
+     if existing:
+         name = door.people.get(existing["approver"], existing["approver"])
+-        return _message("Already decided", f"This was already {existing['decision']} by {name} via "
+-                        f"{existing['channel']}. Nothing more is needed.", 409)
++        return _message("Already decided", f"This was already {existing['decision']} by {name} in "
++                        f"{door_name(existing['channel'])} at {format_ist(existing['decided_at'])}. Nothing more "
++                        "is needed.", 409)
+     if row.params_hash != claims.params_hash:
+         return _message("This link is out of date", "The action's parameters changed after this email was sent, "
+                         "so this link can no longer decide it.", 409)
+@@ -172,12 +181,12 @@ def _result_page(door: Door, claims: LinkClaims, result: DecisionResult) -> HTML
+     if result.outcome == "recorded":
+         done = "Approved" if claims.decision == "approved" else "Refused"
+         name = door.people.get(claims.approver, claims.approver)
+-        return _message(done, f"Recorded: {claims.decision} by {name} via email. Every other door now shows this "
+-                        "decision, and the request carries on.", 200)
++        return _message(done, f"{done} by {name} in Email at {format_ist(datetime.now(UTC))}. Every other door now "
++                        "shows this decision, and the request carries on.", 200)
+     if result.outcome == "already_decided":
+         name = door.people.get(result.decided_by or "", result.decided_by)
+-        return _message("Already decided", f"Nothing changed: this was {result.reason} by {name} via "
+-                        f"{result.decided_channel}.", 409)
++        return _message("Already decided", f"Nothing changed: {result.reason} by {name} in "
++                        f"{door_name(result.decided_channel)}.", 409)
+     return _message("Not recorded", f"Nothing changed: {result.reason}.", 403)
+ 
+ 
+diff --git a/engine/contextrail/surfaces/email.py b/engine/contextrail/surfaces/email.py
+index 7ed042a..37f1229 100644
+--- a/engine/contextrail/surfaces/email.py
++++ b/engine/contextrail/surfaces/email.py
+@@ -33,7 +33,7 @@ from contextrail.rail.discover import IntentExtractor, RequestKind
+ from contextrail.rail.email_intake import InboundEmail, classify_email
+ from contextrail.surfaces.decision_link import LinkClaims, LinkSigner, format_ist
+ from contextrail.surfaces.door import Answer, Door
+-from contextrail.surfaces.presenter import RowView, RunView
++from contextrail.surfaces.presenter import LAMP, RowView, RunView
+ 
+ log = get_logger("contextrail.email")
+ 
+@@ -179,14 +179,14 @@ def render_requester_ack(view: RunView) -> str:
+         parts.append(f"<p>{_t(_STATUS_LINE.get(view.status, view.status))}</p>")
+     items = []
+     if view.counts.get("verified"):
+-        items.append(f"✅ {view.counts['verified']} done and verified")
++        items.append(f"{LAMP['ALLOW']} {view.counts['verified']} done and verified")
+     awaiting = [r for r in view.rows if r.state == "awaiting"]
+     if awaiting:
+         names = dict.fromkeys(r.approver_name or r.approver_id or "" for r in awaiting)
+-        items.append(f"🟠 {len(awaiting)} waiting for approval: {', '.join(names)}")
++        items.append(f"{LAMP['HOLD']} {len(awaiting)} waiting for approval: {', '.join(names)}")
+     refused = [f"{r.label} ({r.rule_id})" for r in view.rows if r.verdict == "REFUSE"]
+     if refused:
+-        items.append(f"⛔ {len(refused)} refused: {'; '.join(refused)}")
++        items.append(f"{LAMP['REFUSE']} {len(refused)} refused: {'; '.join(refused)}")
+     if items:
+         parts.append("<ul>" + "".join(f"<li>{_t(i)}</li>" for i in items) + "</ul>")
+     modes = ", ".join(f"{k} {v}" for k, v in view.modes.items())
+@@ -221,13 +221,20 @@ class RenderedEmail(BaseModel):
+     html: str
+ 
+ 
+-def _facts(view: RunView, row: RowView, delivery_mode: str) -> list[tuple[str, str]]:
++def _headline(row: RowView) -> str:
++    """The Slack card's header, word for word (CLAUDE.md §13.1): 'Approval needed · <action>'."""
++    return f"Approval needed · {row.label}"
++
++
++def _facts(view: RunView, row: RowView, delivery_mode: str, expires_at: datetime) -> list[tuple[str, str]]:
++    """The Slack card's fields (Action, Rule, Deadline) plus what an email reader cannot click through to."""
+     who = f"{view.subject} (same as {view.peer})" if view.peer else (view.subject or "unknown")
+     facts = [("Action", row.label), ("For", who), ("Request", f"“{view.request_text}”"), ("Rule", row.rule_id),
+              ("Clause", f"“{row.clause}”")]
+     if row.explanation:
+         facts.append(("Why held", f"{row.explanation} ({row.explainer})"))
+-    facts.append(("Mode", f"email {delivery_mode}, target system {row.connector_mode}"))
++    facts += [("Deadline", format_ist(expires_at)),
++              ("Mode", f"email {delivery_mode}, target system {row.connector_mode}")]
+     if view.replay:
+         facts.append(("Note", "REPLAY: model-written text here is a recorded demo output"))
+     return facts
+@@ -237,14 +244,14 @@ def _wrap(text: str, indent: str = "") -> list[str]:
+     return textwrap.wrap(text, width=PHONE_WIDTH, subsequent_indent=indent, break_on_hyphens=False)
+ 
+ 
+-def _plain(view: RunView, row: RowView, facts, approve_url: str, refuse_url: str, expires_at: datetime) -> str:
+-    lines = [f"{row.lamp} Approval needed", "", *_wrap(f"{row.approver_name}, you are the named approver."), ""]
++def _plain(view: RunView, row: RowView, facts, approve_url: str, refuse_url: str) -> str:
++    lines = [*_wrap(f"{row.lamp} {_headline(row)}"), "",
++             *_wrap(f"{row.approver_name}, you are the named approver."), ""]
+     for label, value in facts:
+         lines += _wrap(f"{label}: {value}", indent="  ")
+     lines += ["", "Approve:", approve_url, "", "Refuse:", refuse_url, "",
+               *_wrap("Each link opens a page that asks you to confirm. Nothing is decided until you press Confirm."),
+-              *_wrap(f"Links expire {format_ist(expires_at)}."), "",
+-              *_wrap(f"Run {str(view.run_id)[:8]} · case digest {(view.capsule_digest or '')[:8]}")]
++              "", *_wrap(f"Run {str(view.run_id)[:8]} · case digest {(view.capsule_digest or '')[:8]}")]
+     return "\n".join(lines) + "\n"
+ 
+ 
+@@ -258,7 +265,7 @@ def _button(url: str, label: str, colour: str) -> str:
+             f"{label}</a>")
+ 
+ 
+-def _html(view: RunView, row: RowView, facts, approve_url: str, refuse_url: str, expires_at: datetime) -> str:
++def _html(view: RunView, row: RowView, facts, approve_url: str, refuse_url: str) -> str:
+     rows = "".join(
+         f'<tr><td style="padding:4px 12px 4px 0;vertical-align:top;color:#5b6475;white-space:nowrap">{_t(k)}</td>'
+         f'<td style="padding:4px 0">{_t(v)}</td></tr>' for k, v in facts)
+@@ -270,13 +277,13 @@ def _html(view: RunView, row: RowView, facts, approve_url: str, refuse_url: str,
+         '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;margin:0 '
+         'auto;background:#ffffff;border-radius:8px;font:15px/1.5 Arial,Helvetica,sans-serif;color:#1d2330">'
+         '<tr><td style="padding:20px">'
+-        f'<h1 style="font-size:20px;margin:0 0 8px">{_t(row.lamp)} Approval needed: {_t(row.label)}</h1>'
++        f'<h1 style="font-size:20px;margin:0 0 8px">{_t(row.lamp)} {_t(_headline(row))}</h1>'
+         f"<p>{_t(row.approver_name)}, you are the named approver.</p>"
+         f'<table role="presentation" cellpadding="0" cellspacing="0">{rows}</table>'
+         f'<p style="margin:20px 0 8px">{_button(approve_url, "Approve", "#1f7a3f")}'
+         f'{_button(refuse_url, "Refuse", "#b3261e")}</p>'
+         '<p style="font-size:13px;color:#5b6475">Each button opens a page that asks you to confirm. Nothing is '
+-        f"decided until you press Confirm. Links expire {_t(format_ist(expires_at))}.</p>"
++        "decided until you press Confirm.</p>"
+         f'<p style="font-size:12px;color:#5b6475">Run {_t(str(view.run_id)[:8])} · case digest '
+         f"{_t((view.capsule_digest or '')[:8])}</p>"
+         "</td></tr></table></td></tr></table></body></html>")
+@@ -286,10 +293,9 @@ def render_approval_email(view: RunView, row: RowView, *, approve_url: str, refu
+                           expires_at: datetime) -> RenderedEmail:
+     """Everything shown comes from the view: the lamp, the action, the rule and clause verbatim, the named approver,
+     the explanation and who wrote it, and the honest mode of this email and of the system it would change."""
+-    facts = _facts(view, row, delivery_mode)
+-    return RenderedEmail(subject=f"{row.lamp} Approval needed: {row.label}",
+-                         text=_plain(view, row, facts, approve_url, refuse_url, expires_at),
+-                         html=_html(view, row, facts, approve_url, refuse_url, expires_at))
++    facts = _facts(view, row, delivery_mode, expires_at)
++    return RenderedEmail(subject=_headline(row), text=_plain(view, row, facts, approve_url, refuse_url),
++                         html=_html(view, row, facts, approve_url, refuse_url))
+ 
+ 
+ # --- the approval.dispatch job, for approvers whose preferred door is email -------------------------------------
+@@ -371,12 +377,14 @@ def _receipt_sections(view: RunView) -> list[tuple[str, list[str]]]:
+     """(heading, lines) groups, in the order a reader checks them: what happened, what was refused, what is left."""
+     rows = view.rows
+     groups = [
+-        (f"✅ {view.counts['verified']} done and verified", [r.label for r in rows if r.state == "verified"]),
+-        (f"⛔ {view.counts['refuse']} refused",
++        (f"{LAMP['ALLOW']} {view.counts['verified']} done and verified",
++         [r.label for r in rows if r.state == "verified"]),
++        (f"{LAMP['REFUSE']} {view.counts['refuse']} refused",
+          [f"{r.label} | Rule: {r.rule_id} | Clause: “{r.clause}”" for r in rows if r.verdict == "REFUSE"]),
+-        (f"🟠 {view.counts['awaiting']} still waiting",
++        (f"{LAMP['HOLD']} {view.counts['awaiting']} still waiting",
+          [f"{r.label} | for {r.approver_name or r.approver_id}" for r in rows if r.state == "awaiting"]),
+-        (f"❗ {view.counts['failed']} failed or unconfirmed",
++        # No lamp: the three lamps are verdicts, and a failed write is not a fourth verdict.
++        (f"Failed or unconfirmed: {view.counts['failed']}",
+          [f"{r.label} ({r.state})" for r in rows if r.state in ("failed", "unknown")]),
+     ]
+     return [(heading, lines) for heading, lines in groups if lines]
+diff --git a/engine/tests/test_decision_link.py b/engine/tests/test_decision_link.py
+index bcecf7e..2950192 100644
+--- a/engine/tests/test_decision_link.py
++++ b/engine/tests/test_decision_link.py
+@@ -137,7 +137,7 @@ async def test_get_renders_a_confirm_page_and_changes_nothing(env):
+     assert r.status_code == 200 and r.headers["content-type"].startswith("text/html")
+     page = r.text
+     assert row.label in page and row.rule_id in page and "Meera Iyer" in page and "🟠" in page
+-    assert '<form method="post">' in page and "Confirm: approve" in page
++    assert '<form method="post">' in page and "Confirm: Approve" in page
+     assert await snapshot(deps) == before                      # every table, row for row, including updated_at
+ 
+ 
+diff --git a/engine/tests/test_email_approval.py b/engine/tests/test_email_approval.py
+index 8ba1d58..cf1936a 100644
+--- a/engine/tests/test_email_approval.py
++++ b/engine/tests/test_email_approval.py
+@@ -53,10 +53,6 @@ def flat(text: str) -> str:
+ 
+ # --- rendering -----------------------------------------------------------------------------------------
+ 
+-def test_subject_names_the_action_with_its_lamp():
+-    assert render().subject == "🟠 Approval needed: Figma Professional seat"
+-
+-
+ def test_plain_text_carries_everything_the_approver_needs():
+     t = render().text
+     for needle in ("🟠", "Figma Professional seat", "POL-ACC-005", "Meera Iyer", "Anil Kumar", "Rahul Mehta",
+diff --git a/engine/tests/test_email_copy.py b/engine/tests/test_email_copy.py
+new file mode 100644
+index 0000000..2e9d723
+--- /dev/null
++++ b/engine/tests/test_email_copy.py
+@@ -0,0 +1,66 @@
++"""Copy pass for the email door (CLAUDE.md §13.1, §13.0, checklist T238): the same verbs and lamps as the Slack card
++("Approval needed · <action>", Action / Rule / Deadline, Approve / Refuse, "Decided by <who> in <door>"), lamps only
++from presenter.LAMP, and plain text that fits a phone screen."""
++
++import re
++from datetime import UTC, datetime
++
++from test_email_approval import APPROVE, REFUSE, a_view
++
++from contextrail.surfaces.decision_page import door_name
++from contextrail.surfaces.email import PHONE_WIDTH, render_approval_email, render_receipt_email
++from contextrail.surfaces.presenter import LAMP
++
++EMOJI = re.compile(r"[☀-➿\U0001F300-\U0001FAFF]")
++
++
++def approval():
++    view, row = a_view()
++    return render_approval_email(view, row, approve_url=APPROVE, refuse_url=REFUSE, delivery_mode="FIXTURE",
++                                 expires_at=datetime(2026, 9, 29, 11, 30, tzinfo=UTC))
++
++
++def receipt():
++    view, row = a_view()
++    refused = row.model_copy(update={"action_id": "A18", "verdict": "REFUSE", "lamp": LAMP["REFUSE"],
++                                     "state": "refused", "rule_id": "POL-ACC-003", "clause": "Seniors only.",
++                                     "label": "AWS payments-prod AdministratorAccess"})
++    done = row.model_copy(update={"action_id": "A01", "verdict": "ALLOW", "lamp": LAMP["ALLOW"],
++                                  "state": "verified", "label": "Slack workspace member"})
++    failed = done.model_copy(update={"action_id": "A02", "state": "failed", "label": "Jira"})
++    view = view.model_copy(update={"status": "partial", "rows": [done, failed, row, refused],
++                                   "counts": {"allow": 2, "hold": 1, "refuse": 1, "verified": 1, "awaiting": 1,
++                                              "failed": 1}})
++    return render_receipt_email(view, audit_from=1, audit_to=9, delivery_mode="FIXTURE")
++
++
++def test_the_subject_is_the_slack_card_header():
++    assert approval().subject == "Approval needed · Figma Professional seat"
++
++
++def test_the_approval_email_uses_the_slack_card_fields_and_verbs():
++    text = approval().text
++    assert text.startswith(f"{LAMP['HOLD']} Approval needed · Figma Professional seat\n")
++    for field in ("Action: ", "Rule: POL-ACC-005", "Deadline: 29 Sep 2026 17:00 IST"):
++        assert field in text, field
++    assert "\nApprove:\n" in text and "\nRefuse:\n" in text
++    assert ">Approve</a>" in approval().html and ">Refuse</a>" in approval().html
++
++
++def test_every_lamp_is_a_presenter_lamp():
++    lamps = set(LAMP.values())
++    for rendered in (approval(), receipt()):
++        assert set(EMOJI.findall(rendered.text)) <= lamps, EMOJI.findall(rendered.text)
++    assert {LAMP["ALLOW"], LAMP["HOLD"], LAMP["REFUSE"]} <= set(EMOJI.findall(receipt().text))
++
++
++def test_plain_text_fits_a_phone():
++    for rendered in (approval(), receipt()):
++        long = [line for line in rendered.text.splitlines()
++                if len(line) > PHONE_WIDTH and not line.startswith("https://")]
++        assert long == []
++
++
++def test_doors_are_named_the_way_people_say_them():
++    assert [door_name(c) for c in ("email", "slack", "teams", "voice", "freshservice", "mcp")] == [
++        "Email", "Slack", "Teams", "Voice", "Freshservice", "MCP"]
+diff --git a/engine/tests/test_email_door.py b/engine/tests/test_email_door.py
+index 7dab535..23659a0 100644
+--- a/engine/tests/test_email_door.py
++++ b/engine/tests/test_email_door.py
+@@ -58,7 +58,7 @@ async def test_meera_approves_from_her_email_and_every_consequence_follows(flow)
+     assert (await http.get(flow["approve"])).status_code == 200            # the link opens a confirm page
+     assert await q(deps, "select * from approvals") == []                  # ...which decided nothing
+     r = await http.post(flow["approve"], data={"reason": "manager ok"})
+-    assert r.status_code == 200 and "Approved" in r.text
++    assert r.status_code == 200 and "Approved by Meera Iyer in Email" in r.text   # §13.0: "Decided by Anil in Teams"
+     (a,) = await q(deps, "select * from approvals")
+     assert (a["run_id"], a["action_id"], a["approver"], a["channel"], a["decision"], a["params_hash"]) == (
+         view.run_id, row.action_id, "p-meera", "email", "approved", row.params_hash)
+@@ -90,9 +90,9 @@ async def test_a_decision_in_another_door_wins_and_the_email_link_is_told_who(fl
+     assert first.outcome == "recorded"
+     jobs_before = len(await q(deps, "select id from jobs"))
+     page = await http.get(flow["approve"])
+-    assert page.status_code == 409 and "already refused by Meera Iyer via slack" in page.text
++    assert page.status_code == 409 and "already refused by Meera Iyer in Slack" in page.text
+     r = await http.post(flow["approve"])
+-    assert r.status_code == 409 and "already refused by Meera Iyer via slack" in r.text
++    assert r.status_code == 409 and "already refused by Meera Iyer in Slack" in r.text
+     (a,) = await q(deps, "select channel, decision from approvals")
+     assert a == {"channel": "slack", "decision": "refused"}
+     assert len(await q(deps, "select id from jobs")) == jobs_before   # no second mirror, no second door update

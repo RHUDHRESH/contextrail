@@ -1,0 +1,639 @@
+diff --git a/docs/CHECKLIST.md b/docs/CHECKLIST.md
+index 0930ca8..449e506 100644
+--- a/docs/CHECKLIST.md
++++ b/docs/CHECKLIST.md
+@@ -101,7 +101,7 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains 
+ - [x] T069 `P0` POL-OFF-001: revoke old-team access on transfer.
+ - [x] T070 `P0` POL-SOD-001: requester cannot approve their own request (enforced in `door.decide` for every door).
+ - [ ] T071 `P2` POL-REF-001 (refund limit) and POL-REF-002 (one outage credit per quarter).
+-- [ ] T072 `P1` Policy Studio function: re-evaluate a run with one rule held out and return the diff.
++- [x] T072 `P1` Policy Studio function: re-evaluate a run with one rule held out and return the diff.
+ 
+ ## F. Fixtures (clearly labelled FIXTURE) (10)
+ 
+diff --git a/docs/DECISIONS.md b/docs/DECISIONS.md
+index dab0196..db25ef1 100644
+--- a/docs/DECISIONS.md
++++ b/docs/DECISIONS.md
+@@ -151,6 +151,16 @@ decides, not when access is written: a late approval shortens the grant and neve
+ says "4 hours after it is requested" for that reason. Not built yet: Execute does not skip an approved action whose
+ box has already closed, and nothing revokes access when `expires_at` passes (a rail follow-up).
+ 
++**Policy Studio (T072).** `policy/studio.simulate_hold_out` re-evaluates every action of a sealed case file with
++today's rules twice, as they are and with one rule held out (`decide(disabled=...)`), and returns the verdict diff
++per action (`loosened`, `tightened`, `same_verdict`, `none`) and a blast radius (unblocked, loses approval, newly
++refused, tallies, a headline). It also compares today's baseline with the verdict the run recorded and reports any
++difference as drift, so a diff against changed rules is never presented as the run's own history. Terminal rules
++can be simulated, and the report says so: `terminal` blocks exceptions, not analysis. `GET /v1/policy/studio` serves
++it behind the engine token, loads the capsule through the digest-checked `load_case` (409 if altered or not yet
++sealed), and writes nothing, not even an audit row. The route reads the pool and engine from
++`app.state.platform.runner`; with no platform it answers 503.
++
+ ## D-013 — Haiku 4.5 only; $20 Bedrock backup
+ **Context.** The team has one Anthropic API key and $57 of AWS credit in total.
+ **Decision.** Every model call, at every stage (intent, explanations, approval-card prose, answers), uses Claude
+diff --git a/engine/contextrail/main.py b/engine/contextrail/main.py
+index f5b7566..093fb06 100644
+--- a/engine/contextrail/main.py
++++ b/engine/contextrail/main.py
+@@ -9,6 +9,7 @@ from contextrail.errors import install_error_handlers
+ from contextrail.logs import configure_logging
+ from contextrail.policy.loader import load_rules
+ from contextrail.settings import Settings, get_settings
++from contextrail.surfaces.policy_studio import router as policy_studio_router
+ 
+ 
+ def create_app(settings: Settings | None = None) -> FastAPI:
+@@ -30,6 +31,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
+         return {"status": "ok", "version": __version__}
+ 
+     app.include_router(v1_router)
++    app.include_router(policy_studio_router)  # GET /v1/policy/studio (T072)
+     return app
+ 
+ 
+diff --git a/engine/contextrail/policy/studio.py b/engine/contextrail/policy/studio.py
+new file mode 100644
+index 0000000..dc37554
+--- /dev/null
++++ b/engine/contextrail/policy/studio.py
+@@ -0,0 +1,175 @@
++"""Policy Studio (checklist T072): "if this rule did not exist, what would this run have done?"
++
++A service manager asks that before editing a rule. The Studio re-evaluates every action of a governed run twice
++with today's rules, once as they are and once with one rule held out (`PolicyEngine.decide(disabled=...)`), and
++reports the verdict diff per action plus a blast-radius summary. It also compares today's baseline with the verdict
++the run recorded, so a diff computed against rules that have changed since the run is flagged as drift rather than
++passed off as the run's own history.
++
++It is a simulation. It reads a case file and writes nothing: no verdict, no action state, no audit row. Holding out
++a terminal rule is allowed as analysis, and the report says the rule is terminal; the Studio grants no exception.
++"""
++
++from __future__ import annotations
++
++from typing import Literal
++from uuid import UUID
++
++from pydantic import BaseModel, ConfigDict
++
++from contextrail.models import Action, CaseFile, Verdict
++from contextrail.policy.engine import PolicyEngine
++
++Change = Literal["none", "loosened", "tightened", "same_verdict"]
++_STRICTNESS = {"ALLOW": 0, "HOLD": 1, "REFUSE": 2}
++
++
++class UnknownRule(KeyError):
++    """The rule to hold out is not one the engine has loaded."""
++
++
++class Outcome(BaseModel):
++    model_config = ConfigDict(extra="forbid", frozen=True)
++
++    verdict: Literal["ALLOW", "HOLD", "REFUSE"]
++    rule_id: str
++    approver: str | None = None
++    terminal: bool | None = None  # None: not recorded (a stored action keeps no terminal flag)
++
++    @classmethod
++    def of(cls, v: Verdict) -> Outcome:
++        return cls(verdict=v.verdict, rule_id=v.rule_id, approver=v.approver, terminal=v.terminal)
++
++    def same_decision(self, other: Outcome) -> bool:
++        return (self.verdict, self.rule_id, self.approver) == (other.verdict, other.rule_id, other.approver)
++
++
++class ActionDiff(BaseModel):
++    model_config = ConfigDict(extra="forbid", frozen=True)
++
++    action_id: str
++    kind: str
++    label: str
++    stored: Outcome | None  # what the run recorded; None if the action was never governed
++    before: Outcome         # today's rules, nothing held out
++    after: Outcome          # today's rules, the one rule held out
++    change: Change
++    drift: bool             # today's baseline differs from what the run recorded
++
++
++class BlastRadius(BaseModel):
++    model_config = ConfigDict(extra="forbid", frozen=True)
++
++    examined: int
++    changed: int
++    loosened: int           # REFUSE -> HOLD/ALLOW, or HOLD -> ALLOW
++    tightened: int          # ALLOW -> HOLD/REFUSE, or HOLD -> REFUSE
++    same_verdict: int       # same verdict, decided by another rule or approver
++    unblocked: int          # was refused, would not be
++    loses_approval: int     # was held for a person, would not be
++    newly_refused: int      # was not refused, would be
++    drift: int
++    before: dict[str, int]  # allow / hold / refuse tallies
++    after: dict[str, int]
++    headline: str
++
++
++class StudioReport(BaseModel):
++    model_config = ConfigDict(extra="forbid", frozen=True)
++
++    run_id: UUID
++    hold_out: str
++    rule_title: str
++    rule_terminal: bool
++    capsule_digest: str | None
++    simulation: Literal[True] = True  # nothing was written
++    actions: list[ActionDiff]
++    blast_radius: BlastRadius
++
++
++def simulate_hold_out(case: CaseFile, engine: PolicyEngine, rule_id: str, *, role: dict,
++                      requested_by: str | None) -> StudioReport:
++    """Re-evaluate every action in `case` with and without `rule_id`. `role` and `requested_by` must be what Govern
++    used for this run (the role catalogue entry and the run's requester), so the baseline reproduces the run."""
++    rule = next((r for r in engine.rules if r.id == rule_id), None)
++    if rule is None:
++        raise UnknownRule(rule_id)
++    run = {"requested_by": requested_by}
++    rows = []
++    for stored in case.actions:
++        action = Action.create(stored.id, stored.kind, stored.target)  # a fresh copy: the case is never touched
++        before = Outcome.of(engine.decide(action, case.subject, role=role, run=run).verdict)
++        after = Outcome.of(engine.decide(action, case.subject, role=role, run=run,
++                                         disabled=frozenset({rule_id})).verdict)
++        recorded = (Outcome(verdict=stored.verdict, rule_id=stored.rule_id or "", approver=stored.approver)
++                    if stored.verdict else None)
++        rows.append(ActionDiff(
++            action_id=stored.id, kind=stored.kind, label=_label(stored), stored=recorded, before=before, after=after,
++            change=_change(before, after), drift=recorded is not None and not recorded.same_decision(before)))
++    return StudioReport(run_id=case.run_id, hold_out=rule_id, rule_title=rule.title, rule_terminal=rule.terminal,
++                        capsule_digest=case.digest, actions=rows,
++                        blast_radius=_blast_radius(rows, rule_id, rule.terminal))
++
++
++def _label(action: Action) -> str:
++    t = action.target
++    return str(t.get("entitlement") or t.get("label") or action.id)
++
++
++def _change(before: Outcome, after: Outcome) -> Change:
++    delta = _STRICTNESS[after.verdict] - _STRICTNESS[before.verdict]
++    if delta < 0:
++        return "loosened"
++    if delta > 0:
++        return "tightened"
++    return "none" if before.same_decision(after) else "same_verdict"
++
++
++def _tally(outcomes: list[Outcome]) -> dict[str, int]:
++    out = {"allow": 0, "hold": 0, "refuse": 0}
++    for o in outcomes:
++        out[o.verdict.lower()] += 1
++    return out
++
++
++def _n(count: int, singular: str, plural: str) -> str:
++    return f"{count} {singular if count == 1 else plural}"
++
++
++def _blast_radius(rows: list[ActionDiff], rule_id: str, terminal: bool) -> BlastRadius:
++    def count(pred) -> int:
++        return sum(1 for r in rows if pred(r))
++
++    unblocked = count(lambda r: r.before.verdict == "REFUSE" and r.after.verdict != "REFUSE")
++    loses_approval = count(lambda r: r.before.verdict == "HOLD" and r.after.verdict == "ALLOW")
++    tightened = count(lambda r: r.change == "tightened")
++    same_verdict = count(lambda r: r.change == "same_verdict")
++    drift = count(lambda r: r.drift)
++    changed = count(lambda r: r.change != "none")
++
++    if changed == 0:
++        headline = (f"Holding out {rule_id} changes no verdict in this run: it decided nothing here, or another "
++                    "rule reaches the same outcome.")
++    else:
++        effects = []
++        if unblocked:
++            effects.append(f"{_n(unblocked, 'refused action', 'refused actions')} would no longer be refused")
++        if loses_approval:
++            effects.append(f"{_n(loses_approval, 'held action', 'held actions')} would skip "
++                           f"{'its approver' if loses_approval == 1 else 'their approvers'}")
++        if tightened:
++            effects.append(f"{_n(tightened, 'action', 'actions')} would get a stricter outcome")
++        if same_verdict:
++            effects.append(f"{_n(same_verdict, 'action', 'actions')} would keep "
++                           f"{'its verdict' if same_verdict == 1 else 'their verdicts'} under another rule")
++        headline = f"Without {rule_id}: {'; '.join(effects)}."
++        if terminal and unblocked:
++            headline += f" {rule_id} is terminal: this is a simulation, and no exception can be granted."
++    if drift:
++        headline = (f"{_n(drift, 'action is', 'actions are')} decided differently today than when this run was "
++                    f"governed; the diff uses today's rules. {headline}")
++    return BlastRadius(
++        examined=len(rows), changed=changed, loosened=count(lambda r: r.change == "loosened"), tightened=tightened,
++        same_verdict=same_verdict, unblocked=unblocked, loses_approval=loses_approval,
++        newly_refused=count(lambda r: r.before.verdict != "REFUSE" and r.after.verdict == "REFUSE"), drift=drift,
++        before=_tally([r.before for r in rows]), after=_tally([r.after for r in rows]), headline=headline)
+diff --git a/engine/contextrail/rail/compile.py b/engine/contextrail/rail/compile.py
+index 67fa572..4f9dd0f 100644
+--- a/engine/contextrail/rail/compile.py
++++ b/engine/contextrail/rail/compile.py
+@@ -42,6 +42,12 @@ def _policy_evidence(rule: Rule, now: datetime) -> Evidence:
+         excerpt=rule.clause_text, retrieved_at=now, trust="curated")
+ 
+ 
++def role_entry(role: str | None) -> dict:
++    """The role catalogue entry Govern judges against (FIXTURE); an unknown role has an empty baseline. Policy Studio
++    rebuilds the same entry when it re-evaluates a stored run."""
++    return load("roles")["roles"].get(role or "", {"baseline": []})
++
++
+ async def gather_inputs(subject_record: dict, peer_record: dict | None, *, entitlements, rules: list[Rule],
+                         now: datetime | None = None) -> CompileInputs:
+     """T089: fetch records, holdings, catalogue, role and policy text concurrently."""
+@@ -52,11 +58,11 @@ async def gather_inputs(subject_record: dict, peer_record: dict | None, *, entit
+             return []
+         return (await entitlements.read({"subject_id": record["source_id"]}))["holdings"]
+ 
+-    async def role_entry() -> dict:
+-        return load("roles")["roles"].get(subject_record.get("role") or "", {"baseline": []})
++    async def subject_role() -> dict:
++        return role_entry(subject_record.get("role"))
+ 
+     subject_h, peer_h, catalog, role = await asyncio.gather(
+-        holdings(subject_record), holdings(peer_record), entitlements.read({}), role_entry())
++        holdings(subject_record), holdings(peer_record), entitlements.read({}), subject_role())
+     evidence = [_record_evidence(subject_record, now)]
+     if peer_record:
+         evidence.append(_record_evidence(peer_record, now))
+diff --git a/engine/contextrail/surfaces/policy_studio.py b/engine/contextrail/surfaces/policy_studio.py
+new file mode 100644
+index 0000000..0a6c480
+--- /dev/null
++++ b/engine/contextrail/surfaces/policy_studio.py
+@@ -0,0 +1,82 @@
++"""GET /v1/policy/studio: Policy Studio over a stored run (checklist T072).
++
++`?run_id=<uuid>&hold_out=<POL-XXX-000>` re-evaluates the run's sealed case file with today's rules, with and
++without the held-out rule, and returns the verdict diff per action and the blast radius (policy/studio.py).
++It reads the capsule through the same verified load as every later stage (P5): a case file that fails its digest
++check is refused, not simulated. It writes nothing, so it adds no audit row.
++
++The route reads the engine's database pool and policy engine from `app.state.platform.runner` (the Platform
++composition root). Without a platform there is no database, and the route answers 503 rather than guessing.
++Run contents are private, so the route sits behind `Authorization: Bearer <ENGINE_TOKEN>` with the same contract
++as the runs API: constant-time compare, 401 on a missing or wrong token, 503 while the token is unset or 'change-me'.
++"""
++
++from __future__ import annotations
++
++import hmac
++from typing import Annotated
++from uuid import UUID
++
++from fastapi import APIRouter, Depends, HTTPException, Query, Request
++from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
++
++from contextrail import repo
++from contextrail.capsule import DigestMismatch
++from contextrail.db import Database
++from contextrail.policy.engine import PolicyEngine
++from contextrail.policy.studio import StudioReport, UnknownRule, simulate_hold_out
++from contextrail.rail.compile import role_entry
++from contextrail.rail.store import load_case
++
++_PLACEHOLDER_TOKEN = "change-me"
++_bearer = HTTPBearer(auto_error=False)
++RULE_ID = r"^POL-[A-Z]{3}-\d{3}$"
++
++
++class RunNotFound(LookupError):
++    pass
++
++
++async def simulate_stored_run(db: Database, engine: PolicyEngine, run_id: UUID, rule_id: str) -> StudioReport:
++    """Load a run's verified case file and simulate holding `rule_id` out, with the role entry and requester Govern
++    used. Raises RunNotFound, LookupError (no sealed case file yet), DigestMismatch or UnknownRule."""
++    async with db.connection() as c:
++        run = await repo.get_run(c, run_id)
++        if run is None:
++            raise RunNotFound(f"no run {run_id}")
++        case = await load_case(c, run_id)
++    return simulate_hold_out(case, engine, rule_id, role=role_entry(case.subject.role),
++                             requested_by=run["requested_by"])
++
++
++async def require_engine_token(
++        request: Request, creds: Annotated[HTTPAuthorizationCredentials | None, Depends(_bearer)]) -> None:
++    expected = request.app.state.settings.engine_token.get_secret_value()
++    if not expected or expected == _PLACEHOLDER_TOKEN:
++        raise HTTPException(503, "ENGINE_TOKEN is not configured; Policy Studio stays closed until it is set")
++    if creds is None or not hmac.compare_digest(creds.credentials.encode(), expected.encode()):
++        raise HTTPException(401, "missing or invalid bearer token", headers={"WWW-Authenticate": "Bearer"})
++
++
++router = APIRouter(prefix="/v1/policy", tags=["policy"], dependencies=[Depends(require_engine_token)])
++
++
++@router.get("/studio", response_model=StudioReport)
++async def policy_studio(request: Request, run_id: UUID,
++                        hold_out: Annotated[str, Query(pattern=RULE_ID)]) -> StudioReport:
++    """What would this run have done without one rule? A simulation: nothing is written."""
++    platform = getattr(request.app.state, "platform", None)
++    if platform is None:
++        raise HTTPException(503, "Policy Studio reads stored runs, and this engine has no database platform configured")
++    rail = platform.runner.d
++    try:
++        return await simulate_stored_run(rail.db, rail.engine, run_id, hold_out)
++    except RunNotFound as e:
++        raise HTTPException(404, str(e)) from None
++    except UnknownRule:
++        raise HTTPException(404, f"no rule {hold_out} is loaded") from None
++    except DigestMismatch:
++        raise HTTPException(409, "the run's case file failed its digest check; an altered capsule is not simulated") \
++            from None
++    except LookupError:
++        raise HTTPException(409, f"run {run_id} has no sealed case file yet") from None
+diff --git a/engine/tests/test_policy_studio.py b/engine/tests/test_policy_studio.py
+new file mode 100644
+index 0000000..84ee35f
+--- /dev/null
++++ b/engine/tests/test_policy_studio.py
+@@ -0,0 +1,142 @@
++"""Policy Studio (checklist T072): re-evaluate a governed run with one rule held out, and report what would move.
++
++The case files here are built the way the rail builds them (Govern + Plan over FIXTURE records), so the stored
++verdicts are real ones. Nothing in the Studio writes: it answers "what if this rule did not exist?".
++"""
++
++from datetime import UTC, datetime
++from uuid import uuid4
++
++import pytest
++
++from contextrail.capsule import seal
++from contextrail.fixtures import load, subject_from_record
++from contextrail.models import CaseFile
++from contextrail.policy.approvers import StaticDirectory
++from contextrail.policy.engine import PolicyEngine
++from contextrail.policy.loader import load_rules
++from contextrail.policy.studio import UnknownRule, simulate_hold_out
++from contextrail.rail import govern, plan
++from contextrail.rail.compile import CompileInputs, role_entry
++
++NOW = datetime(2026, 9, 26, 10, 0, tzinfo=UTC)
++DIRECTORY = StaticDirectory(roster={"security-oncall": ["p-dana", "p-omar"]}, managers={"E-0301": "p-meera"})
++ENGINE = PolicyEngine(load_rules(), DIRECTORY)
++
++
++def _record(pid):
++    return next(p for p in load("hris")["people"] if p["source_id"] == pid)
++
++
++def governed_case(subject_id, *, intent, request_text, peer_id=None, requested_by="p-anil", engine=ENGINE):
++    """A sealed case file, governed and planned exactly as the runner does it."""
++    ents = load("entitlements")
++    rec = _record(subject_id)
++    subject = subject_from_record(rec)
++    peer = subject_from_record(_record(peer_id)) if peer_id else None
++    inputs = CompileInputs(subject_holdings=ents["holdings"].get(subject_id, []),
++                           peer_holdings=ents["holdings"].get(peer_id, []) if peer_id else [],
++                           catalog=ents["catalog"], role=role_entry(subject.role))
++    gov = govern.evaluate(govern.build_candidates(intent, request_text, subject, inputs, peer), subject, engine,
++                          role=inputs.role, requested_by=requested_by, now=NOW)
++    ordered = plan.build_plan(gov, subject, rec, inputs, engine, requested_by=requested_by)
++    return seal(CaseFile(run_id=uuid4(), request_text=request_text, intent=intent, subject=subject, peer=peer,
++                         actions=[g.action for g in ordered])), inputs
++
++
++@pytest.fixture(scope="module")
++def rahul_case():
++    return governed_case("E-1042", peer_id="E-0007", intent="access.same_as_peer",
++                         request_text="Give Anil the same access as Rahul Mehta")
++
++
++def studio(case_inputs, rule_id, engine=ENGINE):
++    case, inputs = case_inputs
++    return simulate_hold_out(case, engine, rule_id, role=inputs.role, requested_by="p-anil")
++
++
++def row(report, entitlement):
++    return next(r for r in report.actions if r.label == entitlement)
++
++
++def test_every_action_is_examined_and_the_baseline_matches_the_run(rahul_case):
++    r = studio(rahul_case, "POL-ACC-003")
++    assert r.blast_radius.examined == 18                        # 16 grants + 2 transfer revocations
++    assert r.blast_radius.before == {"allow": 15, "hold": 2, "refuse": 1}
++    assert r.blast_radius.drift == 0 and not any(a.drift for a in r.actions)
++    assert r.simulation is True and r.capsule_digest == rahul_case[0].digest
++
++
++def test_holding_out_acc_003_would_hand_anil_production_admin(rahul_case):
++    r = studio(rahul_case, "POL-ACC-003")
++    admin = row(r, "aws-payments-prod-admin")
++    assert (admin.before.verdict, admin.before.rule_id) == ("REFUSE", "POL-ACC-003")
++    assert (admin.after.verdict, admin.after.rule_id) == ("ALLOW", "POL-ACC-002")   # mirrored access now decides
++    assert admin.change == "loosened"
++    b = r.blast_radius
++    assert (b.changed, b.unblocked, b.loosened, b.tightened) == (1, 1, 1, 0)
++    assert b.after == {"allow": 16, "hold": 2, "refuse": 0}
++    assert "1 refused action would no longer be refused" in b.headline
++
++
++def test_holding_out_acc_004_skips_the_security_approval(rahul_case):
++    r = studio(rahul_case, "POL-ACC-004")
++    core = row(r, "gh-payments-core-read")
++    assert (core.before.verdict, core.before.approver, core.after.verdict) == ("HOLD", "p-dana", "ALLOW")
++    assert (r.blast_radius.changed, r.blast_radius.loses_approval) == (1, 1)
++    assert "1 held action would skip its approver" in r.blast_radius.headline
++
++
++def test_holding_out_the_baseline_rule_moves_no_outcome_only_the_quoted_rule(rahul_case):
++    r = studio(rahul_case, "POL-ACC-001")
++    moved = [a for a in r.actions if a.change != "none"]
++    assert moved and all(a.change == "same_verdict" and a.after.rule_id == "POL-ACC-002" for a in moved)
++    assert r.blast_radius.before == r.blast_radius.after
++    assert (r.blast_radius.unblocked, r.blast_radius.loses_approval, r.blast_radius.tightened) == (0, 0, 0)
++
++
++def test_holding_out_off_001_leaves_old_team_access_default_denied(rahul_case):
++    r = studio(rahul_case, "POL-OFF-001")
++    revokes = [a for a in r.actions if a.kind == "revoke"]
++    assert [(a.before.verdict, a.after.verdict, a.after.rule_id) for a in revokes] == [
++        ("ALLOW", "REFUSE", "DEFAULT-DENY")] * 2
++    assert (r.blast_radius.tightened, r.blast_radius.newly_refused) == (2, 2)
++
++
++def test_a_rule_that_decided_nothing_here_changes_nothing(rahul_case):
++    r = studio(rahul_case, "POL-DAT-001")
++    assert r.blast_radius.changed == 0 and all(a.change == "none" for a in r.actions)
++    assert "changes no verdict in this run" in r.blast_radius.headline
++
++
++def test_a_terminal_rule_can_be_simulated_and_says_so():
++    priya = governed_case("W-8841", intent="onboarding", request_text="Priya starts Monday, give her everything",
++                          requested_by="p-marc")
++    r = simulate_hold_out(priya[0], ENGINE, "POL-CTR-001", role=priya[1].role, requested_by="p-marc")
++    creds = row(r, "aws-perception-prod-credentials")
++    assert (creds.before.rule_id, creds.before.terminal) == ("POL-CTR-001", True)
++    assert (creds.after.verdict, creds.after.rule_id) == ("REFUSE", "DEFAULT-DENY")  # default deny still holds
++    assert r.rule_terminal is True and creds.change == "same_verdict"
++
++
++def test_drift_is_reported_when_todays_rules_disagree_with_the_run():
++    older = PolicyEngine([r for r in load_rules() if r.id != "POL-ACC-001"], DIRECTORY)  # governed before ACC-001
++    case = governed_case("E-1042", peer_id="E-0007", intent="access.same_as_peer", request_text="same as Rahul",
++                         engine=older)
++    r = studio(case, "POL-ACC-005")
++    assert r.blast_radius.drift > 0
++    drifted = [a for a in r.actions if a.drift]
++    assert all(a.stored.rule_id == "POL-ACC-002" and a.before.rule_id == "POL-ACC-001" for a in drifted)
++    assert r.blast_radius.headline.startswith(f"{r.blast_radius.drift} actions are decided differently today")
++
++
++def test_the_studio_changes_nothing_in_the_case_it_reads(rahul_case):
++    case = rahul_case[0]
++    snapshot = case.model_dump(mode="json")
++    studio(rahul_case, "POL-ACC-003")
++    assert case.model_dump(mode="json") == snapshot
++
++
++def test_unknown_rule_is_rejected(rahul_case):
++    with pytest.raises(UnknownRule):
++        studio(rahul_case, "POL-XYZ-999")
+diff --git a/engine/tests/test_policy_studio_api.py b/engine/tests/test_policy_studio_api.py
+new file mode 100644
+index 0000000..c14b4d2
+--- /dev/null
++++ b/engine/tests/test_policy_studio_api.py
+@@ -0,0 +1,130 @@
++"""GET /v1/policy/studio (T072): Policy Studio over a stored run, behind the engine token. It reads, never writes."""
++
++import types
++import uuid
++
++import httpx
++import psycopg
++import pytest
++
++from contextrail.main import create_app
++from contextrail.settings import Settings
++
++TOKEN = "test-studio-token"  # a test value, not a credential
++ANIL_REQUEST = "Give Anil the same access as Rahul Mehta"
++
++
++def _app(runner, token=TOKEN, *, with_platform=True):
++    app = create_app(Settings(_env_file=None, engine_token=token))
++    if with_platform:
++        # The one part of the engine Platform the Studio reads: the runner (its database pool and policy engine).
++        app.state.platform = types.SimpleNamespace(runner=runner)
++    return app
++
++
++def _client(app, token=TOKEN):
++    headers = {"Authorization": f"Bearer {token}"} if token is not None else {}
++    return httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://engine.test", headers=headers)
++
++
++async def _snapshot(deps, rid):
++    async with deps.db.connection() as c:
++        audit = (await (await c.execute("select count(*) as n from audit")).fetchone())["n"]
++        actions = await (await c.execute(
++            "select id, verdict, rule_id, state, expires_at from actions where run_id = %s order by id",
++            (rid,))).fetchall()
++        run = await (await c.execute("select status, capsule_digest, updated_at from runs where id = %s",
++                                     (rid,))).fetchone()
++    return audit, actions, run
++
++
++async def test_studio_reports_the_blast_radius_of_a_stored_run_and_writes_nothing(rail):
++    runner, deps = rail
++    rid = await runner.start(source="slack", request_text=ANIL_REQUEST, requested_by="p-anil")
++    await runner.run(rid)
++    before = await _snapshot(deps, rid)
++    async with _client(_app(runner)) as client:
++        r = await client.get("/v1/policy/studio", params={"run_id": str(rid), "hold_out": "POL-ACC-003"})
++    assert r.status_code == 200, r.text
++    body = r.json()
++    assert (body["run_id"], body["hold_out"], body["simulation"]) == (str(rid), "POL-ACC-003", True)
++    radius = body["blast_radius"]
++    assert (radius["examined"], radius["unblocked"], radius["drift"]) == (18, 1, 0)
++    assert radius["before"] == {"allow": 15, "hold": 2, "refuse": 1}
++    admin = next(a for a in body["actions"] if a["label"] == "aws-payments-prod-admin")
++    assert (admin["stored"]["verdict"], admin["after"]["verdict"], admin["change"]) == ("REFUSE", "ALLOW", "loosened")
++    assert await _snapshot(deps, rid) == before  # no audit row, no action change, capsule untouched
++
++
++@pytest.mark.parametrize("header", [None, "Bearer wrong-token", "Basic dXNlcjpwYXNz"])
++async def test_the_studio_requires_the_engine_token(rail, header):
++    runner, _ = rail
++    async with _client(_app(runner), token=None) as client:
++        r = await client.get("/v1/policy/studio", params={"run_id": str(uuid.uuid4()), "hold_out": "POL-ACC-003"},
++                             headers={"Authorization": header} if header else {})
++    assert r.status_code == 401 and r.headers["content-type"].startswith("application/problem+json")
++
++
++@pytest.mark.parametrize("configured", ["", "change-me"])
++async def test_an_unset_or_placeholder_token_closes_the_studio(rail, configured):
++    runner, _ = rail
++    async with _client(_app(runner, configured), token=configured) as client:
++        r = await client.get("/v1/policy/studio", params={"run_id": str(uuid.uuid4()), "hold_out": "POL-ACC-003"})
++    assert r.status_code == 503 and "ENGINE_TOKEN" in r.json()["detail"]
++
++
++async def test_without_the_engine_platform_the_studio_says_so(rail):
++    runner, _ = rail
++    async with _client(_app(runner, with_platform=False)) as client:
++        r = await client.get("/v1/policy/studio", params={"run_id": str(uuid.uuid4()), "hold_out": "POL-ACC-003"})
++    assert r.status_code == 503 and "database" in r.json()["detail"]
++
++
++@pytest.mark.parametrize(("params", "status"), [
++    ({"run_id": "not-a-uuid", "hold_out": "POL-ACC-003"}, 422),
++    ({"run_id": str(uuid.UUID(int=1)), "hold_out": "ACC-3"}, 422),
++    ({"hold_out": "POL-ACC-003"}, 422),
++])
++async def test_malformed_parameters_are_422(rail, params, status):
++    runner, _ = rail
++    async with _client(_app(runner)) as client:
++        r = await client.get("/v1/policy/studio", params=params)
++    assert r.status_code == status, r.text
++
++
++async def test_an_unknown_run_is_404(rail):
++    runner, _ = rail
++    rid = uuid.UUID(int=1)
++    async with _client(_app(runner)) as client:
++        r = await client.get("/v1/policy/studio", params={"run_id": str(rid), "hold_out": "POL-ACC-003"})
++    assert r.status_code == 404 and str(rid) in r.json()["detail"]  # the route's answer, not an unrouted path
++
++
++async def test_an_unknown_rule_is_404(rail):
++    runner, _ = rail
++    rid = await runner.start(source="slack", request_text=ANIL_REQUEST, requested_by="p-anil")
++    await runner.run(rid)
++    async with _client(_app(runner)) as client:
++        r = await client.get("/v1/policy/studio", params={"run_id": str(rid), "hold_out": "POL-XYZ-999"})
++    assert r.status_code == 404 and "POL-XYZ-999" in r.json()["detail"]
++
++
++async def test_a_run_without_a_sealed_case_file_is_409(rail):
++    runner, _ = rail
++    rid = await runner.start(source="slack", request_text="Give Anil the same access as Rahul", requested_by="p-anil")
++    await runner.run(rid)  # two Rahuls: stops at needs_input before Compile seals anything
++    async with _client(_app(runner)) as client:
++        r = await client.get("/v1/policy/studio", params={"run_id": str(rid), "hold_out": "POL-ACC-003"})
++    assert r.status_code == 409 and "sealed" in r.json()["detail"]
++
++
++async def test_an_altered_capsule_is_refused_not_simulated(rail, migrated_db):
++    runner, _ = rail
++    rid = await runner.start(source="slack", request_text=ANIL_REQUEST, requested_by="p-anil")
++    await runner.run(rid)
++    with psycopg.connect(migrated_db, autocommit=True) as c:
++        c.execute("""update runs set capsule = jsonb_set(capsule, '{constraints}', '["forged"]') where id = %s""",
++                  (rid,))
++    async with _client(_app(runner)) as client:
++        r = await client.get("/v1/policy/studio", params={"run_id": str(rid), "hold_out": "POL-ACC-003"})
++    assert r.status_code == 409 and "digest" in r.json()["detail"]

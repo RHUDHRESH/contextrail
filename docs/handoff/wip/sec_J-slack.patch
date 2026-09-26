@@ -1,0 +1,205 @@
+diff --git a/docs/CHECKLIST.md b/docs/CHECKLIST.md
+index c249d56..060f035 100644
+--- a/docs/CHECKLIST.md
++++ b/docs/CHECKLIST.md
+@@ -187,7 +187,7 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains 
+ - [x] T140 `P0` Bolt app init (Socket Mode in dev, HTTP in prod).
+ - [x] T141 `P0` `/contextrail <request>` → `door.start_run`; ephemeral acknowledgement.
+ - [x] T142 `P0` Run status message updated in place per stage (`chat.update`).
+-- [ ] T143 `P1` Assistant pane: thread started → suggested prompts.
++- [x] T143 `P1` Assistant pane: thread started → suggested prompts.
+ - [ ] T144 `P1` Assistant pane: user message → start run; `set_status` per stage.
+ - [ ] T145 `P1` Assistant pane: final summary blocks (granted / held / refused) with receipt link.
+ - [x] T146 `P0` Approval card Block Kit renderer from `RunView` (action, rule, risk, precedent, deadline, LIVE/FIXTURE).
+diff --git a/engine/contextrail/surfaces/slack_app.py b/engine/contextrail/surfaces/slack_app.py
+index d216ad0..d928bf7 100644
+--- a/engine/contextrail/surfaces/slack_app.py
++++ b/engine/contextrail/surfaces/slack_app.py
+@@ -16,7 +16,7 @@ from uuid import UUID
+ 
+ from fastapi import APIRouter, FastAPI, HTTPException, Request
+ from slack_bolt.adapter.fastapi.async_handler import AsyncSlackRequestHandler
+-from slack_bolt.async_app import AsyncApp
++from slack_bolt.async_app import AsyncApp, AsyncAssistant
+ from slack_bolt.authorization import AuthorizeResult
+ from slack_sdk.errors import SlackApiError
+ from slack_sdk.web.async_client import AsyncWebClient
+@@ -58,6 +58,9 @@ class SlackDoor:
+         self.app.action("approve")(self.on_decision)
+         self.app.action("refuse")(self.on_decision)
+         self.app.action(re.compile(r"^pick_candidate:\d+$"))(self.on_pick)
++        assistant = AsyncAssistant(app_name="contextrail")
++        assistant.thread_started(self.on_thread_started)
++        self.app.assistant(assistant)
+         self._status: dict[UUID, dict | None] = {}  # run id -> its status message {channel, ts, request_text}
+         self._askers: dict[tuple[str, str], str] = {}  # (channel, ts) of a status message -> who typed the command
+         door.runner.d.events.on_every_run(self.on_stage_event)
+@@ -78,6 +81,19 @@ class SlackDoor:
+         await self.door.start_run(text, channel="slack", actor_external_id=command["user_id"],
+                                   source_ref=f"{channel}:{ts}")
+ 
++    # --- the AI assistant pane ---------------------------------------------------------------------------------
++    # Bolt's Assistant utilities (say, set_status, set_suggested_prompts) use its per-request client; the door calls
++    # the same Web API methods on its own client instead, so every Slack call goes through one place.
++
++    async def on_thread_started(self, body: dict) -> None:
++        """A user opened a new assistant thread: say what the door does, offer the suggested prompts."""
++        thread = body["event"]["assistant_thread"]
++        channel, ts = thread["channel_id"], thread["thread_ts"]
++        await self.client.chat_postMessage(channel=channel, thread_ts=ts, text=blocks.ASSISTANT_HELLO)
++        await self.client.assistant_threads_setSuggestedPrompts(channel_id=channel, thread_ts=ts,
++                                                                title=blocks.ASSISTANT_PROMPTS_TITLE,
++                                                                prompts=blocks.SUGGESTED_PROMPTS)
++
+     # --- "which Rahul?" -> Door.pick_candidate ----------------------------------------------------------------
+ 
+     async def on_pick(self, ack, body: dict, action: dict) -> RunView | None:
+diff --git a/engine/contextrail/surfaces/slack_blocks.py b/engine/contextrail/surfaces/slack_blocks.py
+index c9e5955..9bf3f2e 100644
+--- a/engine/contextrail/surfaces/slack_blocks.py
++++ b/engine/contextrail/surfaces/slack_blocks.py
+@@ -16,6 +16,16 @@ from contextrail.models import STAGE_ORDER, StageEvent
+ from contextrail.surfaces.presenter import RowView, RunView
+ 
+ USAGE = "Tell me what you need, in one sentence. For example: `/contextrail give Anil the same access as Rahul Mehta`"
++
++# The assistant pane (T143). The same prompts are declared in slack/manifest.yaml (a test keeps them equal).
++ASSISTANT_HELLO = ("Hi. Tell me what you need in one sentence. Written policy decides, named people approve, "
++                   "and I read every change back.")
++ASSISTANT_PROMPTS_TITLE = "Try one of these"
++SUGGESTED_PROMPTS = [
++    {"title": "Same access as a teammate", "message": "Give Anil the same access as Rahul Mehta"},
++    {"title": "Onboard a new starter", "message": "Priya starts Monday, give her everything she needs"},
++    {"title": "Why was this refused?", "message": "Why was my production admin access refused?"},
++]
+ _SECTION_MAX = 2900  # Slack's section text limit is 3000 characters
+ 
+ STAGE_TITLE = {
+diff --git a/engine/tests/test_slack_assistant.py b/engine/tests/test_slack_assistant.py
+new file mode 100644
+index 0000000..420f660
+--- /dev/null
++++ b/engine/tests/test_slack_assistant.py
+@@ -0,0 +1,78 @@
++"""The Slack AI assistant pane (CLAUDE.md §13.1, §15 X3): suggested prompts, requests typed in the pane, live stage
++status and the final summary. No network: FakeSlackClient records every Web API call."""
++
++import json
++
++import httpx
++import pytest
++from slack_fake import BOT_TOKEN, SIGNING_SECRET, FakeSlackClient, forbid_real_slack_calls, signed_headers
++
++from contextrail.fixtures import load
++from contextrail.main import create_app
++from contextrail.settings import Settings
++from contextrail.surfaces import slack_blocks as blocks
++from contextrail.surfaces.door import Door
++from contextrail.surfaces.slack_app import SlackDoor
++
++PEOPLE = {p["person_id"]: p["display_name"] for p in load("identity")["people"]}
++ANIL_SLACK, DM, THREAD = "U0ANIL001", "D0ANILDM1", "1790000100.000100"
++
++
++@pytest.fixture(autouse=True)
++def _no_network(monkeypatch):
++    forbid_real_slack_calls(monkeypatch)
++    for k in ("SLACK_BOT_TOKEN", "SLACK_SIGNING_SECRET", "SLACK_APP_TOKEN"):
++        monkeypatch.delenv(k, raising=False)
++
++
++@pytest.fixture
++async def door(rail):
++    runner, deps = rail
++    modes = {n: deps.registry.get(n).mode for n in ("hris", "entitlements", "github", "slack_corpus")}
++    return Door(runner, people=PEOPLE, modes=modes)
++
++
++@pytest.fixture
++def fake():
++    return FakeSlackClient()
++
++
++@pytest.fixture
++def slack(door, fake):
++    return SlackDoor(door, client=fake, signing_secret=SIGNING_SECRET, process_before_response=True)
++
++
++def _event(event: dict) -> dict:
++    return {"type": "event_callback", "team_id": "T0NORTH01", "api_app_id": "A0CONTEXT", "event_id": "Ev01",
++            "event_time": 1790000100, "event": event}
++
++
++THREAD_STARTED = _event({"type": "assistant_thread_started", "event_ts": "1790000100.000101",
++                         "assistant_thread": {"user_id": ANIL_SLACK, "channel_id": DM, "thread_ts": THREAD,
++                                              "context": {}}})
++
++
++async def _post_event(door, fake, body: dict) -> httpx.Response:
++    app = create_app(Settings(_env_file=None, slack_bot_token=BOT_TOKEN, slack_signing_secret=SIGNING_SECRET))
++    app.state.slack = SlackDoor(door, client=fake, signing_secret=SIGNING_SECRET, process_before_response=True)
++    raw = json.dumps(body)
++    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://engine") as h:
++        return await h.post("/slack/events", content=raw, headers=signed_headers(raw, content_type="application/json"))
++
++
++# --- T143: a new assistant thread gets a greeting and the suggested prompts -----------------------------------------
++
++async def test_a_new_assistant_thread_gets_a_greeting_and_suggested_prompts(slack, fake):
++    await slack.on_thread_started(body=THREAD_STARTED)
++    [hello] = fake.called("chat.postMessage")
++    assert (hello["channel"], hello["thread_ts"]) == (DM, THREAD) and hello["text"] == blocks.ASSISTANT_HELLO
++    [prompts] = fake.called("assistant.threads.setSuggestedPrompts")
++    assert (prompts["channel_id"], prompts["thread_ts"]) == (DM, THREAD)
++    assert [p["title"] for p in prompts["prompts"]] == ["Same access as a teammate", "Onboard a new starter",
++                                                       "Why was this refused?"]
++
++
++async def test_the_thread_started_event_is_routed_by_bolt(door, fake):
++    r = await _post_event(door, fake, THREAD_STARTED)
++    assert r.status_code == 200
++    assert [m for m, _ in fake.calls] == ["auth.test", "chat.postMessage", "assistant.threads.setSuggestedPrompts"]
+diff --git a/engine/tests/test_slack_manifest.py b/engine/tests/test_slack_manifest.py
+index e9957fc..9366995 100644
+--- a/engine/tests/test_slack_manifest.py
++++ b/engine/tests/test_slack_manifest.py
+@@ -48,3 +48,15 @@ def test_assistant_pane_is_declared_with_suggested_prompts():
+     assert view["assistant_description"]
+     prompts = view["suggested_prompts"]
+     assert prompts and all(set(p) == {"title", "message"} for p in prompts)
++
++
++def test_the_pane_offers_the_same_prompts_the_manifest_declares():
++    from contextrail.surfaces.slack_blocks import SUGGESTED_PROMPTS
++
++    assert _manifest()["features"]["assistant_view"]["suggested_prompts"] == SUGGESTED_PROMPTS
++
++
++def test_assistant_thread_events_are_delivered_to_the_engine_route():
++    events = _manifest()["settings"]["event_subscriptions"]
++    assert events["request_url"].startswith("https://") and events["request_url"].endswith("/slack/events")
++    assert "assistant_thread_started" in events["bot_events"]
+diff --git a/slack/manifest.yaml b/slack/manifest.yaml
+index edca8d2..69dafef 100644
+--- a/slack/manifest.yaml
++++ b/slack/manifest.yaml
+@@ -27,7 +27,7 @@ features:
+       description: Start a governed request (access, onboarding, refunds)
+       usage_hint: give Anil the same access as Rahul Mehta
+       should_escape: false
+-  assistant_view:   # the AI assistant pane; its event handlers arrive with T143-T145
++  assistant_view:   # the AI assistant pane; prompts must equal slack_blocks.SUGGESTED_PROMPTS (tested)
+     assistant_description: Start a request, follow it stage by stage, and ask why something was refused.
+     suggested_prompts:
+       - title: Same access as a teammate
+@@ -46,6 +46,10 @@ oauth_config:
+       - users:read.email    # users.lookupByEmail: identity_map email -> Slack user
+       - assistant:write     # assistant pane status (P1)
+ settings:
++  event_subscriptions:
++    request_url: https://contextrail.example.com/slack/events
++    bot_events:
++      - assistant_thread_started   # greeting + suggested prompts in a new assistant thread
+   interactivity:
+     is_enabled: true
+     request_url: https://contextrail.example.com/slack/events

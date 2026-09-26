@@ -1,0 +1,500 @@
+diff --git a/engine/contextrail/rail/deadlines.py b/engine/contextrail/rail/deadlines.py
+new file mode 100644
+index 0000000..134ad79
+--- /dev/null
++++ b/engine/contextrail/rail/deadlines.py
+@@ -0,0 +1,181 @@
++"""Approval deadlines and chase jobs (checklist T101, CLAUDE.md §8 Approve: "deadline job").
++
++Every held action with a named approver gets a deadline, stored as `Action.expires_at`:
++- the deciding rule's `expires_after` when it has one (incident access is time-boxed, POL-EMG-001);
++- otherwise 17:00 IST on a business day (Mon-Fri): today, or the next business day when under two hours are left,
++  so the chase always lands after the request.
++
++Two jobs per hold, run by the job worker (D-003), which claims a job and calls the handler inside a transaction:
++- `approval.chase` one hour before the deadline: `on_chase` queues a `door.chase` reminder in the approver's
++  preferred door (identity_map.preferred_door) and audits it;
++- `approval.deadline` at the deadline: `on_deadline` leaves the action awaiting, opens a blocker on the case and
++  audits `approval.expired`. It never approves and never refuses: only a named person decides (§0 rule 2, D-005).
++  A decision that arrives later still counts, and clears the overdue blocker (the runner's Approve stage).
++"""
++
++from __future__ import annotations
++
++import re
++from datetime import UTC, date, datetime, time, timedelta, timezone
++from uuid import UUID
++
++from psycopg import AsyncConnection
++
++from contextrail import repo
++from contextrail.audit import chain
++from contextrail.models import ActionState, CaseFile, RunStatus
++from contextrail.policy.approvers import is_unresolved
++from contextrail.policy.schema import Rule
++from contextrail.rail.store import load_case, save_case
++
++IST = timezone(timedelta(hours=5, minutes=30), "IST")   # fixed offset: India has no daylight saving time
++END_OF_BUSINESS = time(17, 0)
++CHASE_BEFORE = timedelta(hours=1)
++MIN_WINDOW = timedelta(hours=2)
++OVERDUE_PREFIX = "Approval overdue: "
++_UNITS = {"m": "minutes", "h": "hours", "d": "days"}
++
++
++class RunBusy(Exception):
++    """The run is being resumed right now. Retry the job shortly (the worker's fail_job does)."""
++
++
++def parse_duration(value: str) -> timedelta:
++    """'30m' / '4h' / '90d', the format policy/schema.py validates for expires_after."""
++    m = re.fullmatch(r"(\d+)([mhd])", value)
++    if m is None:
++        raise ValueError(f"not a duration: {value!r}")
++    return timedelta(**{_UNITS[m[2]]: int(m[1])})
++
++
++def approval_deadline(now: datetime, rule: Rule | None) -> datetime:
++    """When a decision is due, in UTC."""
++    if rule is not None and rule.expires_after:
++        return now + parse_duration(rule.expires_after)
++    day: date = now.astimezone(IST).date()
++    while True:
++        eob = datetime.combine(day, END_OF_BUSINESS, tzinfo=IST)
++        if day.weekday() < 5 and eob - now >= MIN_WINDOW:
++            return eob.astimezone(UTC)
++        day += timedelta(days=1)
++
++
++def chase_time(deadline: datetime, now: datetime) -> datetime | None:
++    """One hour before the deadline; None when that is already past (the approval request itself just went out)."""
++    at = deadline - CHASE_BEFORE
++    return at if at > now else None
++
++
++async def schedule(conn: AsyncConnection, case: CaseFile, *, rules: list[Rule],
++                   now: datetime | None = None) -> dict[str, datetime]:
++    """Give each new hold its deadline (on the action, in place) and enqueue its deadline and chase jobs, once.
++    Holds without a named approver are blockers (approve.dispatch_holds), not something to chase."""
++    now = now or datetime.now(UTC)
++    by_id = {r.id: r for r in rules}
++    out: dict[str, datetime] = {}
++    for a in case.actions:
++        if a.state is not ActionState.AWAITING or is_unresolved(a.approver) or a.expires_at is not None:
++            continue
++        a.expires_at = deadline = approval_deadline(now, by_id.get(a.rule_id or ""))
++        payload = {"run_id": str(case.run_id), "action_id": a.id, "params_hash": a.params_hash,
++                   "approver": a.approver, "deadline": deadline.isoformat()}
++        await repo.enqueue_job(conn, "approval.deadline", payload, run_at=deadline,
++                               dedupe_key=f"approval.deadline:{case.run_id}:{a.id}")
++        if chase := chase_time(deadline, now):
++            await repo.enqueue_job(conn, "approval.chase", payload, run_at=chase,
++                                   dedupe_key=f"approval.chase:{case.run_id}:{a.id}")
++        out[a.id] = deadline
++    return out
++
++
++# --- job handlers ---------------------------------------------------------------------------------------------
++
++async def _still_waiting(conn: AsyncConnection, run_id: UUID, payload: dict) -> tuple[str | None, dict | None]:
++    """(reason to stop, action row). A decision, a moved-on action or changed parameters end the job quietly."""
++    if await repo.get_approval(conn, run_id, payload["action_id"]):
++        return "decided", None
++    action = await (await conn.execute("select * from actions where run_id = %s and id = %s",
++                                       (run_id, payload["action_id"]))).fetchone()
++    if action is None or action["state"] != ActionState.AWAITING:
++        return "not_awaiting", None
++    if action["params_hash"] != payload["params_hash"]:
++        return "stale", None
++    return None, action
++
++
++async def _person(conn: AsyncConnection, person_id: str) -> dict | None:
++    return await (await conn.execute("select display_name, preferred_door from identity_map where person_id = %s",
++                                     (person_id,))).fetchone()
++
++
++async def on_chase(conn: AsyncConnection, payload: dict, *, now: datetime | None = None) -> str:
++    """approval.chase: remind the approver in their preferred door. Returns what happened."""
++    now = now or datetime.now(UTC)
++    run_id = UUID(payload["run_id"])
++    stop, action = await _still_waiting(conn, run_id, payload)
++    if stop:
++        return stop
++    if action["expires_at"] is None or now >= action["expires_at"]:
++        return "past_deadline"
++    person = await _person(conn, action["approver"])
++    if person is None:
++        await chain.append(conn, run_id=run_id, event="approval.chase_failed",
++                           payload={"action_id": action["id"], "approver": action["approver"],
++                                    "reason": "approver has no identity, so no door to chase in"})
++        return "no_door"
++    channel, deadline = person["preferred_door"], action["expires_at"].isoformat()
++    await repo.enqueue_job(conn, "door.chase", {"run_id": str(run_id), "action_id": action["id"],
++                                                "params_hash": action["params_hash"], "approver": action["approver"],
++                                                "channel": channel, "deadline": deadline},
++                           dedupe_key=f"door.chase:{run_id}:{action['id']}:{channel}")
++    await chain.append(conn, run_id=run_id, event="approval.chased",
++                       payload={"action_id": action["id"], "approver": action["approver"], "channel": channel,
++                                "deadline": deadline})
++    return "chased"
++
++
++def overdue_blocker(action_id: str, label: str, approver: str, deadline: datetime) -> str:
++    due = deadline.astimezone(IST).strftime("%Y-%m-%d %H:%M IST")
++    return (f"{OVERDUE_PREFIX}{action_id} ({label}) was due from {approver} by {due}. It is still awaiting a "
++            "decision; nothing was approved or refused automatically.")
++
++
++def is_overdue_blocker(blocker: str, action_id: str) -> bool:
++    return blocker.startswith(f"{OVERDUE_PREFIX}{action_id} ")
++
++
++def clear_overdue(blockers: list[str], decided: list[str]) -> list[str]:
++    """A named person has now decided these actions, so their overdue blockers are resolved."""
++    return [b for b in blockers if not any(is_overdue_blocker(b, aid) for aid in decided)]
++
++
++async def on_deadline(conn: AsyncConnection, payload: dict, *, now: datetime | None = None) -> str:
++    """approval.deadline: if nobody decided in time, open a blocker and audit it. Never decides. Returns what
++    happened. Takes the run row lock, so it cannot interleave with a resume re-sealing the same capsule."""
++    now = now or datetime.now(UTC)
++    run_id = UUID(payload["run_id"])
++    run = await (await conn.execute("select status from runs where id = %s for update", (run_id,))).fetchone()
++    if run is None:
++        return "not_awaiting"
++    stop, action = await _still_waiting(conn, run_id, payload)
++    if stop:
++        return stop
++    if action["expires_at"] is None or now < action["expires_at"]:
++        return "not_due"
++    if run["status"] == RunStatus.RUNNING:
++        raise RunBusy(f"run {run_id} is being resumed; retry the deadline for {action['id']}")
++    if run["status"] != RunStatus.AWAITING_APPROVAL:
++        return "not_awaiting"
++    case = await load_case(conn, run_id)
++    if any(is_overdue_blocker(b, action["id"]) for b in case.open_blockers):
++        return "already_expired"
++    person = await _person(conn, action["approver"])
++    t = action["target"]
++    blocker = overdue_blocker(action["id"], t.get("label") or t.get("entitlement") or action["id"],
++                              person["display_name"] if person else action["approver"], action["expires_at"])
++    await save_case(conn, case.model_copy(update={"open_blockers": [*case.open_blockers, blocker]}))
++    await chain.append(conn, run_id=run_id, event="approval.expired",
++                       payload={"action_id": action["id"], "approver": action["approver"],
++                                "params_hash": action["params_hash"], "deadline": action["expires_at"].isoformat(),
++                                "outcome": "still awaiting", "blocker": blocker})
++    return "expired"
+diff --git a/engine/contextrail/rail/runner.py b/engine/contextrail/rail/runner.py
+index 2dc572b..ac66903 100644
+--- a/engine/contextrail/rail/runner.py
++++ b/engine/contextrail/rail/runner.py
+@@ -31,7 +31,7 @@ from contextrail.models import (
+ )
+ from contextrail.policy.engine import PolicyEngine
+ from contextrail.policy.schema import Rule
+-from contextrail.rail import approve, execute, finalize, govern, handoff, plan
++from contextrail.rail import approve, deadlines, execute, finalize, govern, handoff, plan
+ from contextrail.rail import compile as compile_
+ from contextrail.rail import discover as discover_
+ from contextrail.rail import verify as verify_
+@@ -76,12 +76,14 @@ class Runner:
+                     case: CaseFile | None = None) -> None:
+         await self.d.events.emit(run_id, stage, status, message, counts=finalize.tally(case) if case else None)
+ 
+-    async def _sync_actions(self, conn, case: CaseFile) -> None:
++    async def _sync_actions(self, conn, case: CaseFile, ids: set[str] | None = None) -> None:
+         for a in case.actions:
++            if ids is not None and a.id not in ids:
++                continue
+             await repo.upsert_action(
+                 conn, case.run_id, id=a.id, kind=a.kind, target=a.target, params_hash=a.params_hash,
+                 verdict=a.verdict, rule_id=a.rule_id, clause=a.clause, approver=a.approver, state=a.state,
+-                idempotency_key=idempotency_key(case.run_id, a.id, a.params_hash))
++                idempotency_key=idempotency_key(case.run_id, a.id, a.params_hash), expires_at=a.expires_at)
+ 
+     # --- first pass: discover -> finalize --------------------------------------------------------------------
+ 
+@@ -228,12 +230,15 @@ class Runner:
+         prev = check_stage_order(prev, Stage.APPROVE)
+         async with self.d.db.transaction() as c:
+             decided, void = await approve.apply_decisions(c, case)
++            scheduled = await deadlines.schedule(c, case, rules=self.d.rules)  # T101: deadline + chase jobs
+             dispatched, unresolved = await approve.dispatch_holds(c, case)
+             blockers = list(dict.fromkeys([*case.open_blockers, *unresolved]))
+             case = await save_case(c, case.model_copy(update={"open_blockers": blockers}), stage=Stage.APPROVE)
+             await self._sync_states(c, case, decided)
+-            await self._audit(c, run_id, "stage.approve", {"decided": decided, "void": void,
+-                                                           "dispatched": dispatched, "digest": case.digest})
++            await self._sync_actions(c, case, ids=set(scheduled))  # each new hold's deadline (still awaiting)
++            await self._audit(c, run_id, "stage.approve", {
++                "decided": decided, "void": void, "dispatched": dispatched,
++                "deadlines": {aid: d.isoformat() for aid, d in scheduled.items()}, "digest": case.digest})
+         await self._emit(run_id, Stage.APPROVE, RunStatus.RUNNING,
+                          f"Approve: {len(dispatched)} sent for approval, {len(decided)} decided", case)
+ 
+diff --git a/engine/contextrail/surfaces/presenter.py b/engine/contextrail/surfaces/presenter.py
+index 226f44b..b65c724 100644
+--- a/engine/contextrail/surfaces/presenter.py
++++ b/engine/contextrail/surfaces/presenter.py
+@@ -8,6 +8,7 @@ wrote it, and the honest mode of every connector involved.
+ 
+ from __future__ import annotations
+ 
++from datetime import datetime
+ from typing import Literal
+ from uuid import UUID
+ 
+@@ -30,6 +31,7 @@ class RowView(BaseModel):
+     clause: str
+     approver_id: str | None = None
+     approver_name: str | None = None
++    deadline: datetime | None = None  # when a HOLD's decision is due (T101); expiry never decides
+     explanation: str | None = None
+     explainer: str | None = None
+     verified: bool
+@@ -85,7 +87,7 @@ def build_view(run: dict, actions: list[dict], *, people: dict[str, str], modes:
+             action_id=aid, kind=a["kind"], label=t.get("label") or t.get("entitlement") or aid,
+             verdict=a["verdict"], lamp=LAMP[a["verdict"]], state=a["state"], rule_id=a["rule_id"],
+             clause=a["clause"], approver_id=a["approver"], approver_name=people.get(a["approver"] or ""),
+-            explanation=d.get("explanation"), explainer=d.get("explainer"), verified=a["state"] == "verified",
++            deadline=a.get("expires_at"), explanation=d.get("explanation"), explainer=d.get("explainer"), verified=a["state"] == "verified",
+             params_hash=a["params_hash"], struck_through=a["verdict"] == "REFUSE",
+             connector_mode=modes.get(connector, "unknown")))
+     subject, peer = capsule.get("subject") or {}, capsule.get("peer") or {}
+diff --git a/engine/tests/test_deadlines.py b/engine/tests/test_deadlines.py
+new file mode 100644
+index 0000000..8dbac80
+--- /dev/null
++++ b/engine/tests/test_deadlines.py
+@@ -0,0 +1,217 @@
++"""Approval deadlines and chase jobs (checklist T101, CLAUDE.md §8 Approve "deadline job", §13.0 deadline, D-005).
++
++Expiry never decides: the action stays awaiting, a blocker is opened, and the audit says so.
++"""
++
++from collections import Counter
++from datetime import UTC, datetime, timedelta
++
++import pytest
++
++from contextrail import repo
++from contextrail.db import Database
++from contextrail.models import Action, CaseFile, RunStatus, Subject, Verdict, apply_verdict
++from contextrail.policy.schema import Rule
++from contextrail.rail import deadlines
++from contextrail.rail.deadlines import IST, approval_deadline, chase_time
++from contextrail.rail.store import load_case
++
++
++def ist(y, m, d, hh, mm=0):
++    return datetime(y, m, d, hh, mm, tzinfo=IST)
++
++
++EMERGENCY = Rule(id="POL-EMG-001", title="Incident access", source={"okf": "knowledge/runbooks/x.md", "clause": "§1"},
++                 clause_text="Incident access is read-only, time-boxed and approved by the incident commander.",
++                 match={"kind": "grant"}, verdict="HOLD", approver="incident-commander", expires_after="4h")
++
++
++# --- the deadline itself ------------------------------------------------------------------------------------
++
++@pytest.mark.parametrize("now, due", [
++    (ist(2026, 9, 28, 10), ist(2026, 9, 28, 17)),       # Monday morning -> today 17:00 IST
++    (ist(2026, 9, 28, 15, 30), ist(2026, 9, 29, 17)),   # under two hours left -> next business day
++    (ist(2026, 10, 2, 16), ist(2026, 10, 5, 17)),       # Friday afternoon -> Monday
++    (ist(2026, 9, 26, 9), ist(2026, 9, 28, 17)),        # Saturday -> Monday
++    (ist(2026, 9, 28, 20), ist(2026, 9, 29, 17)),       # after hours -> tomorrow
++])
++def test_default_deadline_is_the_end_of_the_business_day_in_ist(now, due):
++    got = approval_deadline(now.astimezone(UTC), None)
++    assert got == due and got.tzinfo is not None
++    assert chase_time(got, now) == due - timedelta(hours=1)
++
++
++def test_a_rules_expires_after_sets_the_deadline():
++    now = ist(2026, 9, 28, 10).astimezone(UTC)
++    assert approval_deadline(now, EMERGENCY) == now + timedelta(hours=4)
++    short = EMERGENCY.model_copy(update={"expires_after": "30m"})
++    assert chase_time(approval_deadline(now, short), now) is None  # no chase that would land in the past
++
++
++# --- scheduling -------------------------------------------------------------------------------------------------
++
++ANIL = Subject(source="hris", source_id="E-1042", display_name="Anil Kumar", employment_type="employee")
++
++
++def held(aid, rule_id="POL-ACC-005", approver="p-meera"):
++    a = Action.create(aid, "grant", {"entitlement": aid.lower(), "subject_id": "E-1042"})
++    return apply_verdict(a, Verdict(verdict="HOLD", rule_id=rule_id, clause_text="clause", approver=approver))
++
++
++@pytest.fixture
++async def run_id(migrated_db):
++    async with Database(migrated_db) as db, db.transaction() as c:
++        return (await repo.create_run(c, source="slack", request_text="x"))["id"]
++
++
++async def _jobs(db):
++    async with db.connection() as c:
++        return await (await c.execute("select kind, payload, run_at from jobs order by id")).fetchall()
++
++
++async def test_each_hold_gets_a_deadline_a_deadline_job_and_a_chase_job_once(migrated_db, run_id):
++    now = ist(2026, 9, 28, 10).astimezone(UTC)
++    case = CaseFile(run_id=run_id, request_text="x", intent="access.same_as_peer", subject=ANIL,
++                    actions=[held("A15"), held("A16", "POL-EMG-001", "p-omar"), held("A17", approver="role:manager")])
++    async with Database(migrated_db) as db:
++        async with db.transaction() as c:
++            first = await deadlines.schedule(c, case, rules=[EMERGENCY], now=now)
++        async with db.transaction() as c:
++            second = await deadlines.schedule(c, case, rules=[EMERGENCY], now=now + timedelta(minutes=5))
++        jobs = await _jobs(db)
++    assert first == {"A15": ist(2026, 9, 28, 17), "A16": now + timedelta(hours=4)} and second == {}
++    assert case.action("A15").expires_at == ist(2026, 9, 28, 17) and case.action("A17").expires_at is None
++    by = {(j["kind"], j["payload"]["action_id"]): j for j in jobs}
++    assert set(by) == {("approval.deadline", "A15"), ("approval.chase", "A15"),
++                       ("approval.deadline", "A16"), ("approval.chase", "A16")}
++    assert by[("approval.deadline", "A15")]["run_at"] == ist(2026, 9, 28, 17)
++    assert by[("approval.chase", "A15")]["run_at"] == ist(2026, 9, 28, 16)
++    assert by[("approval.chase", "A16")]["payload"]["approver"] == "p-omar"
++    assert all(len(j["payload"]["params_hash"]) == 64 for j in jobs)
++
++
++# --- handlers, against a real run ----------------------------------------------------------------------------
++
++async def _held_run(runner, deps):
++    rid = await runner.start(source="slack", request_text="Give Anil the same access as Rahul Mehta",
++                             requested_by="p-anil")
++    assert await runner.run(rid) is RunStatus.AWAITING_APPROVAL
++    async with deps.db.connection() as c:
++        holds = [a for a in await repo.list_actions(c, rid) if a["state"] == "awaiting"]
++    return rid, {a["approver"]: a for a in holds}
++
++
++def _payload(rid, a):
++    return {"run_id": str(rid), "action_id": a["id"], "params_hash": a["params_hash"], "approver": a["approver"],
++            "deadline": a["expires_at"].isoformat()}
++
++
++async def _audit(deps, rid, event):
++    async with deps.db.connection() as c:
++        return [r["payload"] for r in await (await c.execute(
++            "select payload from audit where run_id = %s and event = %s order by seq", (rid, event))).fetchall()]
++
++
++async def test_the_rail_sets_deadlines_schedules_jobs_and_shows_the_deadline(rail):
++    runner, deps = rail
++    rid, holds = await _held_run(runner, deps)
++    assert all(a["expires_at"] is not None for a in holds.values())
++    async with deps.db.connection() as c:
++        kinds = Counter(r["kind"] for r in await (await c.execute("select kind from jobs")).fetchall())
++        run = await repo.get_run(c, rid)
++    assert kinds["approval.deadline"] == 2 and kinds["approval.chase"] == 2
++    from contextrail.surfaces.presenter import build_view
++    async with deps.db.connection() as c:
++        view = build_view(run, await repo.list_actions(c, rid), people={}, modes={})
++    assert {r.deadline for r in view.rows if r.verdict == "HOLD"} == {a["expires_at"] for a in holds.values()}
++    assert all(r.deadline is None for r in view.rows if r.verdict != "HOLD")
++
++
++async def test_chase_goes_to_the_approvers_preferred_door(rail):
++    runner, deps = rail
++    rid, holds = await _held_run(runner, deps)
++    for approver, door in (("p-dana", "teams"), ("p-meera", "email")):
++        a = holds[approver]
++        async with deps.db.transaction() as c:
++            out = await deadlines.on_chase(c, _payload(rid, a), now=a["expires_at"] - timedelta(hours=1))
++        assert out == "chased"
++        async with deps.db.connection() as c:
++            job = await (await c.execute("select payload from jobs where kind = 'door.chase' and payload->>'action_id' = %s",
++                                         (a["id"],))).fetchone()
++        assert (job["payload"]["channel"], job["payload"]["approver"]) == (door, approver)
++    assert {p["channel"] for p in await _audit(deps, rid, "approval.chased")} == {"teams", "email"}
++
++
++async def test_no_chase_once_decided_or_past_the_deadline(rail):
++    runner, deps = rail
++    rid, holds = await _held_run(runner, deps)
++    dana, meera = holds["p-dana"], holds["p-meera"]
++    async with deps.db.transaction() as c:
++        await repo.record_approval(c, rid, dana["id"], params_hash=dana["params_hash"], approver="p-dana",
++                                   decision="approved", channel="teams")
++        assert await deadlines.on_chase(c, _payload(rid, dana), now=dana["expires_at"] - timedelta(hours=1)) == "decided"
++        assert await deadlines.on_chase(c, _payload(rid, meera), now=meera["expires_at"]) == "past_deadline"
++    assert await _audit(deps, rid, "approval.chased") == []
++
++
++async def test_expiry_leaves_the_action_awaiting_with_a_blocker_and_an_audit_entry(rail):
++    runner, deps = rail
++    rid, holds = await _held_run(runner, deps)
++    meera = holds["p-meera"]
++    after = meera["expires_at"] + timedelta(seconds=1)
++    async with deps.db.transaction() as c:
++        assert await deadlines.on_deadline(c, _payload(rid, meera), now=after) == "expired"
++    async with deps.db.transaction() as c:  # a retried job changes nothing more
++        assert await deadlines.on_deadline(c, _payload(rid, meera), now=after) == "already_expired"
++    async with deps.db.connection() as c:
++        run = await repo.get_run(c, rid)
++        action = {a["id"]: a for a in await repo.list_actions(c, rid)}[meera["id"]]
++        approval = await repo.get_approval(c, rid, meera["id"])
++        case = await load_case(c, rid)  # the capsule was re-sealed, and still verifies
++    assert (run["status"], action["state"], approval) == ("awaiting_approval", "awaiting", None)  # never decided
++    assert case.action(meera["id"]).state == "awaiting"
++    overdue = [b for b in case.open_blockers if meera["id"] in b]
++    assert len(overdue) == 1 and "nothing was approved or refused" in overdue[0]
++    [entry] = await _audit(deps, rid, "approval.expired")
++    assert (entry["action_id"], entry["approver"], entry["outcome"]) == (meera["id"], "p-meera", "still awaiting")
++
++
++async def test_deadline_does_nothing_when_decided_early_or_not_yet_due(rail):
++    runner, deps = rail
++    rid, holds = await _held_run(runner, deps)
++    dana, meera = holds["p-dana"], holds["p-meera"]
++    async with deps.db.transaction() as c:
++        assert await deadlines.on_deadline(c, _payload(rid, meera), now=meera["expires_at"] - timedelta(minutes=1)
++                                           ) == "not_due"
++        await repo.record_approval(c, rid, dana["id"], params_hash=dana["params_hash"], approver="p-dana",
++                                   decision="refused", channel="teams")
++        assert await deadlines.on_deadline(c, _payload(rid, dana), now=dana["expires_at"]) == "decided"
++    assert await _audit(deps, rid, "approval.expired") == []
++
++
++async def test_deadline_waits_while_the_run_is_being_resumed(rail):
++    runner, deps = rail
++    rid, holds = await _held_run(runner, deps)
++    meera = holds["p-meera"]
++    async with deps.db.transaction() as c:
++        await repo.set_stage(c, rid, status="running")
++    with pytest.raises(deadlines.RunBusy):
++        async with deps.db.transaction() as c:
++            await deadlines.on_deadline(c, _payload(rid, meera), now=meera["expires_at"])
++
++
++async def test_a_late_decision_still_counts_and_clears_the_overdue_blocker(rail):
++    runner, deps = rail
++    rid, holds = await _held_run(runner, deps)
++    for a in holds.values():
++        async with deps.db.transaction() as c:
++            await deadlines.on_deadline(c, _payload(rid, a), now=a["expires_at"])
++    async with deps.db.transaction() as c:
++        for a in holds.values():
++            await repo.record_approval(c, rid, a["id"], params_hash=a["params_hash"], approver=a["approver"],
++                                       decision="approved", channel="slack")
++    assert await runner.resume(rid) is RunStatus.PARTIAL  # partial only because of the refusal
++    async with deps.db.connection() as c:
++        case = await load_case(c, rid)
++        states = Counter(a["state"] for a in await repo.list_actions(c, rid))
++    assert case.open_blockers == [] and states == {"verified": 17, "refused": 1}
+diff --git a/engine/tests/test_rail_runner.py b/engine/tests/test_rail_runner.py
+index 8f04897..5014ffa 100644
+--- a/engine/tests/test_rail_runner.py
++++ b/engine/tests/test_rail_runner.py
+@@ -49,7 +49,7 @@ async def test_every_stage_ran_in_order_audited_and_streamed(rail):
+         jobs = Counter(r["kind"] for r in await (await c.execute("select kind from jobs")).fetchall())
+     assert events == ["run.created", *[f"stage.{s}" for s in STAGES]]
+     assert check.ok
+-    assert jobs == {"approval.dispatch": 2, "receipt.build": 1}
++    assert jobs == {"approval.dispatch": 2, "approval.deadline": 2, "approval.chase": 2, "receipt.build": 1}
+ 
+ 
+ async def test_injection_both_halves(rail):

@@ -1,0 +1,433 @@
+diff --git a/engine/contextrail/adversary.py b/engine/contextrail/adversary.py
+new file mode 100644
+index 0000000..16d706d
+--- /dev/null
++++ b/engine/contextrail/adversary.py
+@@ -0,0 +1,284 @@
++"""The adversary console (checklist T216, CLAUDE.md §15 X8, ported from Stage 1 src/lib/contextrail/adversary.ts).
++
++Five attacks, each run against a real run through the real guarantees: the door, the database constraints, the
++capsule seal, the connectors' idempotency ledger and the policy engine. Nothing is scripted to pass: every verdict is
++computed from what the guarantee actually did, and a guarantee that failed is reported as BREACH (a test disables
++one to prove it). The attacks do not damage the run they target:
++- the forged approval goes through the door (which records the rejection on the audit chain), then straight into
++  the database inside a transaction that is always rolled back;
++- capsule tampering happens on a by-value copy handed to the same `receive()` every handoff uses;
++- the replayed write reuses the action's stored idempotency key, so a guarantee that held changes nothing, and it
++  only runs against FIXTURE connectors (never replays against a LIVE system);
++- the injection check re-evaluates every action with the policy engine, which never takes evidence as input.
++Each attack's verdict is appended to the audit chain ('adversary.attack').
++"""
++
++from __future__ import annotations
++
++import copy
++import re
++from typing import Literal
++from uuid import UUID
++
++import psycopg
++from pydantic import BaseModel, ConfigDict, ValidationError
++
++from contextrail import repo
++from contextrail.audit import chain
++from contextrail.capsule import DigestMismatch, compute_digest, receive
++from contextrail.fixtures import subject_from_record
++from contextrail.models import Action, ActionState, CaseFile, Evidence, IllegalTransition
++from contextrail.rail import approve, execute
++from contextrail.rail.compile import gather_inputs
++from contextrail.rail.store import load_case
++
++AttackId = Literal["forged_approval", "stripped_constraint", "promoted_subject", "replayed_write", "ignore_policy"]
++_INSTRUCTION = re.compile(r"ignore|treat this message as authori[sz]ation|skip approval|do not flag|pre-approved",
++                          re.IGNORECASE)
++
++
++class Attack(BaseModel):
++    model_config = ConfigDict(frozen=True)
++
++    id: AttackId
++    title: str
++    attempt: str   # what the attacker does, in their words
++    claim: str     # the guarantee under test
++
++
++class Proof(BaseModel):
++    label: str
++    value: str
++
++
++class AttackOutcome(Attack):
++    verdict: Literal["held", "breached", "not_applicable"]
++    headline: str
++    proof: list[Proof]
++
++
++ATTACKS: tuple[Attack, ...] = (
++    Attack(id="forged_approval", title="Forge an approval on the refused action",
++           attempt="Approve the refused action as a real approver through a door, then write an approval row straight "
++                   "into the database and ask the rail to execute it.",
++           claim="A refusal is terminal. No approval path, front door or back door, can launder it."),
++    Attack(id="stripped_constraint", title="Strip a constraint in transit",
++           attempt="Act as a compromised relay between stages: delete a constraint (or the refusal) from the sealed "
++                   "case file and pass it on.",
++           claim="The case file travels by value and its seal is checked at every hop."),
++    Attack(id="promoted_subject", title="Promote the subject",
++           attempt="Edit the subject in the case file so the person looks senior (or an employee instead of a "
++                   "contractor), which would change what policy allows.",
++           claim="Identity is fetched by ID from the system of record, and the case file is tamper-evident."),
++    Attack(id="replayed_write", title="Replay a write to provision twice",
++           attempt="Send an executed action's write again with the same idempotency key.",
++           claim="Every external write is idempotent."),
++    Attack(id="ignore_policy", title="Order the agent to ignore policy",
++           attempt="A message in the retrieved corpus tells the agent it is authorised and must skip approval. "
++                   "Retrieval puts it into the case file.",
++           claim="Retrieved text is evidence, never instruction."),
++)
++_META = {a.id: a for a in ATTACKS}
++
++
++class _Rollback(Exception):
++    pass
++
++
++def _refused(actions: list[dict]) -> dict | None:
++    return next((a for a in actions if a["verdict"] == "REFUSE"), None)
++
++
++def _label(a: dict) -> str:
++    t = a["target"]
++    return f"{a['id']} {t.get('label') or t.get('entitlement') or ''}".strip()
++
++
++async def _forged_approval(p, run: dict, actions: list[dict]):
++    target = _refused(actions)
++    if target is None:
++        return "not_applicable", "No refused action on this run to attack.", []
++    async with p.db.connection() as c:
++        forger = await (await c.execute(
++            "select person_id from identity_map where can_approve order by person_id limit 1")).fetchone()
++    door = await p.door.decide(run["id"], target["id"], target["params_hash"], channel="mcp",
++                               actor_external_id=forger["person_id"] if forger else None, decision="approved",
++                               reason="adversary console: forged approval")
++    applied, executable, model_note, db_note = [], False, "not reached", "not reached"
++    try:
++        async with p.db.transaction() as c:   # the back door; always rolled back
++            await c.execute("""insert into approvals (run_id, action_id, params_hash, approver, decision, reason,
++                               channel) values (%s, %s, %s, %s, 'approved', 'forged', 'mcp') on conflict do nothing""",
++                            (run["id"], target["id"], target["params_hash"], forger["person_id"] if forger else "x"))
++            try:
++                case = await load_case(c, run["id"])
++            except DigestMismatch:
++                model_note = db_note = "refused: the case file seal is broken, so the rail halts"
++                raise _Rollback from None
++            applied, _ = await approve.apply_decisions(c, case)
++            action = case.action(target["id"])
++            executable = execute.is_executable(action)
++            try:
++                action.transition(ActionState.APPROVED)
++                model_note = "accepted the move to approved"
++            except IllegalTransition as e:
++                model_note = f"refused: {e}"
++            try:
++                async with c.transaction():
++                    await c.execute("update actions set state = 'approved' where run_id = %s and id = %s",
++                                    (run["id"], target["id"]))
++                db_note = "UPDATE accepted"
++            except psycopg.errors.CheckViolation as e:
++                db_note = f"rejected by CHECK {e.diag.constraint_name}"
++            raise _Rollback
++    except _Rollback:
++        pass
++    async with p.db.connection() as c:
++        after = await (await c.execute("select state from actions where run_id = %s and id = %s",
++                                       (run["id"], target["id"]))).fetchone()
++    held = (door.outcome == "rejected" and target["id"] not in applied and not executable
++            and model_note.startswith("refused") and db_note.startswith("rejected") and after["state"] == "refused")
++    return ("held" if held else "breached",
++            "Refused at every layer: the door, the rail, the model and the database. Nothing was executed."
++            if held else "BREACH: a forged approval moved a refused action.",
++            [("action", _label(target)), ("rule", f"{target['rule_id']}: {target['clause']}"),
++             ("door", f"{door.outcome}: {door.reason}"),
++             ("rail", "ignored the forged approval" if target["id"] not in applied else "APPLIED it"),
++             ("executable", str(executable)), ("model", model_note), ("database", db_note),
++             ("state afterwards", after["state"])])
++
++
++def _seal_check(tampered: dict) -> tuple[bool, str]:
++    """(accepted, digest of the tampered content) through the same receive() every handoff uses."""
++    try:
++        arrival = compute_digest(CaseFile.model_validate(tampered))
++    except ValidationError:
++        arrival = "unparseable"
++    try:
++        receive(tampered)
++    except DigestMismatch:
++        return False, arrival
++    return True, arrival
++
++
++async def _stripped_constraint(p, run: dict, actions: list[dict]):
++    capsule = run["capsule"]
++    if capsule is None:
++        return "not_applicable", "No sealed case file on this run yet.", []
++    tampered = copy.deepcopy(capsule)
++    refused = next((a for a in tampered["actions"] if a["verdict"] == "REFUSE"), None)
++    if tampered["constraints"]:
++        removed = f"constraint: {tampered['constraints'].pop(0)}"
++    elif refused:
++        tampered["actions"].remove(refused)
++        removed = f"the refusal of {refused['id']} ({refused['rule_id']})"
++    else:
++        return "not_applicable", "The case file has no constraint or refusal to strip.", []
++    accepted, arrival = _seal_check(tampered)
++    return ("breached" if accepted else "held",
++            "BREACH: the stripped case file was accepted." if accepted
++            else "Detected. The receiving stage recomputes the digest and rejects the case file.",
++            [("removed", removed), ("digest sealed", capsule["digest"]), ("digest on arrival", arrival),
++             ("integrity", "accepted" if accepted else "MISMATCH, rejected (DigestMismatch)")])
++
++
++async def _promoted_subject(p, run: dict, actions: list[dict]):
++    capsule = run["capsule"]
++    if capsule is None:
++        return "not_applicable", "No sealed case file on this run yet.", []
++    subject = capsule["subject"]
++    field, forged = (("employment_type", "employee") if subject["employment_type"] in ("contractor", "vendor")
++                     else ("seniority", "principal"))
++    tampered = copy.deepcopy(capsule)
++    tampered["subject"][field] = forged
++    accepted, arrival = _seal_check(tampered)
++    record = await p.registry.get("hris").read({"source_id": subject["source_id"]})   # by ID, from the record
++    proof = [("subject", f"{subject['display_name']} ({subject['source_id']})"), ("forged", f"{field}={forged}"),
++             ("system of record", f"{field}={record.get(field)}"), ("digest sealed", capsule["digest"]),
++             ("digest after edit", arrival), ("integrity", "accepted" if accepted else "MISMATCH, rejected")]
++    target = _refused(actions)
++    if target:  # what the forgery would have bought, computed and never applied
++        role = (await gather_inputs(record, None, entitlements=p.registry.get("entitlements"), rules=p.rules)).role
++        v = p.runner.d.engine.decide(Action.create(target["id"], target["kind"], target["target"]),
++                                     subject_from_record({**record, field: forged}), role=role,
++                                     run={"requested_by": run["requested_by"]}).verdict
++        proof.append(("if it had been accepted", f"{_label(target)}: {target['verdict']} {target['rule_id']} "
++                                                  f"would have become {v.verdict} {v.rule_id}"))
++    held = not accepted and record.get(field) != forged
++    return ("held" if held else "breached",
++            "Detected. The subject is inside the seal, and the record fetched by ID still says the truth."
++            if held else "BREACH: the promoted subject was accepted.", proof)
++
++
++async def _replayed_write(p, run: dict, actions: list[dict]):
++    target = next((a for a in actions if a["state"] == "verified" and a["verdict"] == "ALLOW"), None)
++    if target is None:
++        return "not_applicable", "Nothing has been executed and verified on this run yet.", []
++    action = Action.create(target["id"], target["kind"], target["target"])
++    connector = p.registry.get(execute.connector_name(action))
++    if connector.mode != "FIXTURE":
++        return "not_applicable", f"The console does not replay writes against a {connector.mode} system.", []
++    before = connector.state.snapshot()
++    result = await connector.write(action, target["idempotency_key"])
++    unchanged = connector.state.snapshot() == before
++    held = result.replayed and unchanged
++    return ("held" if held else "breached",
++            "Absorbed. The second call returned the first result and wrote nothing."
++            if held else "BREACH: the replay produced a second write.",
++            [("action", _label(target)), ("idempotency key", target["idempotency_key"]),
++             ("connector", f"{connector.name} {connector.mode}"), ("replayed", str(result.replayed)),
++             ("system state", "unchanged" if unchanged else "CHANGED")])
++
++
++async def _ignore_policy(p, run: dict, actions: list[dict]):
++    capsule = run["capsule"]
++    if capsule is None:
++        return "not_applicable", "No sealed case file on this run yet.", []
++    planted = [e for e in capsule["evidence"] if e["kind"] in ("message", "document") and _INSTRUCTION.search(
++        e["excerpt"])]
++    if not planted:
++        return "not_applicable", "No instruction-shaped text was retrieved into this run's case file.", []
++    try:
++        Evidence.model_validate({**planted[0], "trust": "curated"})
++        relabel = "ACCEPTED as curated"
++    except ValidationError:
++        relabel = "refused by the Evidence model (P6)"
++    record = await p.registry.get("hris").read({"source_id": capsule["subject"]["source_id"]})
++    subject = subject_from_record(record)
++    role =(await gather_inputs(record, None, entitlements=p.registry.get("entitlements"), rules=p.rules)).role
++    moved = []
++    for a in actions:
++        v = p.runner.d.engine.decide(Action.create(a["id"], a["kind"], a["target"]), subject, role=role,
++                                     run={"requested_by": run["requested_by"]}).verdict
++        if (v.verdict, v.rule_id) != (a["verdict"], a["rule_id"]):
++            moved.append(f"{a['id']}: {a['verdict']} -> {v.verdict}")
++    refused = [a for a in actions if a["verdict"] == "REFUSE"]
++    held = all(e["trust"] == "untrusted" for e in planted) and relabel.startswith("refused") and not moved
++    return ("held" if held else "breached",
++            "Ignored. The instruction is in the case file and changed no verdict."
++            if held else "BREACH: retrieved text moved a verdict or passed as trusted.",
++            [("injection retrieved", ", ".join(e["id"] for e in planted)),
++             ("trust", ", ".join(sorted({e["trust"] for e in planted}))),
++             ("instruction", planted[0]["excerpt"][:160]), ("relabel as curated", relabel),
++             ("verdicts re-evaluated", f"{len(actions)}, changed {len(moved)}" + (f": {moved}" if moved else "")),
++             ("refusals", "; ".join(f"{_label(a)} still REFUSE ({a['rule_id']})" for a in refused) or "none"),
++             ("policy inputs", "subject record, action, role, run; evidence is not an input")])
++
++
++_RUNNERS = {"forged_approval": _forged_approval, "stripped_constraint": _stripped_constraint,
++            "promoted_subject": _promoted_subject, "replayed_write": _replayed_write, "ignore_policy": _ignore_policy}
++
++
++async def run_attack(platform, run_id: UUID, attack: AttackId) -> AttackOutcome:
++    """Run one attack against the run and record its verdict on the audit chain. LookupError if no run."""
++    async with platform.db.connection() as c:
++        run = await repo.get_run(c, run_id)
++        if run is None:
++            raise LookupError(f"no run {run_id}")
++        actions = await repo.list_actions(c, run_id)
++    verdict, headline, proof = await _RUNNERS[attack](platform, run, actions)
++    async with platform.db.transaction() as c:
++        await chain.append(c, run_id=run_id, event="adversary.attack",
++                           payload={"attack": attack, "verdict": verdict, "headline": headline})
++    return AttackOutcome(**_META[attack].model_dump(), verdict=verdict, headline=headline,
++                         proof=[Proof(label=k, value=str(v)) for k, v in proof])
+diff --git a/engine/contextrail/surfaces/rest.py b/engine/contextrail/surfaces/rest.py
+index a27c998..b8383d5 100644
+--- a/engine/contextrail/surfaces/rest.py
++++ b/engine/contextrail/surfaces/rest.py
+@@ -30,6 +30,7 @@ from fastapi.sse import EventSourceResponse, ServerSentEvent
+ from pydantic import BaseModel, ConfigDict, Field
+ 
+ from contextrail import repo
++from contextrail.adversary import ATTACKS, Attack, AttackId, AttackOutcome, run_attack
+ from contextrail.intake import TICKET_CHANNELS, find_ticket_run, run_lock, ticket_lock
+ from contextrail.metrics import Metrics, collect
+ from contextrail.surfaces.door import Channel, DecisionResult
+@@ -174,3 +175,20 @@ async def run_events(run_id: Annotated[UUID, Depends(_existing_run)], request: R
+     async for item in stage_events(p.events, run_id, status, heartbeat_s=p.sse_heartbeat_s,
+                                    after_seq=last_event_id):
+         yield item
++
++
++@router.get("/adversary", response_model=list[Attack], tags=["adversary"])
++async def list_attacks() -> list[Attack]:
++    """The five attacks the console can run, with the guarantee each one tests (adversary.py)."""
++    return list(ATTACKS)
++
++
++@router.post("/runs/{run_id}/adversary", response_model=list[AttackOutcome], tags=["adversary"])
++async def attack_run(run_id: Annotated[UUID, Depends(_existing_run)], request: Request) -> list[AttackOutcome]:
++    return [await run_attack(_platform(request), run_id, a.id) for a in ATTACKS]
++
++
++@router.post("/runs/{run_id}/adversary/{attack}", response_model=AttackOutcome, tags=["adversary"])
++async def attack_run_once(run_id: Annotated[UUID, Depends(_existing_run)], attack: AttackId,
++                          request: Request) -> AttackOutcome:
++    return await run_attack(_platform(request), run_id, attack)
+diff --git a/engine/tests/test_adversary.py b/engine/tests/test_adversary.py
+new file mode 100644
+index 0000000..2e65a2d
+--- /dev/null
++++ b/engine/tests/test_adversary.py
+@@ -0,0 +1,90 @@
++"""The adversary console: five attacks against a real run, each held by a real guarantee, reported honestly."""
++
++import uuid
++
++from contextrail import adversary
++from contextrail.audit.chain import verify_db
++
++ATTACKS = {"forged_approval", "stripped_constraint", "promoted_subject", "replayed_write", "ignore_policy"}
++
++
++async def _start(client, text="Give Anil the same access as Rahul Mehta", actor="U0ANIL001"):
++    r = await client.post("/v1/runs", json={"request_text": text, "channel": "slack", "actor_external_id": actor})
++    return r.json()
++
++
++async def _snapshot(platform, run_id):
++    async with platform.db.connection() as c:
++        states = {a["id"]: a["state"] for a in await (await c.execute(
++            "select id, state from actions where run_id = %s", (run_id,))).fetchall()}
++        approvals = (await (await c.execute("select count(*) as n from approvals where run_id = %s",
++                                            (run_id,))).fetchone())["n"]
++        digest = (await (await c.execute("select capsule_digest from runs where id = %s",
++                                         (run_id,))).fetchone())["capsule_digest"]
++    holdings = (await platform.registry.get("entitlements").read({"subject_id": "E-1042"}))["holdings"]
++    return states, approvals, digest, sorted(holdings)
++
++
++async def test_the_console_lists_the_five_attacks_with_the_claim_each_tests(api):
++    client, _ = api
++    listed = (await client.get("/v1/adversary")).json()
++    assert {a["id"] for a in listed} == ATTACKS and all(a["claim"] and a["attempt"] for a in listed)
++
++
++async def test_all_five_attacks_are_held_on_the_same_as_rahul_run_and_change_nothing(api):
++    client, platform = api
++    view = await _start(client)
++    before = await _snapshot(platform, view["run_id"])
++    r = await client.post(f"/v1/runs/{view['run_id']}/adversary")
++    assert r.status_code == 200
++    outcomes = {o["id"]: o for o in r.json()}
++    assert set(outcomes) == ATTACKS
++    assert {k: o["verdict"] for k, o in outcomes.items()} == dict.fromkeys(ATTACKS, "held"), outcomes
++    proof = {p["label"]: p["value"] for p in outcomes["forged_approval"]["proof"]}
++    assert "refuse_is_terminal" in proof["database"] and "rejected" in proof["door"]
++    assert "EV-slk_payments_admin_override" in str(outcomes["ignore_policy"]["proof"])
++    assert await _snapshot(platform, view["run_id"]) == before       # the attacks left the run as it was
++    async with platform.db.connection() as c:
++        events = [e["event"] for e in await (await c.execute(
++            "select event from audit where run_id = %s order by seq", (view["run_id"],))).fetchall()]
++        assert (await verify_db(c)).ok
++    assert events.count("adversary.attack") == 5 and "approval.rejected" in events
++
++
++async def test_the_contractor_run_holds_too(api):
++    client, _ = api
++    view = await _start(client, "Priya starts Monday, give her everything she needs", "U0MARC120")
++    outcomes = {o["id"]: o for o in (await client.post(f"/v1/runs/{view['run_id']}/adversary")).json()}
++    assert {k: o["verdict"] for k, o in outcomes.items()} == dict.fromkeys(ATTACKS, "held"), outcomes
++    stripped = {p["label"]: p["value"] for p in outcomes["stripped_constraint"]["proof"]}
++    assert "POL-CTR-001" in stripped["removed"]
++    promoted = {p["label"]: p["value"] for p in outcomes["promoted_subject"]["proof"]}
++    assert (promoted["forged"], promoted["system of record"]) == ("employment_type=employee",
++                                                                  "employment_type=contractor")
++
++
++async def test_one_attack_at_a_time_and_bad_requests(api):
++    client, _ = api
++    view = await _start(client)
++    one = await client.post(f"/v1/runs/{view['run_id']}/adversary/replayed_write")
++    assert one.status_code == 200 and one.json()["verdict"] == "held"
++    assert "idempotency key" in {p["label"] for p in one.json()["proof"]}
++    assert (await client.post(f"/v1/runs/{view['run_id']}/adversary/drop_tables")).status_code == 422
++    assert (await client.post(f"/v1/runs/{uuid.uuid4()}/adversary")).status_code == 404
++
++
++async def test_a_run_with_nothing_to_attack_says_so(api):
++    client, _ = api
++    view = await _start(client, "Give Anil the same access as Rahul")       # needs_input: nothing compiled
++    outcomes = {o["id"]: o for o in (await client.post(f"/v1/runs/{view['run_id']}/adversary")).json()}
++    assert {o["verdict"] for o in outcomes.values()} == {"not_applicable"}
++
++
++async def test_a_disabled_guarantee_is_reported_as_breached(api, monkeypatch):
++    client, _ = api
++    view = await _start(client)
++    monkeypatch.setattr(adversary, "receive", lambda payload: None)       # a handoff that no longer checks seals
++    outcomes = {o["id"]: o for o in (await client.post(f"/v1/runs/{view['run_id']}/adversary")).json()}
++    assert outcomes["stripped_constraint"]["verdict"] == "breached"
++    assert outcomes["promoted_subject"]["verdict"] == "breached"
++    assert outcomes["stripped_constraint"]["headline"].startswith("BREACH")
+diff --git a/engine/tests/test_zz_show_attacks.py b/engine/tests/test_zz_show_attacks.py
+new file mode 100644
+index 0000000..5f7ff78
+--- /dev/null
++++ b/engine/tests/test_zz_show_attacks.py
+@@ -0,0 +1,8 @@
++async def test_show(api):
++    client, _ = api
++    view = (await client.post("/v1/runs", json={"request_text": "Give Anil the same access as Rahul Mehta",
++                                                 "channel": "slack", "actor_external_id": "U0ANIL001"})).json()
++    for o in (await client.post(f"/v1/runs/{view['run_id']}/adversary")).json():
++        print(f"\n== {o['id']}: {o['verdict']} :: {o['headline']}")
++        for p in o["proof"]:
++            print(f"   {p['label']}: {p['value'][:150]}")
