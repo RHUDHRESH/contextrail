@@ -83,6 +83,30 @@ class SlackDoor:
             resp = await self.client.chat_postMessage(channel=dm, **blocks.starting_message(text))
         return resp["channel"], resp["ts"]
 
+    # --- approval cards ----------------------------------------------------------------------------------------
+
+    async def deliver_approval_card(self, run_id: UUID, action_id: str) -> dict:
+        """Post the approval card to the named approver's DM, once. The card is rendered from the current RunView,
+        so it binds the parameters the action has now; door_messages records where it lives (and is the
+        idempotency record: a retried job finds it and sends nothing)."""
+        async with self.door.db.connection() as c:
+            sent = [m for m in await repo.list_door_messages(c, run_id, action_id) if m["channel"] == "slack"]
+        if sent:
+            return {"status": "already_delivered", "ref": sent[0]["ref"]}
+        view = await self.door.get_status(run_id)
+        row = next((r for r in view.rows if r.action_id == action_id), None)
+        if row is None or row.state != "awaiting":
+            return {"status": "not_awaiting"}
+        user = await self.slack_user_for(row.approver_id)
+        if user is None:
+            return {"status": "no_slack_user"}
+        dm = (await self.client.conversations_open(users=user))["channel"]["id"]
+        resp = await self.client.chat_postMessage(channel=dm, **blocks.approval_card(view, row))
+        ref = {"channel": resp["channel"], "ts": resp["ts"], "user": user}
+        async with self.door.db.transaction() as c:
+            await repo.upsert_door_message(c, run_id, "slack", ref, action_id=action_id)
+        return {"status": "delivered", "ref": ref}
+
     # --- identity: person -> Slack user, for delivering cards ---------------------------------------------------
 
     async def slack_user_for(self, person_id: str) -> str | None:
@@ -137,6 +161,13 @@ class SlackDoor:
             msg["request_text"] = run["request_text"]
         self._status[run_id] = msg
         return msg
+
+
+# --- job handlers (the worker passes the SlackDoor as ctx) ------------------------------------------------------
+
+async def handle_approval_dispatch(payload: dict, ctx: SlackDoor) -> dict:
+    """Job kind 'approval.dispatch' (enqueued per held action by rail/approve.dispatch_holds)."""
+    return await ctx.deliver_approval_card(UUID(str(payload["run_id"])), payload["action_id"])
 
 
 _SETTLED = {RunStatus.DONE, RunStatus.PARTIAL, RunStatus.FAILED}
