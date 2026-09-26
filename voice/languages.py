@@ -42,7 +42,8 @@ SUPPORTED: dict[str, Language] = {
     "hi-IN": _lang(
         "hi-IN", "Hindi", "anand", ("hindi", "हिंदी", "हिन्दी", "இந்தி", "ஹிந்தி", "ಹಿಂದಿ"),
         disclosure="नमस्ते, मैं कॉन्टेक्स्टरेल का एआई सहायक हूँ, कोई इंसान नहीं।",
-        help="मैं आपकी कैसे मदद कर सकता हूँ?",
+        menu=("आप नया अनुरोध कर सकते हैं, किसी अनुरोध की स्थिति पूछ सकते हैं, नीति के बारे में सवाल पूछ सकते हैं, "
+              "या अपनी मंज़ूरी के लिए रुके आइटम तय कर सकते हैं। भाषा बदलने के लिए English, Tamil या Kannada कहें।"),
         fallback="माफ करें, मुझे समझने में परेशानी हो रही है।",
         switched="ठीक है, अब हम हिंदी में बात करेंगे।",
     ),
@@ -50,21 +51,25 @@ SUPPORTED: dict[str, Language] = {
         "en-IN", "English", "priya",
         ("english", "इंग्लिश", "अंग्रेज़ी", "अंग्रेजी", "ஆங்கிலம்", "இங்கிலீஷ்", "ಇಂಗ್ಲಿಷ್", "ಇಂಗ್ಲೀಷ್"),
         disclosure="Hello, I am ContextRail's AI assistant, not a person.",
-        help="How can I help you?",
+        menu=("You can make a new request, ask about a request's status, ask a policy question, or decide items "
+              "waiting for your approval. To change language, say Hindi, Tamil or Kannada."),
         fallback="Sorry, I'm having trouble understanding.",
         switched="Okay, we'll continue in English.",
     ),
     "ta-IN": _lang(
         "ta-IN", "Tamil", "kavitha", ("tamil", "तमिल", "தமிழ்", "ತಮಿಳು"),
         disclosure="வணக்கம், நான் ContextRail-இன் AI உதவியாளர், மனிதர் அல்ல.",
-        help="நான் உங்களுக்கு எப்படி உதவ முடியும்?",
+        menu=("நீங்கள் புதிய கோரிக்கை வைக்கலாம், ஒரு கோரிக்கையின் நிலையைக் கேட்கலாம், கொள்கை பற்றிக் கேட்கலாம், "
+              "அல்லது உங்கள் ஒப்புதலுக்காகக் காத்திருப்பவற்றை முடிவு செய்யலாம். மொழியை மாற்ற Hindi, English அல்லது "
+              "Kannada என்று சொல்லுங்கள்."),
         fallback="மன்னிக்கவும், எனக்குப் புரிந்துகொள்வதில் சிரமம் உள்ளது.",
         switched="சரி, இனி தமிழில் பேசலாம்.",
     ),
     "kn-IN": _lang(
         "kn-IN", "Kannada", "roopa", ("kannada", "कन्नड़", "कन्नड", "கன்னடம்", "ಕನ್ನಡ"),
         disclosure="ನಮಸ್ಕಾರ, ನಾನು ContextRail ನ AI ಸಹಾಯಕ, ಮನುಷ್ಯನಲ್ಲ.",
-        help="ನಾನು ನಿಮಗೆ ಹೇಗೆ ಸಹಾಯ ಮಾಡಬಹುದು?",
+        menu=("ನೀವು ಹೊಸ ವಿನಂತಿ ಮಾಡಬಹುದು, ವಿನಂತಿಯ ಸ್ಥಿತಿ ಕೇಳಬಹುದು, ನೀತಿಯ ಬಗ್ಗೆ ಪ್ರಶ್ನೆ ಕೇಳಬಹುದು, ಅಥವಾ ನಿಮ್ಮ "
+              "ಅನುಮೋದನೆಗಾಗಿ ಕಾಯುತ್ತಿರುವವನ್ನು ನಿರ್ಧರಿಸಬಹುದು. ಭಾಷೆ ಬದಲಾಯಿಸಲು Hindi, English ಅಥವಾ Tamil ಎಂದು ಹೇಳಿ."),
         fallback="ಕ್ಷಮಿಸಿ, ನನಗೆ ಅರ್ಥಮಾಡಿಕೊಳ್ಳಲು ತೊಂದರೆಯಾಗುತ್ತಿದೆ.",
         switched="ಸರಿ, ಇನ್ನು ಕನ್ನಡದಲ್ಲಿ ಮಾತನಾಡೋಣ.",
     ),

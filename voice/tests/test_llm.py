@@ -51,13 +51,14 @@ async def test_a_model_outage_gives_no_reply_rather_than_an_error():
     assert await conv.reply([{"role": "user", "content": "hello"}], system="S") is None
 
 
-async def test_the_call_session_speaks_the_haiku_reply_and_a_fixed_apology_when_there_is_none():
+async def test_the_call_speaks_the_haiku_reply_and_a_fixed_apology_when_there_is_none():
     session = agent.CallSession(FakeWS(), llm=Conversation(FakeAnthropic(["Sure."])))
-    session.conversation.append({"role": "user", "content": "hi"})
-    assert await session._llm() == "Sure."
+    assert await session.dialogue.converse("hi") == "Sure."
+    assert session.dialogue.history == [{"role": "user", "content": "hi"}, {"role": "assistant", "content": "Sure."}]
     silent = agent.CallSession(FakeWS(), llm=Conversation(None))
-    silent.conversation.append({"role": "user", "content": "hi"})
-    assert await silent._llm() == "माफ करें, मुझे समझने में परेशानी हो रही है।"  # upstream's Hindi apology
+    reply = await silent.dialogue.converse("hi")
+    assert reply.startswith("माफ करें, मुझे समझने में परेशानी हो रही है।")  # upstream's Hindi apology
+    assert silent.dialogue.history == []  # a turn the model never answered is not kept
 
 
 def test_openai_is_no_longer_a_dependency():
