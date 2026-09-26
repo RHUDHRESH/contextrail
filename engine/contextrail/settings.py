@@ -43,6 +43,7 @@ class Settings(BaseSettings):
     fs_domain: str = ""
     fs_api_key: SecretStr = SecretStr("")
     fs_workspace_id: int | None = None
+    fs_onboarding_sop_article_id: int | None = None
     fs_webhook_secret: SecretStr = SecretStr("")
     fs_rate_limit_per_min: int = 80
     fd_domain: str = ""

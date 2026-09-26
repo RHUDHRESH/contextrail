@@ -1,7 +1,25 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowRight, ChevronDown, RefreshCw } from "lucide-react";
+import { ArrowRight, ChevronDown, Mic, MicOff, RefreshCw } from "lucide-react";
+
+type SpeechResult = { isFinal: boolean; 0: { transcript: string } };
+type SpeechEvent = { results: ArrayLike<SpeechResult> };
+type SpeechError = { error: string };
+type BrowserSpeechRecognition = {
+  lang: string;
+  continuous: boolean;
+  interimResults: boolean;
+  onresult: ((event: SpeechEvent) => void) | null;
+  onerror: ((event: SpeechError) => void) | null;
+  onend: (() => void) | null;
+  start: () => void;
+  stop: () => void;
+};
+type SpeechWindow = Window & {
+  SpeechRecognition?: new () => BrowserSpeechRecognition;
+  webkitSpeechRecognition?: new () => BrowserSpeechRecognition;
+};
 
 type Persona = "employee" | "contractor" | "manager";
 type Row = { action_id: string; label: string; verdict: string; state: string; clause: string; connector_mode: string; approver_id?: string | null; approver_name?: string | null; params_hash: string };
@@ -42,6 +60,44 @@ export default function EngineDemoPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [speechSupported, setSpeechSupported] = useState<boolean | null>(null);
+  const [listening, setListening] = useState(false);
+  const [speechError, setSpeechError] = useState("");
+  const [speechLang, setSpeechLang] = useState("en-IN");
+  const speechRef = useRef<BrowserSpeechRecognition | null>(null);
+
+  useEffect(() => {
+    const browser = window as SpeechWindow;
+    const timer = window.setTimeout(() => setSpeechSupported(Boolean(browser.SpeechRecognition ?? browser.webkitSpeechRecognition)), 0);
+    return () => { window.clearTimeout(timer); speechRef.current?.stop(); speechRef.current = null; };
+  }, []);
+
+  function toggleListening() {
+    if (listening) { speechRef.current?.stop(); setListening(false); return; }
+    const browser = window as SpeechWindow;
+    const Recognition = browser.SpeechRecognition ?? browser.webkitSpeechRecognition;
+    if (!Recognition) { setSpeechError("Speech input is unavailable in this browser. You can type your request below."); return; }
+    const recognition = new Recognition();
+    recognition.lang = speechLang;
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.onresult = (event) => {
+      let transcript = "";
+      for (const result of Array.from(event.results)) {
+        transcript += `${result[0].transcript.trim()} `;
+      }
+      setRequest(transcript.trim());
+    };
+    recognition.onerror = (event) => {
+      setSpeechError(event.error === "not-allowed" ? "Microphone permission was denied. Allow it in your browser or type your request." : `Speech input stopped: ${event.error}. You can type your request.`);
+      setListening(false);
+    };
+    recognition.onend = () => { if (speechRef.current === recognition) { setListening(false); speechRef.current = null; } };
+    speechRef.current = recognition;
+    setSpeechError("");
+    try { recognition.start(); setRequest(""); setListening(true); }
+    catch { setSpeechError("Could not start the microphone. You can type your request."); setListening(false); speechRef.current = null; }
+  }
 
   useEffect(() => {
     fetch("/api/engine-demo", { cache: "no-store" }).then((res) => res.json()).then((body) => setAvailable(body.available)).catch(() => setAvailable(false));
@@ -68,12 +124,14 @@ export default function EngineDemoPage() {
   }, [persona, refreshPersona]);
 
   function selectPersona(next: Persona) {
+    speechRef.current?.stop(); setListening(false);
     setPersona(next); setError(""); setPending([]);
     setRequest(personas.find((item) => item.id === next)!.suggestion);
     setRun(null); setTicket(null); setError(""); setNotice("");
   }
 
   function chooseScenario(index: number) {
+    speechRef.current?.stop(); setListening(false);
     const choice = scenarios[index];
     setPersona(choice.persona); setRequest(choice.prompt);
     setRun(null); setTicket(null); setError(""); setNotice("");
@@ -141,13 +199,13 @@ export default function EngineDemoPage() {
   const allApprovals = pending.flatMap((item) => item.rows.filter((row) => row.state === "awaiting" && row.approver_id === "p-dana").map((row) => ({ item, row })));
 
   return <div className="mx-auto max-w-[860px] px-5 pb-20 pt-10 md:px-8 md:pt-16">
-    <p className="text-sm font-medium text-rail">Local engine demo</p>
+    <p className="text-sm font-medium text-rail">Live demo</p>
     <h1 className="mt-2 font-display text-[36px] leading-tight text-text md:text-[48px]">One request, three views</h1>
     <p className="mt-3 max-w-2xl text-[15px] leading-relaxed text-muted">Ask for access or onboarding. See what was done, what needs approval, and the Freshservice ticket.</p>
     <details className="mt-4 text-sm text-muted"><summary className="cursor-pointer font-medium text-text">Northbeam Robotics · demo organization</summary><p className="mt-2 max-w-2xl leading-relaxed">Anil is a Payments employee; Rahul is a senior teammate. Priya is a Perception contractor starting Monday, with Marc as her manager and a statement of work limited to read-only perception SDK access. Dana is the Security approver. Their people, policies, and access records are fictional fixtures; Freshservice tickets are live. Onboarding here plans access only; it does not provision a laptop or email.</p></details>
 
     <section className="mt-7" aria-label="Choose a demo persona">
-      <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-dim">Choose who you are <span className="font-normal normal-case tracking-normal">· local simulation</span></p>
+      <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-dim">Choose who you are</p>
       <div className="grid gap-2 sm:grid-cols-3">{personas.map((item) => <button key={item.id} type="button" onClick={() => selectPersona(item.id)} aria-pressed={persona === item.id} className={`rounded-xl border p-3 text-left transition ${persona === item.id ? "border-rail bg-rail/5" : "border-line bg-panel hover:border-line-strong"}`}><span className="block text-sm font-semibold text-text">{item.title}</span><span className="mt-1 block text-sm text-text">{item.name}</span><span className="mt-1 block text-xs leading-relaxed text-muted">{item.description}</span></button>)}</div>
     </section>
 
@@ -156,8 +214,10 @@ export default function EngineDemoPage() {
     <form id="engine-request" onSubmit={submit} className="mt-5 rounded-[18px] border border-line-strong bg-panel p-4 shadow-[0_12px_40px_rgba(70,53,36,.06)] md:p-5">
       <label htmlFor="request-text" className="mb-2 block text-sm font-medium text-text">{persona === "manager" ? "Create a request as Dana" : `What does ${selected.name} need?`}</label>
       <textarea id="request-text" value={request} onChange={(event) => setRequest(event.target.value)} rows={3} className="w-full resize-y rounded-lg border border-line bg-transparent p-3 text-[16px] leading-6 text-text outline-none focus:border-rail" />
+      <div className="mt-2 flex flex-wrap items-center gap-3"><button type="button" onClick={toggleListening} disabled={speechSupported !== true || busy} aria-label={listening ? "Stop listening" : "Speak your request"} aria-pressed={listening} className="inline-flex h-9 items-center gap-2 rounded-lg border border-line px-3 text-sm font-medium text-text disabled:cursor-not-allowed disabled:opacity-40">{listening ? <MicOff className="size-4" /> : <Mic className="size-4" />}{listening ? "Stop listening" : "Speak"}</button><label className="sr-only" htmlFor="speech-language">Speech language</label><select id="speech-language" value={speechLang} onChange={(event) => setSpeechLang(event.target.value)} disabled={listening || speechSupported !== true} className="h-9 rounded-lg border border-line bg-panel px-2 text-sm text-text disabled:opacity-40"><option value="en-IN">English</option><option value="hi-IN">हिन्दी</option><option value="ta-IN">தமிழ்</option></select><span role="status" className="text-xs text-muted">{listening ? "Listening… Speak your request, then submit it." : speechSupported === false ? "Speech input is unavailable in this browser." : "Review the transcript before submitting."}</span></div>
+      {speechError && <p role="alert" className="mt-2 text-xs text-stop">{speechError}</p>}
       <div className="mt-3 flex flex-wrap gap-2" aria-label="Try a scenario">{scenarios.map((scenario, index) => <button key={scenario.title} type="button" onClick={() => chooseScenario(index)} className="rounded-full border border-line px-3 py-1.5 text-left text-xs text-text hover:border-line-strong"><span className="font-medium">{scenario.title}</span><span className="ml-1 text-dim">· {scenario.result}</span></button>)}</div>
-      <div className="mt-3 flex flex-wrap items-center justify-between gap-3 border-t border-line pt-4"><span className="text-xs text-muted">Identity is mapped server-side to a fixed fixture account.</span><button type="submit" disabled={!available || busy || request.trim().length < 8} className="inline-flex h-10 items-center gap-2 rounded-lg bg-rail px-5 text-sm font-semibold text-panel disabled:cursor-not-allowed disabled:opacity-40">{busy ? "Working…" : "Run request"}<ArrowRight className="size-4" /></button></div>
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-3 border-t border-line pt-4"><span className="text-xs text-muted">Identity is mapped server-side to a fixed fixture account.</span><button type="submit" disabled={!available || busy || listening || request.trim().length < 8} className="inline-flex h-10 items-center gap-2 rounded-lg bg-rail px-5 text-sm font-semibold text-panel disabled:cursor-not-allowed disabled:opacity-40">{busy ? "Working…" : "Run request"}<ArrowRight className="size-4" /></button></div>
     </form>
     {!available && available !== null && <p role="status" className="mt-3 text-sm text-muted">Start the local pilot engine to use this demo.</p>}
     {error && <p role="alert" className="mt-3 rounded-xl border border-stop/40 bg-stop/5 p-3 text-sm text-text">{error}</p>}
@@ -169,7 +229,7 @@ export default function EngineDemoPage() {
       {allApprovals.length === 0 ? <div className="mt-3 rounded-xl border border-dashed border-line-strong px-5 py-8 text-center text-sm text-muted">No requests are waiting for Dana. Submit a request as Anil, then switch back to Manager.</div> : <div className="mt-3 space-y-3">{allApprovals.map(({ item, row }) => <div key={`${item.run_id}:${row.action_id}`} className="rounded-xl border border-line-strong bg-panel p-4"><p className="text-xs text-dim">Request {item.run_id.slice(0, 8)} · For {item.subject ?? "employee"}{item.peer ? ` · Based on ${item.peer}` : ""}</p><h3 className="mt-1 font-medium text-text">{row.label}</h3><p className="mt-2 text-sm leading-relaxed text-muted">{item.request_text}</p><p className="mt-2 text-xs text-muted">{row.verdict} · {row.clause}</p><div className="mt-4 flex gap-2"><button type="button" disabled={busy} onClick={() => void decide(item, row, "approved")} className="h-9 rounded-lg bg-rail px-4 text-sm font-semibold text-panel disabled:opacity-50">Approve</button><button type="button" disabled={busy} onClick={() => void decide(item, row, "refused")} className="h-9 rounded-lg border border-line px-4 text-sm font-medium text-text disabled:opacity-50">Decline</button></div></div>)}</div>}
     </section> : <section id="engine-history" className="mt-8" aria-label="My requests"><p className="text-xs font-semibold uppercase tracking-wide text-dim">{selected.name} · this browser</p><h2 className="mt-1 font-display text-2xl text-text">My requests</h2>{history.length === 0 ? <p className="mt-3 rounded-xl border border-dashed border-line-strong px-5 py-7 text-center text-sm text-muted">No requests yet for this persona.</p> : <div className="mt-3 space-y-2">{history.map((item) => <button key={item.run_id} type="button" onClick={() => void selectHistory(item)} className="w-full rounded-xl border border-line bg-panel p-4 text-left hover:border-line-strong"><span className="block text-sm font-medium text-text">{item.request_text}</span><span className="mt-1 block text-xs text-muted">{title(item.status)} · {item.rows.length} actions · {item.run_id.slice(0, 8)}</span></button>)}</div>}</section>}
 
-    <p className="mt-7 text-xs leading-relaxed text-dim">Local demo only. Personas are fixture identities in this browser, not authenticated accounts. Each request list loads from the engine for that mapped identity. Access changes use fixture connectors unless the engine reports a live mode. Browser decisions use the engine’s MCP demo channel; Slack approval is a separate integration.</p>
+    <p className="mt-7 text-xs leading-relaxed text-dim">Requests use the live engine and create Freshservice tickets when verified. Personas and access systems are sample fixtures, not authenticated accounts or real access grants. Browser decisions use the engine’s demo channel; Slack approval is a separate integration.</p>
   </div>;
 }
 

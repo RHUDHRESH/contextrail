@@ -81,7 +81,9 @@ async def rail(migrated_db, tmp_path):
     from contextrail.seed import approver_directory, reset_fixture_state, seed_identity
 
     reset_fixture_state(tmp_path)
-    seed_identity(migrated_db)
+    # Keep fixture identities stable even when the developer's local demo .env
+    # routes approval mail to real inboxes.
+    seed_identity(migrated_db, email_overrides="")
     people = {p["person_id"]: p["display_name"] for p in load("identity")["people"]}
     rules = load_rules()
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from html import escape
 from typing import Literal
 
 from fastapi import HTTPException
@@ -12,6 +13,7 @@ from contextrail.connectors.base import ConnectorError, UnknownOutcome
 from contextrail.connectors.freshservice import ACCESS_REQUEST_TEXT_FIELD, FreshserviceHTTPError, fs_id
 from contextrail.intake import advisory_lock
 from contextrail.surfaces.presenter import RunView
+from contextrail.settings import get_settings
 
 
 class VoiceTicket(BaseModel):
@@ -116,4 +118,39 @@ async def start_ticket_request(platform, *, request_text: str, actor_external_id
                     await repo.enqueue_job(c, "approval.dispatch",
                                            {"run_id": str(view.run_id), "action_id": action["id"]},
                                            dedupe_key=f"approval.dispatch:ticket:{view.run_id}:{action['id']}")
+    if ticket.status == "verified" and ticket.mode == "LIVE" and ticket.ticket_id is not None:
+        article_id = get_settings().fs_onboarding_sop_article_id
+        if article_id:
+            async with platform.db.connection() as c:
+                run = await repo.get_run(c, view.run_id)
+            if run and run.get("intent") == "onboarding":
+                marker = f"cr-onboarding-sop-{view.run_id.hex}"
+                try:
+                    article = await fs.get_solution_article(article_id)
+                    if article.mode != "LIVE" or fs_id(article.data["id"]) != article_id:
+                        raise ConnectorError("Freshservice onboarding SOP could not be verified")
+                    subject = escape(view.subject or "unresolved worker")
+                    title = escape(str(article.data.get("title") or "Contractor onboarding SOP"))
+                    domain = get_settings().fs_domain
+                    link = f"https://{domain}/a/solutions/articles/{article_id}"
+                    rows = "".join(
+                        f"<li>{escape(row.label)}: {escape(row.state)} ({row.connector_mode})</li>"
+                        for row in view.rows
+                    )
+                    body = (f"<p>ContextRail onboarding context for {subject}. "
+                            f"Run {escape(str(view.run_id))}.</p>"
+                            f"<p>Procedure: <a href=\"{escape(link, quote=True)}\">{title}</a> "
+                            f"(Freshservice article #{article_id}, draft).</p>"
+                            f"<p>Recorded actions and holds:</p><ul>{rows}</ul>"
+                            "<p>Confirm HRIS, signed SOW, equipment, guest scope, and access readback "
+                            "before closing this ticket. FIXTURE connector results are demo evidence only.</p>")
+                    note = await fs.add_private_note(ticket.ticket_id, body, marker)
+                    status = "verified" if note.mode == "LIVE" and note.confirmed else "unverified"
+                    ref = {"status": status, "article_id": article_id, "note_id": note.note_id,
+                           "mode": note.mode}
+                except (ConnectorError, KeyError, TypeError, ValueError):
+                    ref = {"status": "blocked", "article_id": article_id, "mode": "LIVE"}
+                async with platform.db.transaction() as c:
+                    await repo.upsert_door_message(c, view.run_id, "freshservice", ref,
+                                                   action_id="onboarding-sop")
     return VoiceRequestResult(run=view, ticket=ticket)
