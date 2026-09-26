@@ -223,7 +223,7 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 - [x] T170 `P1` `knowledge/SCHEMA.md`: frontmatter conventions and ingest/lint rules.
 - [ ] T171 `P1` Root and per-folder `index.md`.
 - [ ] T172 `P1` `log.md` with ISO-dated entries.
-- [ ] T173 `P1` `policies/contractor-onboarding.md` + `policies/access-control-standard.md`, linked to their rules.
+- [x] T173 `P1` `policies/contractor-onboarding.md` + `policies/access-control-standard.md`, linked to their rules.
 - [x] T174 `P1` `roles/payments-engineer.md` + `systems/github.md` + `systems/freshservice.md`.
 - [x] T175 `P1` `precedents/github-readonly-contractors.md` + `runbooks/emergency-access.md`.
 - [x] T176 `P1` OKF loader: frontmatter parser + link graph.
