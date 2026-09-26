@@ -1,0 +1,81 @@
+# ContextRail — one box: Postgres 16, engine, voice, Caddy (TLS). CLAUDE.md §19.
+# Local:  cp .env.example .env && make up          (voice is opt-in: `docker compose --profile voice up`)
+# Prod:   env comes from SSM (scripts/ssm-env.sh writes .env on the host; never committed)
+
+name: contextrail
+
+services:
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: cr
+      POSTGRES_PASSWORD: cr
+      POSTGRES_DB: cr
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cr -d cr"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    # Not published on the host in production; uncomment for local psql access.
+    # ports: ["5432:5432"]
+
+  engine:
+    build: ./engine
+    image: contextrail-engine:latest
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DATABASE_URL: postgresql://cr:cr@postgres:5432/cr
+      CONTEXTRAIL_FIXTURES_DIR: /data/fixtures
+      CONTEXTRAIL_KNOWLEDGE_DIR: /data/knowledge
+    volumes:
+      # Fixtures are read-only seeds; mutable fixture state lives in the named volume.
+      - ./fixtures:/data/fixtures:ro
+      - ./knowledge:/data/knowledge:ro
+      - fixture_state:/data/state
+    depends_on:
+      postgres:
+        condition: service_healthy
+    expose: ["8000"]
+
+  voice:
+    build: ./voice
+    image: contextrail-voice:latest
+    profiles: ["voice"]
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      ENGINE_URL: http://engine:8000
+    depends_on:
+      engine:
+        condition: service_healthy
+    expose: ["8100"]
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      # Public hostname, e.g. cr.example.com; "localhost" gives Caddy's local CA for dev.
+      CR_HOST: ${CR_HOST:-localhost}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - engine
+
+volumes:
+  pgdata:
+  fixture_state:
+  caddy_data:
+  caddy_config:
