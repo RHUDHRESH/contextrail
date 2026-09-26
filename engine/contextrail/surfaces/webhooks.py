@@ -29,7 +29,9 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, ValidationError, field_validator
 
+from contextrail import repo
 from contextrail.connectors.freshservice import fs_id
+from contextrail.db import Database
 from contextrail.logs import get_logger
 
 router = APIRouter(prefix="/webhooks", tags=["webhooks"])
@@ -97,9 +99,22 @@ async def _signed_body(request: Request) -> bytes:
 
 @router.post("/freshservice", status_code=202)
 async def freshservice(request: Request) -> JSONResponse:
+    """Signed delivery -> 202 at once. The first delivery per ticket enqueues one 'rail.run' job; retries and
+    replays are recorded no-ops (T133). The rail never runs inside the request: the worker picks the job up."""
     body = await _signed_body(request)
     try:
         delivery = FreshserviceDelivery.model_validate_json(body)
     except ValidationError as e:
         raise HTTPException(422, "; ".join(err["msg"] for err in e.errors())) from e
-    return JSONResponse({"accepted": True, "ticket_id": delivery.ticket_id}, status_code=202)
+    db: Database | None = getattr(request.app.state, "db", None)
+    if db is None:
+        raise HTTPException(503, "the engine database is not available; the delivery was not accepted")
+    ticket = delivery.ticket_id
+    async with db.transaction() as c:
+        first = await repo.dedupe_webhook(c, "freshservice", str(ticket))
+        job_id = await repo.enqueue_job(c, "rail.run", {"ticket_id": ticket, "source": "freshservice"},
+                                        dedupe_key=f"rail.run:freshservice:{ticket}") if first else None
+    get_logger("contextrail.webhooks").info("webhook.accepted", source="freshservice", ticket_id=ticket,
+                                            duplicate=not first, job_id=job_id)
+    return JSONResponse({"accepted": True, "duplicate": not first, "ticket_id": ticket, "job_id": job_id},
+                        status_code=202)

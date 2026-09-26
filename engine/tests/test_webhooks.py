@@ -5,6 +5,7 @@ Signature scheme (see contextrail/surfaces/webhooks.py):
   X-ContextRail-Signature: sha256=<hex HMAC-SHA256(FS_WEBHOOK_SECRET, "<timestamp>.<raw body>")>
 """
 
+import asyncio
 import hashlib
 import hmac
 import json
@@ -13,6 +14,7 @@ import time
 import httpx
 import pytest
 
+from contextrail.db import Database
 from contextrail.main import create_app
 from contextrail.settings import Settings
 from contextrail.surfaces import webhooks
@@ -24,6 +26,25 @@ URL = "/v1/webhooks/freshservice"
 
 def app(secret: str = SECRET):
     return create_app(Settings(_env_file=None, fs_webhook_secret=secret))
+
+
+@pytest.fixture
+async def db(migrated_db):
+    d = Database(migrated_db, max_size=4)
+    await d.open()
+    yield d
+    await d.close()
+
+
+def wired(db: Database, secret: str = SECRET):
+    a = app(secret)
+    a.state.db = db  # the lead's app wiring opens one Database and puts it here
+    return a
+
+
+async def rows(db: Database, sql: str) -> list[dict]:
+    async with db.connection() as c:
+        return await (await c.execute(sql)).fetchall()
 
 
 def signed(body: bytes, *, ts: int | None = None, secret: str = SECRET) -> dict:
@@ -79,8 +100,8 @@ def test_the_comparison_is_constant_time(monkeypatch):
 
 # --- the endpoint -----------------------------------------------------------------------------------------------
 
-async def test_a_signed_delivery_is_accepted_with_202():
-    r = await post(app(), BODY, signed(BODY))
+async def test_a_signed_delivery_is_accepted_with_202(db):
+    r = await post(wired(db), BODY, signed(BODY))
     assert r.status_code == 202 and r.json()["accepted"] is True and r.json()["ticket_id"] == 4412
 
 
@@ -108,9 +129,9 @@ async def test_a_signed_but_malformed_payload_is_422(payload):
     assert r.status_code == 422
 
 
-async def test_a_numeric_string_ticket_id_is_accepted():
+async def test_a_numeric_string_ticket_id_is_accepted(db):
     body = json.dumps({"ticket_id": "4412"}).encode()   # Workflow Automator placeholders may render as strings
-    r = await post(app(), body, signed(body))
+    r = await post(wired(db), body, signed(body))
     assert r.status_code == 202 and r.json()["ticket_id"] == 4412
 
 
@@ -118,3 +139,49 @@ async def test_an_oversized_body_is_refused_before_anything_else():
     body = json.dumps({"ticket_id": 4412, "pad": "x" * 20_000}).encode()
     r = await post(app(), body, signed(body))
     assert r.status_code == 413
+
+
+# --- T133: dedupe by ticket id, 202 at once, a job instead of an inline run -------------------------------------
+
+async def test_the_first_delivery_enqueues_one_rail_run_job_and_starts_nothing_inline(db):
+    r = await post(wired(db), BODY, signed(BODY))
+    assert r.status_code == 202
+    assert (r.json()["duplicate"], isinstance(r.json()["job_id"], int)) == (False, True)
+    jobs = await rows(db, "select kind, payload, done from jobs")
+    assert jobs == [{"kind": "rail.run", "payload": {"ticket_id": 4412, "source": "freshservice"}, "done": False}]
+    assert await rows(db, "select source, external_id from webhook_dedupe") == [
+        {"source": "freshservice", "external_id": "4412"}]
+    assert await rows(db, "select id from runs") == []  # the worker runs the rail, not the request
+
+
+async def test_a_retried_delivery_is_202_with_no_second_job(db):
+    application = wired(db)
+    first = await post(application, BODY, signed(BODY))
+    again = await post(application, BODY, signed(BODY))            # Workflow Automator retries up to 4x
+    replay = await post(application, BODY, dict(first.request.headers))  # the same signed request, replayed
+    assert [x.status_code for x in (first, again, replay)] == [202, 202, 202]
+    assert [x.json()["duplicate"] for x in (first, again, replay)] == [False, True, True]
+    assert again.json()["job_id"] is None
+    assert len(await rows(db, "select id from jobs")) == 1
+
+
+async def test_concurrent_duplicate_deliveries_still_make_one_job(db):
+    application = wired(db)
+    out = await asyncio.gather(*(post(application, BODY, signed(BODY)) for _ in range(5)))
+    assert {x.status_code for x in out} == {202}
+    assert sorted(x.json()["duplicate"] for x in out) == [False, True, True, True, True]
+    assert len(await rows(db, "select id from jobs where kind = 'rail.run'")) == 1
+
+
+async def test_different_tickets_each_get_a_job(db):
+    application = wired(db)
+    for tid in (4412, 4413):
+        body = json.dumps({"ticket_id": tid}).encode()
+        assert (await post(application, body, signed(body))).json()["duplicate"] is False
+    payloads = sorted(j["payload"]["ticket_id"] for j in await rows(db, "select payload from jobs"))
+    assert payloads == [4412, 4413]
+
+
+async def test_without_a_database_a_valid_delivery_is_503_not_lost_silently():
+    r = await post(app(), BODY, signed(BODY))  # no app.state.db wired
+    assert r.status_code == 503 and "database" in r.json()["detail"]
