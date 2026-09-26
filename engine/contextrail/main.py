@@ -9,6 +9,7 @@ from contextrail.errors import install_error_handlers
 from contextrail.logs import configure_logging
 from contextrail.policy.loader import load_rules
 from contextrail.settings import Settings, get_settings
+from contextrail.surfaces.mcp_server import mount_mcp
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -30,6 +31,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return {"status": "ok", "version": __version__}
 
     app.include_router(v1_router)
+    mount_mcp(app, settings)
     return app
 
 

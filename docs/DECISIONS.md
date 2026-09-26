@@ -19,6 +19,7 @@ Append-only. Each entry records what we chose, why, and what would change our mi
 | D-012 | — | Teams SDK: Microsoft 365 Agents SDK vs Bot Framework SDK | Open (T240) |
 | D-013 | 2026-09-26 | Claude Haiku 4.5 is the only model; Bedrock backup capped at $20 | Accepted |
 | D-014 | 2026-09-26 | Agentic core (memory, RAG, tools, capabilities) pulled forward as section T | Accepted |
+| D-016 | 2026-09-26 | MCP door: `/mcp` inside the engine, static ENGINE_TOKEN bearer, strict capsule handles | Accepted |
 
 ---
 
@@ -156,3 +157,20 @@ output sets a verdict, an approval or `verified`.
 **Why lexical RAG, not a vector DB.** The corpus is small (policies, roles, systems, precedents, runbooks,
 receipts), and Anthropic offers no embedding model on our budget. Postgres full-text search (already our only
 store) plus rule/tag links gives precise, explainable retrieval with citations and no extra service.
+
+## D-016 — MCP door: `/mcp` inside the engine, static bearer, strict capsule handles
+**Found** (reading the installed `mcp` 2.2.0, not memory): `MCPServer.streamable_http_app()` returns a Starlette app
+whose session manager must run in the host's lifespan when mounted, and `run()` may be entered once per manager.
+The SDK speaks two protocol eras: handshake-era clients (2025-11-25 and earlier) accept a server-initiated
+`elicitation/create` mid-call; 2026-07-28 clients get `InputRequiredResult` round trips and no back-channel.
+**Decision.**
+- Serve MCP at exactly `/mcp` in the engine app, via a router whose lifespan builds a fresh Streamable HTTP app and
+  session manager (merged by `include_router`, one additive line in `main.py`). Host/Origin allow-list = the
+  `PUBLIC_URL` host and localhost.
+- Auth is the SDK's bearer middleware with a TokenVerifier over `ENGINE_TOKEN` (constant-time). While the token
+  is empty or `change-me`, `/mcp` answers 503, like the REST door. Not OAuth: no metadata routes are served.
+- A capsule handle is `{run_id, digest}`. Every tool loads the sealed case file through `rail/store.load_case`
+  (content, stored digest and the run's recorded digest must agree) and requires the handle's digest to equal the
+  current one. A stale handle is refused with the current handle, so an agent never acts on a case file that
+  changed under it; a failed seal halts and is audited.
+**Revisit if.** Per-user MCP identity is needed (then OAuth via the SDK's auth provider, or per-agent tokens).
