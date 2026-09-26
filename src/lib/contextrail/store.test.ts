@@ -70,12 +70,15 @@ describe("store", () => {
   });
 
   it("never leaves a partially written file behind", () => {
+    const dir = path.dirname(FILE);
+    const temporaryFiles = () => fs.readdirSync(dir).filter((f) => f.endsWith(".tmp")).sort();
+    const before = temporaryFiles();
     saveRun(stubRun("REQ-1"));
     saveRun(stubRun("REQ-2"));
     // A truncated write would throw here; the store writes to a temp file
     // and renames, so every read observes a complete document.
     expect(() => JSON.parse(fs.readFileSync(FILE, "utf8"))).not.toThrow();
-    expect(fs.readdirSync(path.dirname(FILE)).filter((f) => f.endsWith(".tmp"))).toHaveLength(0);
+    expect(temporaryFiles()).toEqual(before);
   });
 
   it("filters by tenant", () => {

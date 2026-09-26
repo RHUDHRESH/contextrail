@@ -16,5 +16,8 @@ export default defineConfig({
     hookTimeout: 30_000,
     // Store and ledger are module-level singletons; isolate per file.
     pool: "forks",
+    // Every file also writes the same prototype .data/runs.json. Separate forked
+    // modules are insufficient when tests reset or rename that shared file.
+    fileParallelism: false,
   },
 });
