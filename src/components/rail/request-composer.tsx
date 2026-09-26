@@ -52,6 +52,9 @@ export function RequestComposer({ preset }: { preset?: string | null }) {
             <br />
             <span className="text-muted">The rail works out what that means, and what it is allowed to do.</span>
           </h1>
+          <p className="mt-3 text-sm text-muted">
+            Fixture demo · Requests here use sample data and do not create live Freshservice tickets.
+          </p>
         </motion.header>
       </AnimatePresence>
 
