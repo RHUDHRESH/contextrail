@@ -210,7 +210,7 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 - [x] T160 `P1` `config/requests.json`: getRunByTicket, startRun, getReceipt.
 - [x] T161 `P1` `app.js` client init (`client.data.get('ticket')`) + Crayons layout: header, run status pill, LIVE/FIXTURE badge.
 - [x] T162 `P1` Rows: ALLOW (verified tick), HOLD (approver + deadline), REFUSE (struck through + clause).
-- [ ] T163 `P1` Empty state with "Run ContextRail on this ticket" button.
+- [x] T163 `P1` Empty state with "Run ContextRail on this ticket" button.
 - [ ] T164 `P1` Poll every 3 s while running; stop on final state.
 - [ ] T165 `P1` Receipt modal via interface method + error and timeout states.
 - [ ] T166 `P1` `server/server.js`: `onTicketCreate` backup trigger calling startRun.

@@ -9,7 +9,27 @@ Platform 3.0 · FDK 10.x · Node 24.x · Crayons 4.x · module `service_ticket` 
 
 ## Features
 
-- Ticket sidebar that loads the ContextRail run for the open ticket.
+- Ticket sidebar that loads the ContextRail run for the open ticket: status pill, LIVE/FIXTURE badge
+  (LIVE only when every connector is LIVE), one row per action.
+- Rows: ✅ ALLOW with a verified tick (only when the engine read it back), 🟠 HOLD with approver and deadline,
+  ⛔ REFUSE struck through with the policy clause quoted.
+- Empty state with **Run ContextRail on this ticket** when the ticket has no run yet.
+
+## Engine contract
+
+Every call goes through a request template in `config/requests.json` with
+`Authorization: Bearer <engine_token>`; the host is the `engine_url` installation parameter.
+
+| Template | Call | Expected answers |
+|---|---|---|
+| `getRunByTicket` | `GET /v1/runs/by-ticket/{ticket_id}` | 200 `RunView` JSON; 404 when the ticket has no run |
+| `startRun` | `POST /v1/runs` | 200/201/202 `RunView`; 409 when the ticket already has a run |
+
+`startRun` body (the same idempotency key from every trigger, so the engine keeps one run per ticket):
+
+```json
+{"ticket_id": 25, "source": "freshservice", "trigger": "fdk_sidebar", "idempotency_key": "freshservice:ticket:25"}
+```
 
 ## Setup
 

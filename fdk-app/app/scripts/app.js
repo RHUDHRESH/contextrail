@@ -2,7 +2,7 @@
 // it with CRView. It holds no secrets and makes no decisions; the engine is the only source of every verdict.
 (function () {
   const V = window.CRView;
-  const state = { client: null, ticketId: null };
+  const state = { client: null, ticketId: null, starting: false };
   const TOKEN_REJECTED = 'The ContextRail engine rejected this app\'s credentials. Ask an admin to check the app settings.';
   const ENGINE_ERRORS = new Map([
     [401, TOKEN_REJECTED],
@@ -48,8 +48,48 @@
       });
       render(JSON.parse(result.response));
     } catch (err) {
-      showEngineError(err);
+      if (err && err.status === 404) {
+        showEmpty();
+        return;
+      }
+      showMessage('error', engineErrorText(err));
     }
+  }
+
+  function showEmpty(errorText) {
+    const box = V.renderEmpty(document, errorText);
+    box.querySelector('#cr-run').addEventListener('fwClick', startRun);
+    document.getElementById('cr-status').replaceChildren();
+    document.getElementById('cr-body').replaceChildren(box);
+  }
+
+  // One start per click burst: the in-flight flag blocks a double click, and the engine dedupes on the
+  // idempotency key in the body if another trigger got there first.
+  async function startRun(event) {
+    if (state.starting) {
+      return;
+    }
+    state.starting = true;
+    event.target.setAttribute('loading', '');
+    event.target.setAttribute('disabled', '');
+    try {
+      const result = await state.client.request.invokeTemplate('startRun', {
+        body: JSON.stringify(V.startRunBody(state.ticketId, 'fdk_sidebar'))
+      });
+      render(JSON.parse(result.response));
+    } catch (err) {
+      await afterFailedStart(err);
+    } finally {
+      state.starting = false;
+    }
+  }
+
+  async function afterFailedStart(err) {
+    if (err && err.status === 409) {
+      await refresh();
+      return;
+    }
+    showEmpty(engineErrorText(err));
   }
 
   function render(view) {
@@ -62,11 +102,10 @@
     return Number.isInteger(id) && id > 0 ? id : null;
   }
 
-  function showEngineError(err) {
+  function engineErrorText(err) {
     const status = err && err.status;
-    const text = ENGINE_ERRORS.get(status) ||
+    return ENGINE_ERRORS.get(status) ||
       'The ContextRail engine returned an error (HTTP ' + (status || 'unknown') + '). Reload the ticket to try again.';
-    showMessage('error', text);
   }
 
   function showMessage(type, text) {

@@ -172,8 +172,32 @@
     return box;
   }
 
+  function renderEmpty(doc, errorText) {
+    const box = el(doc, 'div', { class: 'cr-empty' });
+    if (errorText) {
+      box.append(el(doc, 'fw-inline-message', { type: 'error', closable: 'false' }, errorText));
+    }
+    box.append(el(doc, 'p', { class: 'cr-empty-text' },
+      'ContextRail has not run on this ticket yet. Running it checks every requested action against written policy.'));
+    box.append(el(doc, 'fw-button', { id: 'cr-run', color: 'primary' }, 'Run ContextRail on this ticket'));
+    return box;
+  }
+
+  // The same key whichever trigger starts the run (sidebar, onTicketCreate, Workflow Automator webhook), so the
+  // engine can dedupe them into one run for the ticket (CLAUDE.md §0 rule 5).
+  function startRunBody(ticketId, trigger) {
+    return {
+      ticket_id: ticketId,
+      source: 'freshservice',
+      trigger: trigger,
+      idempotency_key: 'freshservice:ticket:' + ticketId
+    };
+  }
+
   window.CRView = {
     el: el,
+    renderEmpty: renderEmpty,
+    startRunBody: startRunBody,
     statusModel: statusModel,
     modeModel: modeModel,
     renderHeader: renderHeader,
