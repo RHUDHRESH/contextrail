@@ -18,6 +18,7 @@ How outcomes map to the connector contract (connectors/base.py):
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 from enum import IntEnum
 from typing import Any, Self
 
@@ -41,6 +42,15 @@ SOURCES = {1: "email", 2: "portal", 3: "phone", 4: "chat", 5: "feedback_widget",
 ACCESS_REQUEST_ITEM = "Access request (ContextRail)"  # the catalog item an admin creates (T134)
 CATALOG_PAGE_SIZE = 30  # View List of Service Items: "per_page ... (default: 30, max: 30)"
 MAX_PAGES = 50          # a tenant that always answers rel="next" cannot keep us paging forever
+CONVERSATION_PAGE_SIZE = 30  # the documented default page size for a ticket's conversations
+_MARKER = re.compile(r"^[a-z0-9][a-z0-9:_-]{7,79}$")  # plain tokens survive Freshservice's HTML handling
+
+
+@dataclass(frozen=True)
+class NoteOutcome:
+    note: dict        # the conversation record
+    replayed: bool    # a note with this marker already existed; nothing was posted
+    confirmed: bool   # a re-fetch of the ticket shows the note
 
 
 def _norm(text: str) -> str:
@@ -310,3 +320,36 @@ class FreshserviceClient:
                 return a, True
         return await self.create_approval(ticket_id, who, approval_type=approval_type,
                                           email_content=email_content), False
+
+    # --- private notes: receipts and decision mirrors (T127) ---------------------------------------------------
+
+    async def create_note(self, ticket_id: object, body_html: str, *, private: bool = True) -> dict:
+        """POST /tickets/{id}/notes -> `conversation`. Private (agent-only) unless asked otherwise."""
+        path = f"tickets/{fs_id(ticket_id)}/notes"
+        return _unwrap(await self.post(path, {"body": body_html, "private": private}), "conversation", path)
+
+    async def list_conversations(self, ticket_id: object) -> list[dict]:
+        return await self.get_all(f"tickets/{fs_id(ticket_id)}/conversations", "conversations",
+                                  page_size=CONVERSATION_PAGE_SIZE)
+
+    async def find_note(self, ticket_id: object, marker: str) -> dict | None:
+        for c in await self.list_conversations(ticket_id):
+            if marker in (c.get("body_text") or "") or marker in (c.get("body") or ""):
+                return c
+        return None
+
+    async def add_private_note(self, ticket_id: object, body_html: str, marker: str) -> NoteOutcome:
+        """Post a private note carrying `marker` once, then read the ticket back to confirm the note is there.
+
+        The marker makes the write idempotent: a note already carrying it is returned (replayed), not posted
+        again. `confirmed` is True only if the re-fetch shows the note; a 201 alone is not done (P3). A timeout
+        after sending raises UnknownOutcome, and the next attempt reconciles through the marker.
+        """
+        if not _MARKER.match(marker):
+            raise ValueError(f"note marker must match {_MARKER.pattern}, got {marker!r}")
+        existing = await self.find_note(ticket_id, marker)
+        if existing is not None:
+            return NoteOutcome(note=existing, replayed=True, confirmed=True)
+        note = await self.create_note(ticket_id, f"{body_html}\n<p>ContextRail ref {marker}</p>")
+        seen = await self.find_note(ticket_id, marker)
+        return NoteOutcome(note=note, replayed=False, confirmed=seen is not None and seen.get("id") == note.get("id"))
