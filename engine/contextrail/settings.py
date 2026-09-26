@@ -45,12 +45,14 @@ class Settings(BaseSettings):
     anthropic_key_b: SecretStr = SecretStr("")
     aws_region: str = "ap-south-1"
     bedrock_haiku_id: str = "global.anthropic.claude-haiku-4-5-20251001-v1:0"
-    bedrock_sonnet_id: str = ""
-    bedrock_budget_usd: Decimal = Decimal(30)
+    bedrock_sonnet_id: str = ""      # unused: Claude Haiku 4.5 only (D-013)
+    bedrock_budget_usd: Decimal = Decimal(20)   # hard cap in code (D-013)
     run_budget_usd: Decimal = Decimal("0.50")
     haiku_model: str = "claude-haiku-4-5-20251001"
-    sonnet_model: str = "claude-sonnet-5"
+    sonnet_model: str = "claude-sonnet-5"  # unused: Claude Haiku 4.5 only (D-013)
     llm_replay_mode: Literal["off", "record", "replay"] = "off"
+    bedrock_enabled: bool = False  # T3 only when asked: AWS credentials come from the default chain, not from here
+    llm_replay_dir: str = ""       # recorded T4 responses (default: <fixtures>/llm_replay)
 
     # Email door (SES outbound; inbound arrives via the Freshservice mailbox)
     ses_from_address: str = ""

@@ -147,16 +147,16 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 
 ## H. LLM router and prompts (13)
 
-- [ ] T109 `P0` Router config from env (tiers, model IDs, budgets).
-- [ ] T110 `P0` Tier 1 and Tier 2 `Anthropic` clients.
-- [ ] T111 `P0` Tier 3 `AnthropicBedrock` client (ap-south-1, global inference IDs).
-- [ ] T112 `P0` Tier 4 replay store: record and replay modes keyed by prompt hash; responses flagged `replay=true`.
-- [ ] T113 `P0` Failover classifier: 429, 529, 5xx, timeout, credit-exhausted (no failover on other 400s).
-- [ ] T114 `P0` Per-tier circuit breaker (180 s).
+- [x] T109 `P0` Router config from env (tiers, model IDs, budgets).
+- [x] T110 `P0` Tier 1 and Tier 2 `Anthropic` clients.
+- [x] T111 `P0` Tier 3 `AnthropicBedrock` client (ap-south-1, global inference IDs).
+- [x] T112 `P0` Tier 4 replay store: record and replay modes keyed by prompt hash; responses flagged `replay=true`.
+- [x] T113 `P0` Failover classifier: 429, 529, 5xx, timeout, credit-exhausted (no failover on other 400s).
+- [x] T114 `P0` Per-tier circuit breaker (180 s).
 - [ ] T115 `P0` Cost calculator per model; write every call to `llm_calls`.
 - [ ] T116 `P0` Per-run budget enforcement.
 - [ ] T117 `P0` Structured-output helper: pydantic model → tool schema → validated object.
-- [ ] T118 `P1` Prompt caching on the system prompt and policy text.
+- [x] T118 `P1` Prompt caching on the system prompt and policy text.
 - [ ] T119 `P0` Prompts `intent.md`, `explain_verdict.md`, `approval_card.md` (cites capsule fields only).
 - [ ] T120 `P1` Prompt `extract_constraints.md`.
 - [ ] T121 `P1` Prompts `team_brief.md`, `mismatch_explain.md`, `audit_answer.md` (receipts only, cites audit seq numbers).
