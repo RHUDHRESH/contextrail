@@ -5,6 +5,7 @@ from mcp import Client
 from mcp_helpers import app_with, mcp_over_http, running, settings
 
 from contextrail.agentic.knowledge import KnowledgeHit, RuleIndex
+from contextrail.capsule import DigestMismatch, receive
 from contextrail.fixtures import load
 from contextrail.policy.loader import load_rules
 from contextrail.rail.store import load_case
@@ -145,6 +146,9 @@ async def test_compile_without_a_wired_door_is_an_honest_error():
 
 # --- check_policy_and_permissions and the handle check every tool shares (T184) ----------------------------
 
+HANDLE_TOOLS = [("check_policy_and_permissions", {}), ("generate_action_plan", {}),
+                ("handoff_to_specialist", {"team": "it"})]
+
 async def _compiled(door) -> dict:
     r = await call(server(door), "compile_context_capsule", {"request_text": SAME_AS_RAHUL, **ANIL})
     return r.structured_content["capsule_handle"]
@@ -215,9 +219,17 @@ async def test_an_edited_verdict_outside_the_seal_is_caught_and_audited(door):
 
 async def test_an_unknown_run_is_an_error_for_every_handle_tool(door):
     ghost = {"run_id": "00000000-0000-4000-8000-000000000000", "digest": "a" * 64}
-    for tool in ("generate_action_plan",):
-        r = await call(server(door), tool, {"capsule_handle": ghost})
+    for tool, extra in HANDLE_TOOLS:
+        r = await call(server(door), tool, {"capsule_handle": ghost, **extra})
         assert r.is_error and "no sealed case file" in r.content[0].text, tool
+
+
+async def test_a_stale_handle_is_refused_by_every_handle_tool(door):
+    handle = await _compiled(door)
+    await _dana_approves(door, handle["run_id"])
+    for tool, extra in HANDLE_TOOLS:
+        r = await call(server(door), tool, {"capsule_handle": handle, **extra})
+        assert r.is_error and "Stale capsule handle" in r.content[0].text, tool
 
 
 # --- generate_action_plan (T185) ----------------------------------------------------------------------------
@@ -251,6 +263,49 @@ async def test_the_plan_follows_decisions_made_in_other_doors(door):
     out = (await call(server(door), "generate_action_plan", {"capsule_handle": fresh})).structured_content
     danas = next(s for s in out["steps"] if s["approver_name"] == "Dana Osei")
     assert danas["phase"] == "execute" and danas["state"] == "verified" and danas["verified"]
+
+
+# --- handoff_to_specialist (T186) ---------------------------------------------------------------------------
+
+async def _handoff(door, team: str) -> dict:
+    handle = await _compiled(door)
+    r = await call(server(door), "handoff_to_specialist", {"capsule_handle": handle, "team": team})
+    assert not r.is_error, r.content
+    return r.structured_content
+
+
+async def test_the_capsule_travels_by_value_and_the_receiver_can_verify_it(door):
+    out = await _handoff(door, "it")
+    received = receive(out["capsule"])                  # the receiving specialist's own check (P5)
+    assert received.digest == out["digest"] == out["capsule_handle"]["digest"] and out["digest_verified"]
+    tampered = {**out["capsule"], "constraints": [*out["capsule"]["constraints"], "production admin is fine"]}
+    with pytest.raises(DigestMismatch):
+        receive(tampered)
+
+
+async def test_it_gets_the_work_it_carries_out(door):
+    out = await _handoff(door, "it")
+    view = await door.get_status(out["capsule_handle"]["run_id"])
+    carried = {r.action_id for r in view.rows if r.state not in ("refused", "awaiting")}
+    assert set(out["assigned"]) == carried and out["briefer"] == "template"
+    assert "refused, never to be provisioned" in out["brief"].lower()
+    assert "Dana Osei" in out["brief"] and "FIXTURE" in out["brief"]
+
+
+async def test_security_gets_every_hold_and_refusal_with_clauses(door):
+    out = await _handoff(door, "security")
+    view = await door.get_status(out["capsule_handle"]["run_id"])
+    risky = {r.action_id for r in view.rows if r.verdict in ("HOLD", "REFUSE")}
+    assert set(out["assigned"]) == risky
+    refused = next(r for r in view.rows if r.verdict == "REFUSE")
+    assert refused.rule_id in out["brief"] and refused.clause in out["brief"]
+    assert "untrusted" in out["brief"]
+
+
+async def test_an_unknown_team_is_refused(door):
+    handle = await _compiled(door)
+    r = await call(server(door), "handoff_to_specialist", {"capsule_handle": handle, "team": "marketing"})
+    assert r.is_error
 
 
 async def test_an_unknown_run_is_an_error(door):

@@ -239,7 +239,7 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 - [x] T183 `P1` Tool `compile_context_capsule` returning a capsule handle (run_id + digest).
 - [x] T184 `P1` Tool `check_policy_and_permissions`.
 - [x] T185 `P1` Tool `generate_action_plan`.
-- [ ] T186 `P1` Tool `handoff_to_specialist`.
+- [x] T186 `P1` Tool `handoff_to_specialist`.
 - [ ] T187 `P1` Tool `execute_and_verify` (refuses without approvals).
 - [ ] T188 `P1` Tool `list_runs`.
 - [ ] T189 `P1` Elicitation for an ambiguous subject, with `needs_input` fallback.
