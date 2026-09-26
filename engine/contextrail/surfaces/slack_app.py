@@ -117,11 +117,20 @@ class SlackDoor:
         parsed = blocks.parse_decision_value(action.get("value"))
         if parsed is None:
             log.warning("slack_decision_value_invalid", action_id=action.get("action_id"))
+            await self._tell(body, blocks.rejected_text("this button is damaged"))
             return None
         run_id, action_id, params_hash = parsed
-        return await self.door.decide(run_id, action_id, params_hash, channel="slack",
-                                      actor_external_id=body["user"]["id"],
-                                      decision="approved" if action["action_id"] == "approve" else "refused")
+        result = await self.door.decide(run_id, action_id, params_hash, channel="slack",
+                                        actor_external_id=body["user"]["id"],
+                                        decision="approved" if action["action_id"] == "approve" else "refused")
+        if result.outcome == "rejected":  # the card stays as it is, for the person who can decide it
+            await self._tell(body, blocks.rejected_text(result.reason))
+        return result
+
+    async def _tell(self, body: dict, text: str) -> None:
+        """An ephemeral note to whoever clicked, where they clicked; nobody else sees it."""
+        channel = (body.get("channel") or {}).get("id") or (body.get("container") or {}).get("channel_id")
+        await self.client.chat_postEphemeral(channel=channel, user=body["user"]["id"], text=text)
 
     # --- identity: person -> Slack user, for delivering cards ---------------------------------------------------
 

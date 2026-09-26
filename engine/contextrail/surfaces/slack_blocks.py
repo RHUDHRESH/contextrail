@@ -149,6 +149,11 @@ def approval_card(view: RunView, row: RowView) -> dict:
             "blocks": [*_card_body(view, row), {"type": "actions", "block_id": "decision", "elements": buttons}]}
 
 
+def rejected_text(reason: str | None) -> str:
+    """What the clicker sees when the Door did not record their click. The reason is the Door's, verbatim."""
+    return f"⛔ Not recorded: {esc(reason or 'the decision was rejected')}."
+
+
 def run_summary(view: RunView) -> dict:
     """When the rail pauses or ends: the whole RunView, every row with its lamp, refusals struck through (P4)."""
     head = f"{STATUS_LINE.get(view.status, view.status)}\n“{esc(view.request_text)}”"

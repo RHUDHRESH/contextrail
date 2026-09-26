@@ -183,6 +183,42 @@ async def test_a_damaged_button_value_decides_nothing(door, fake, slack):
     action = action | {"value": action["value"].replace("|", ";")}
     assert await slack.on_decision(ack=Ack(), body=body, action=action) is None
     assert await _approval(door, view.run_id, ref["action_id"]) is None
+    [told] = fake.called("chat.postEphemeral")                                   # T149: and says so
+    assert (told["user"], told["channel"]) == (DANA_SLACK, ref["channel"]) and "⛔ Not recorded" in told["text"]
+
+
+# --- T149: stale cards and the wrong people are rejected by the Door, and the clicker is told why ------------------
+
+async def _click_and_expect_rejection(door, fake, slack, ref, user, fragment) -> None:
+    body, action = _click(fake, ref, user, "approve")
+    result = await slack.on_decision(ack=Ack(), body=body, action=action)
+    assert result.outcome == "rejected" and fragment in result.reason
+    [told] = fake.called("chat.postEphemeral")
+    assert (told["channel"], told["user"]) == (ref["channel"], user)        # only the clicker sees it
+    assert told["text"].startswith("⛔ Not recorded") and fragment in told["text"]
+    assert fake.called("chat.update") == []                                  # the card stays for the right person
+    assert await _approval(door, UUID(action["value"].split("|")[0]), ref["action_id"]) is None
+
+
+async def test_a_card_for_parameters_that_changed_is_rejected_and_the_clicker_is_told(door, fake, slack):
+    view, _ = await _anil_run(door)
+    ref = await _deliver(door, slack, "p-dana")
+    async with door.db.connection() as c:    # the action's parameters change after the card went out
+        await c.execute("update actions set params_hash = %s where run_id = %s and id = %s",
+                        ("e" * 64, view.run_id, ref["action_id"]))
+    await _click_and_expect_rejection(door, fake, slack, ref, DANA_SLACK, "out of date")
+
+
+async def test_someone_who_is_not_the_named_approver_is_rejected_and_told(door, fake, slack):
+    await _anil_run(door)
+    ref = await _deliver(door, slack, "p-dana")
+    await _click_and_expect_rejection(door, fake, slack, ref, "U0RAHU007", "only Dana Osei can decide this")
+
+
+async def test_a_slack_user_outside_the_identity_map_is_rejected_and_told(door, fake, slack):
+    await _anil_run(door)
+    ref = await _deliver(door, slack, "p-dana")
+    await _click_and_expect_rejection(door, fake, slack, ref, "U0STRANGER", "unknown identity")
 
 
 async def test_signed_button_click_through_the_http_route(no_slack_env, door, fake):

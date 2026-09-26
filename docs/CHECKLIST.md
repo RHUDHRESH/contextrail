@@ -193,7 +193,7 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 - [x] T146 `P0` Approval card Block Kit renderer from `RunView` (action, rule, risk, precedent, deadline, LIVE/FIXTURE).
 - [x] T147 `P0` Deliver the card to the approver's DM (`users.lookupByEmail`); record in `door_messages`.
 - [x] T148 `P0` Approve / Refuse handlers parsing `run_id|action_id|params_hash` → `door.decide`.
-- [ ] T149 `P0` On click: params_hash still matches and approver identity via the identity map.
+- [x] T149 `P0` On click: params_hash still matches and approver identity via the identity map.
 - [ ] T150 `P0` Update the card after a decision, including decisions made in another door.
 - [ ] T151 `P1` "Why refused?" button → explanation with clause.
 - [ ] T152 `P1` Refuse-with-reason modal (`views.open`).
