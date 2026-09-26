@@ -1,0 +1,9 @@
+# Voice door runtime (Python 3.12: the audio path uses audioop, removed in 3.13).
+# Exactly what server.py and agent.py import, pinned. Versions shared with engine/ use the engine's pins.
+fastapi==0.141.1
+uvicorn[standard]==0.54.0
+httpx==0.28.1
+python-dotenv==1.2.3
+pyngrok==8.1.2
+websockets==17.1
+openai==3.19.2

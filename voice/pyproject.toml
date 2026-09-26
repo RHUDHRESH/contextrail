@@ -1,0 +1,14 @@
+# Tool configuration only; the service installs from requirements.txt (see Dockerfile).
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+asyncio_mode = "auto"
+
+[tool.ruff]
+line-length = 110
+target-version = "py312"
+
+[tool.ruff.lint.per-file-ignores]
+# Verbatim upstream copies (T194): import order and blind excepts are upstream's. Removed as each file is adapted.
+"agent.py" = ["I001", "BLE001"]
+"server.py" = ["I001", "BLE001"]
