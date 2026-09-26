@@ -17,8 +17,9 @@ for routine work. It never applies to contractors or vendors: the
 [Contractor Onboarding Policy §4](../policies/contractor-onboarding.md) has no incident exception.
 
 ## Who approves
-The incident commander on the roster approves each grant. Today the roster is Omar Haddad (E-0051) and
-Dana Osei (E-0050). An incident commander never approves access for themselves; the other one does.
+The incident commander on the roster approves each grant. Today the roster is Omar Haddad (E-0051),
+Dana Osei (E-0050), and Grace Okafor (E-0140). An incident commander never approves access for themselves;
+another commander on the roster does.
 
 ## What is granted
 During a declared incident, an employee may be given read-only access to the affected system with the incident commander's approval. The access expires 4 hours after it is requested and is never extended; write or administrator access, and access for contractors or vendors, is not granted this way.

@@ -24,11 +24,21 @@ fixture state and reads it back to verify. It reports mode FIXTURE until a GitHu
 | `northbeam/payments-core` | production, pci | payments |
 | `northbeam/perception-sdk` | production | perception |
 | `northbeam/payments-docs` | none | payments |
+| `northbeam/fleet-api` | production, pii | platform |
+| `northbeam/infra-terraform` | production | platform |
+| `northbeam/platform-tooling` | internal | platform |
+| `northbeam/perception-models` | production | perception |
+| `northbeam/risk-models` | internal | risk analytics |
+| `northbeam/analytics-dbt` | internal | analytics |
+| `northbeam/security-policies` | internal | security |
+| `northbeam/docs` | none | shared |
+| `northbeam/design-system` | internal | design systems |
 
 ## Production-tagged repositories
 Any access to a repository tagged `production`, read-only included, is held for the Security on-call before it is
-provisioned ([Access Control Standard §3](../policies/access-control-standard.md)). Today that is
-`northbeam/payments-core` and `northbeam/perception-sdk`.
+provisioned ([Access Control Standard §3](../policies/access-control-standard.md)). In the fixture, those are
+`northbeam/payments-core`, `northbeam/perception-sdk`, `northbeam/fleet-api`,
+`northbeam/infra-terraform`, and `northbeam/perception-models`.
 
 ## Contractors
 Contractors get read-only access to the repositories named in their statement of work, and nothing else. Priya

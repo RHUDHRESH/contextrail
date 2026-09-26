@@ -51,6 +51,10 @@ the baseline. Administrator rights go only to senior engineers and above, with t
 ([Access Control Standard §4](../policies/access-control-standard.md)). A mid-level payments engineer asking for it
 is refused, whoever else holds it.
 
+The broader catalogue also permits `confluence-eng`, `google-group-engineering`, `gh-design-system-read`, and
+`gh-docs-read` for this role. They are available by request, but are not granted automatically by the payments
+engineer baseline.
+
 ## Mirrored access
 "Give Anil the same access as Rahul" is judged against Anil's own role, not Rahul's
 ([Access Control Standard §5](../policies/access-control-standard.md)). Anything Rahul holds that the payments

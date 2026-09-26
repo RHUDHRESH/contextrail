@@ -45,7 +45,9 @@ def test_baseline_items_that_still_need_approval_are_the_paid_and_production_tag
 def test_outside_the_baseline_lists_what_the_role_may_hold_but_does_not_get_by_default():
     expected = {e for e, c in CATALOG.items() if "payments-engineer" in c["role_scope"] and e not in ROLE["baseline"]}
     section = _page("roles/payments-engineer.md").section("Outside the baseline")
-    assert set(_keys(section.text)) == expected == {"aws-payments-prod-admin"}
+    assert set(_keys(section.text)) == expected == {
+        "aws-payments-prod-admin", "confluence-eng", "google-group-engineering", "gh-design-system-read",
+        "gh-docs-read"}
 
 
 def test_github_page_lists_every_repository_with_its_tags():
@@ -61,7 +63,7 @@ def test_emergency_access_approvers_are_the_incident_commander_roster():
     roster = {names[pid] for pid in ident["roster"]["incident-commander"]}
     text = _page("runbooks/emergency-access.md").section("Who approves").text
     named = {" ".join(n.split()) for n, _ in _PERSON.findall(text)}
-    assert named == roster == {"Omar Haddad", "Dana Osei"}
+    assert named == roster == {"Omar Haddad", "Dana Osei", "Grace Okafor"}
 
 
 def test_precedent_quotes_its_source_message_verbatim():
