@@ -4,10 +4,12 @@ import { listRuns } from "@/lib/contextrail/store";
 import { Badge, riskTone } from "@/components/ui/badge";
 import { Signal } from "@/components/rail/signal";
 import { Stat, StatStrip } from "@/components/rail/metrics";
+import { redirect } from "next/navigation";
 
 export const dynamic = "force-dynamic";
 
 export default function ApprovalCenter() {
+  if (process.env.NODE_ENV !== "production" && process.env.DEMO_ENGINE_URL) redirect("/engine-demo#engine-history");
   const runs = listRuns();
   const all = runs.flatMap((r) => r.approvals.map((a) => ({ a, r })));
   const pending = all.filter((x) => x.a.state === "pending");

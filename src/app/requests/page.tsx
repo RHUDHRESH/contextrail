@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { ArrowRight, Plus } from "lucide-react";
 import { listRuns } from "@/lib/contextrail/store";
+import { redirect } from "next/navigation";
 
 export const dynamic = "force-dynamic";
 
@@ -13,6 +14,7 @@ function label(status: string) {
 }
 
 export default function RequestsPage() {
+  if (process.env.NODE_ENV !== "production" && process.env.DEMO_ENGINE_URL) redirect("/engine-demo#engine-history");
   const runs = listRuns();
   return <div className="mx-auto max-w-[760px] px-5 pb-20 pt-12 md:px-8 md:pt-20">
     <div className="flex items-center justify-between gap-4">

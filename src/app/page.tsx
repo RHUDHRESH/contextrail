@@ -2,6 +2,7 @@ import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 import { RequestComposer } from "@/components/rail/request-composer";
 import { listRuns } from "@/lib/contextrail/store";
+import { redirect } from "next/navigation";
 
 export const dynamic = "force-dynamic";
 
@@ -14,6 +15,7 @@ function stateLabel(status: string) {
 }
 
 export default function Home() {
+  if (process.env.NODE_ENV !== "production" && process.env.DEMO_ENGINE_URL) redirect("/engine-demo");
   const runs = listRuns().slice(0, 4);
   return <>
     <RequestComposer />
