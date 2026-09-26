@@ -71,16 +71,21 @@ async def test_a_request_that_needs_input_asks_the_question(door):
     assert "Which Rahul" in body and "Rahul Mehta (payments)" in body and "Rahul Verma (risk-analytics)" in body
 
 
-@pytest.mark.parametrize("email", [
-    InboundEmail(sender=ANIL, subject="Re: Access", body="Any update on my access request?", ticket_id="4712"),
-    InboundEmail(sender="meera.iyer@northbeam.example", subject="Re: Approval needed", body="Approved",
-                 ticket_id="4713"),
-])
-async def test_only_requests_are_acknowledged(door, email):
+async def test_an_emailed_approve_gets_no_reply(door):
     d, _ = door
     replier = FakeReplier()
-    out = await handle_inbound_email(d, email, replier=replier)
-    assert out.ack is None and replier.calls == []
+    out = await handle_inbound_email(d, InboundEmail(sender="meera.iyer@northbeam.example",
+                                                     subject="Re: Approval needed", body="Approved",
+                                                     ticket_id="4713"), replier=replier)
+    assert out.ack is None and out.reply is None and replier.calls == []
+
+
+async def test_a_question_is_answered_not_acknowledged(door):
+    d, _ = door
+    replier = FakeReplier()
+    out = await handle_inbound_email(d, InboundEmail(sender=ANIL, subject="Re: Access", ticket_id="4712",
+                                                     body="Any update on my access request?"), replier=replier)
+    assert out.ack is None and out.reply.outcome == "sent" and "We received your request" not in replier.calls[0][1]
 
 
 async def test_no_ticket_means_no_reply(door):

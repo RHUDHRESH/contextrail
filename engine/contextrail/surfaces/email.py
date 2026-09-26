@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import html
 import textwrap
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Literal, Protocol
@@ -24,6 +24,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict
 
 from contextrail.audit import chain
+from contextrail.canonical import sha256_hex
 from contextrail.connectors.base import ConnectorError
 from contextrail.connectors.once import send_once
 from contextrail.connectors.ses import OutboundEmail, SesConnector
@@ -75,7 +76,17 @@ class InboundOutcome(BaseModel):
     run: RunView | None = None
     answer: Answer | None = None
     note: str | None = None
-    ack: AckResult | None = None
+    ack: AckResult | None = None      # requests: the acknowledgement on the ticket
+    reply: AckResult | None = None    # queries: the answer on the ticket
+
+
+async def _reply_safely(replier: TicketReplier, send: Awaitable[AckResult], what: str) -> AckResult:
+    """A failed ticket reply never undoes what the door already did; nothing is recorded, so a retry sends it."""
+    try:
+        return await send
+    except ConnectorError as e:
+        log.warning(f"{what}_failed", error=str(e))
+        return AckResult(outcome="failed", mode=replier.mode, reason=str(e))
 
 
 async def handle_inbound_email(door: Door, email: InboundEmail, *, extractor: IntentExtractor | None = None,
@@ -87,17 +98,48 @@ async def handle_inbound_email(door: Door, email: InboundEmail, *, extractor: In
         return InboundOutcome(**base, note=APPROVAL_REPLY_NOTE)
     if intent.kind == "query":
         answer = await door.answer_query(email.text, channel="email", actor_external_id=email.sender)
-        return InboundOutcome(**base, answer=answer)
+        reply = None
+        if replier is not None:
+            reply = await _reply_safely(replier, send_query_reply(door, replier, answer, ticket_id=email.ticket_id),
+                                        "query_reply")
+        return InboundOutcome(**base, answer=answer, reply=reply)
     view = await door.start_run(email.text, channel="email", actor_external_id=email.sender,
                                 source_ref=email.ticket_id)
     ack = None
     if replier is not None:
-        try:
-            ack = await send_requester_ack(door, replier, view, ticket_id=email.ticket_id)
-        except ConnectorError as e:  # the run stands; nothing was recorded, so a later retry sends the reply
-            log.warning("requester_ack_failed", run_id=str(view.run_id), error=str(e))
-            ack = AckResult(outcome="failed", mode=replier.mode, reason=str(e))
+        ack = await _reply_safely(replier, send_requester_ack(door, replier, view, ticket_id=email.ticket_id),
+                                  "requester_ack")
     return InboundOutcome(**base, run=view, ack=ack)
+
+
+# --- status and query emails: answered from stored facts, citing audit seq numbers (T236) -------------------
+
+def render_query_reply(answer: Answer) -> str:
+    """The answer door.answer_query built from stored facts, and the audit rows it came from. No model text."""
+    parts = [f"<p>{_t(answer.text)}</p>"]
+    if answer.citations:
+        parts.append(f"<p>Sources: audit seq {_t(', '.join(map(str, answer.citations)))} (the hash-chained "
+                     f"receipt of run {_t(str(answer.run_id)[:8])}).</p>")
+    return "".join(parts)
+
+
+async def send_query_reply(door: Door, replier: TicketReplier, answer: Answer, *,
+                           ticket_id: str | None) -> AckResult:
+    """Reply once per question ticket. Raises the replier's ConnectorError; records nothing then."""
+    if not ticket_id:
+        return AckResult(outcome="skipped", reason="no Freshservice ticket to reply on")
+    body = render_query_reply(answer)
+
+    async def deliver(key: str) -> dict:
+        response = await replier.reply(ticket_id, body, idempotency_key=key)
+        return {"mode": replier.mode, "ticket_id": ticket_id, "reply_id": str(response.get("id"))}
+
+    if answer.run_id is None:  # nothing to key on in door_messages; the webhook's ticket dedupe prevents repeats
+        ref = await deliver(sha256_hex({"query_reply": ticket_id}))
+        return AckResult(outcome="sent", mode=ref["mode"], reply_id=ref["reply_id"])
+    ref, replayed = await send_once(door.db, run_id=answer.run_id, action_id=f"query:{ticket_id}",
+                                    channel="freshservice", send=deliver)
+    return AckResult(outcome="replayed" if replayed else "sent", mode=ref["mode"], reply_id=ref["reply_id"])
 
 
 # --- requester acknowledgement: a ticket reply rendered from RunView ------------------------------------------
