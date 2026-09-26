@@ -13,12 +13,12 @@ from __future__ import annotations
 
 import asyncio
 import time
-from collections.abc import Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from decimal import Decimal
 from pathlib import Path
 from typing import Any, Literal
 
-from anthropic import Anthropic, AnthropicBedrock
+from anthropic import Anthropic, AnthropicBedrock, APIConnectionError, APIStatusError
 from anthropic.types import MessageParam
 from pydantic import BaseModel, ConfigDict
 
@@ -114,6 +114,70 @@ class ReplayMiss(NoTierAvailable):
     """Replay mode, and this exact request was never recorded (or its recording does not match its key)."""
 
 
+class LLMCallError(LLMError):
+    """A tier failed in a way that must not fail over: a non-credit 4xx (the next tier would get the same bad
+    request) or an unexpected client exception."""
+
+    def __init__(self, tier: str, status: int | None, detail: str) -> None:
+        super().__init__(f"{tier}: {detail}")
+        self.tier, self.status = tier, status
+
+
+class _TierFailed(Exception):
+    """Internal: this tier failed in a failover-class way; try the next one."""
+
+
+# --- failover classifier (T113) ------------------------------------------------------------------------------
+
+Failure = Literal["rate_limited", "failover", "fatal"]
+_DEFAULT_RETRY_AFTER_S = 1.0
+
+
+def classify(exc: BaseException) -> Failure:
+    """What a tier failure means for the chain (§11). 429 -> one retry-after wait, then fail over. 529, every 5xx,
+    timeouts and connection failures, and credit-exhausted / billing errors -> fail over. Everything else ->
+    fatal, including every other 4xx. Status codes, not exception classes, decide: the Bedrock client maps some
+    statuses to different classes (503 -> ServiceUnavailableError) than the direct client does."""
+    if isinstance(exc, APIConnectionError):  # APITimeoutError is a subclass
+        return "failover"
+    if isinstance(exc, APIStatusError):
+        if exc.status_code == 429:
+            return "rate_limited"
+        if exc.status_code >= 500:
+            return "failover"
+        if _credit_exhausted(exc):
+            return "failover"
+    return "fatal"
+
+
+def _credit_exhausted(exc: APIStatusError) -> bool:
+    # The typed signals come first (error type 'billing_error', HTTP 402). The direct API has also reported an empty
+    # balance as a 400 invalid_request_error whose only distinguishing mark is its message, hence the phrase check.
+    if exc.type == "billing_error" or exc.status_code == 402:
+        return True
+    error = exc.body.get("error") if isinstance(exc.body, dict) else None
+    detail = error.get("message") if isinstance(error, dict) else exc.message
+    return exc.status_code == 400 and "credit balance" in str(detail).lower()
+
+
+def retry_after_s(exc: APIStatusError, cap: float) -> float:
+    """Seconds to wait before the one retry of a 429: `retry-after-ms`, else `retry-after` in seconds, capped.
+    An HTTP-date or garbage value falls back to a short default rather than an unbounded wait."""
+    for header, scale in (("retry-after-ms", 1000.0), ("retry-after", 1.0)):
+        raw = exc.response.headers.get(header)
+        if raw:
+            try:
+                return min(max(float(raw) / scale, 0.0), cap)
+            except ValueError:
+                continue
+    return min(_DEFAULT_RETRY_AFTER_S, cap)
+
+
+def _describe(exc: BaseException) -> str:
+    status = getattr(exc, "status_code", None)
+    return f"{type(exc).__name__}{f' {status}' if status else ''}"
+
+
 # --- responses -----------------------------------------------------------------------------------------------
 
 class LLMResponse(BaseModel):
@@ -167,14 +231,17 @@ def build_clients(s: Settings, config: RouterConfig) -> dict[Tier, Any]:
 # --- the router ----------------------------------------------------------------------------------------------
 
 class Router:
-    """Calls Claude Haiku 4.5 on the first available tier. The SDK clients are synchronous (`Anthropic`,
-    `AnthropicBedrock`, per CLAUDE.md §11), so each call runs in a worker thread to keep the event loop free."""
+    """Calls Claude Haiku 4.5 down the chain T1 -> T2 -> T3 -> T4 until a tier answers (T113 decides when to move
+    on). The SDK clients are synchronous (`Anthropic`, `AnthropicBedrock`, per CLAUDE.md §11), so each call runs in
+    a worker thread to keep the event loop free."""
 
     def __init__(self, config: RouterConfig, clients: Mapping[str, Any], *,
-                 replay_store: ReplayStore | None = None) -> None:
+                 replay_store: ReplayStore | None = None,
+                 sleep: Callable[[float], Awaitable[None]] = asyncio.sleep) -> None:
         self.config = config
         self.clients = dict(clients)
         self.replay_store = replay_store or ReplayStore(config.replay_dir)
+        self.sleep = sleep
 
     async def call(self, *, system: str, messages: list[MessageParam], max_tokens: int, model: str | None = None,
                    policy_text: str | None = None, tools: list[dict] | None = None, tool_choice: dict | None = None,
@@ -190,21 +257,44 @@ class Router:
         chain = [t for t in self.config.chain() if t.provider == "replay" or t.tier in self.clients]
         if not chain:
             raise NoTierAvailable(f"no enabled tier can serve {self.config.model}")
-        tier = chain[0]
-        if tier.provider == "replay":
-            return self._replay(keyed)
-        request: dict[str, Any] = {"model": tier.model, "system": system_blocks(system, policy_text),
-                                   "messages": messages, "max_tokens": max_tokens}
+        base: dict[str, Any] = {"system": system_blocks(system, policy_text), "messages": messages,
+                                "max_tokens": max_tokens}
         optional = {"tools": tools, "tool_choice": tool_choice, "thinking": thinking}
-        request.update({k: v for k, v in optional.items() if v is not None})
+        base.update({k: v for k, v in optional.items() if v is not None})
         if temperature is not None:
             # anthropic 1.8.0 has no typed `temperature` argument; Haiku 4.5 accepts it in the body (§11: 0 for
             # extraction). extra_body is the SDK's documented way to send a body field it does not type.
-            request["extra_body"] = {"temperature": temperature}
-        response = await self._live(tier, request)
-        if self.config.replay_mode == "record":
-            self._record(keyed, response)
-        return response
+            base["extra_body"] = {"temperature": temperature}
+        failures: list[str] = []
+        for tier in chain:
+            if tier.provider == "replay":
+                return self._replay(keyed)
+            try:
+                response = await self._attempt(tier, {"model": tier.model, **base})
+            except _TierFailed as f:
+                failures.append(f"{tier.tier}: {f}")
+                continue
+            if self.config.replay_mode == "record":
+                self._record(keyed, response)
+            return response
+        raise NoTierAvailable("every tier failed: " + "; ".join(failures))
+
+    async def _attempt(self, tier: TierConfig, request: dict[str, Any]) -> LLMResponse:
+        """One tier: a 429 gets exactly one retry-after wait; failover-class errors raise _TierFailed; anything else
+        raises LLMCallError and stops the chain."""
+        retried = False
+        while True:
+            try:
+                return await self._live(tier, request)
+            except Exception as e:  # the SDK client boundary: every failure is classified, none escapes raw
+                kind = classify(e)
+                if kind == "rate_limited" and not retried:
+                    retried = True
+                    await self.sleep(retry_after_s(e, self.config.max_retry_after_s))
+                    continue
+                if kind == "fatal":
+                    raise LLMCallError(tier.tier, getattr(e, "status_code", None), _describe(e)) from e
+                raise _TierFailed(_describe(e)) from e
 
     async def _live(self, tier: TierConfig, request: dict[str, Any]) -> LLMResponse:
         t0 = time.perf_counter()

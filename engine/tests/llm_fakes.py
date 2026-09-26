@@ -45,16 +45,37 @@ def message(text: str | None = "ok", *, tool: str | None = None, tool_input: dic
 
 
 def api_error(status: int, message: str = "error", *, error_type: str | None = None,
-              headers: dict | None = None) -> anthropic.APIStatusError:
-    """The exception the SDK raises for this HTTP error response."""
+              headers: dict | None = None, bedrock: bool = False) -> anthropic.APIStatusError:
+    """The exception the SDK raises for this HTTP error response (the Bedrock client maps some statuses differently,
+    e.g. 503 -> ServiceUnavailableError)."""
     etype = error_type or _ERROR_TYPES.get(status, "api_error")
     response = httpx2.Response(status, json={"type": "error", "error": {"type": etype, "message": message}},
                                headers=headers or {}, request=_REQ)
-    return anthropic.Anthropic(api_key="test-key", max_retries=0)._make_status_error_from_response(response)
+    client = (anthropic.AnthropicBedrock(aws_region="ap-south-1", api_key="test-key", max_retries=0) if bedrock
+              else anthropic.Anthropic(api_key="test-key", max_retries=0))
+    return client._make_status_error_from_response(response)
 
 
 def timeout_error() -> anthropic.APITimeoutError:
     return anthropic.APITimeoutError(request=_REQ)
+
+
+def connection_error() -> anthropic.APIConnectionError:
+    return anthropic.APIConnectionError(request=_REQ)
+
+
+CREDIT_MESSAGE = ("Your credit balance is too low to access the Anthropic API. "
+                  "Please go to Plans & Billing to upgrade or purchase credits.")
+
+
+class Sleeps:
+    """Injectable sleep that records the waits instead of waiting."""
+
+    def __init__(self) -> None:
+        self.waits: list[float] = []
+
+    async def __call__(self, seconds: float) -> None:
+        self.waits.append(seconds)
 
 
 class FakeClient:
