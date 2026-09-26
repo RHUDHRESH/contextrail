@@ -120,7 +120,7 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 
 - [x] T083 `P0` `runner.py`: fixed-order stage executor with per-stage timing.
 - [x] T084 `P0` Stage event emitter feeding SSE and per-door callbacks.
-- [ ] T085 `P0` Discover: intent + mentions + request/query/approval-reply via the intent prompt (structured output).
+- [x] T085 `P0` Discover: intent + mentions + request/query/approval-reply via the intent prompt (structured output).
 - [x] T086 `P0` Discover: resolve mentions to IDs by exact lookup only (HRIS / Freshservice requester).
 - [x] T087 `P0` Discover: ambiguity → `needs_input` with a candidate list.
 - [x] T088 `P0` Discover: peer resolution for "same as X".
