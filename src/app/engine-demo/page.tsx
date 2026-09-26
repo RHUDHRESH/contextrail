@@ -118,6 +118,7 @@ export default function EngineDemoPage() {
         return next;
       });
       setNotice(body.ticket?.status === "verified" ? `Freshservice ticket #${body.ticket.ticket_id} created and read back.` : "Request recorded by the Python engine. Freshservice ticket is not verified yet.");
+      if (body.ticket?.status === "verified") requestRef.current = null;
       void refreshPersona(persona);
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not run the request."); }
     finally { setBusy(false); }
