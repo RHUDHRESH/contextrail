@@ -12,6 +12,7 @@ HRIS manager_id -> person_id), from the same identity file, so the directory and
 
 from __future__ import annotations
 
+import re
 import sys
 
 import psycopg
@@ -21,12 +22,40 @@ from contextrail.migrate import apply_all
 from contextrail.policy.approvers import StaticDirectory
 
 FIXTURE_CONNECTORS = ("hris", "entitlements", "github", "slack_corpus", "freshservice")
+_EMAIL_RE = re.compile(r"[^@\s,=]+@[^@\s,=]+\.[^@\s,=]+")
 _ID_COLUMNS = ("person_id", "display_name", "email", "slack_user_id", "teams_aad_id", "phone", "hris_id",
                "preferred_door", "can_approve")
 
 
-def seed_identity(conninfo: str) -> int:
+class OverrideError(ValueError):
+    pass
+
+
+def parse_email_overrides(spec: str, known_people: set[str]) -> dict[str, str]:
+    """Parse DEMO_EMAIL_OVERRIDES ("p-dana=a@x,p-meera=b@y"). Unknown people or malformed emails are errors: a typo
+    must not silently send a demo approval email to the fixture's .example address instead."""
+    out: dict[str, str] = {}
+    for part in filter(None, (p.strip() for p in spec.split(","))):
+        person, sep, email = part.partition("=")
+        person, email = person.strip(), email.strip()
+        if not sep or not _EMAIL_RE.fullmatch(email):
+            raise OverrideError(f"bad override {part!r}: expected person_id=email")
+        if person not in known_people:
+            raise OverrideError(f"override for unknown person {person!r}")
+        if email.lower() in {e.lower() for e in out.values()}:
+            raise OverrideError(f"{email} is mapped to two people; identity_map.email is unique")
+        out[person] = email
+    return out
+
+
+def seed_identity(conninfo: str, *, email_overrides: str | None = None) -> int:
     rows = load("identity")["people"]
+    if email_overrides is None:
+        from contextrail.settings import get_settings
+
+        email_overrides = get_settings().demo_email_overrides
+    overrides = parse_email_overrides(email_overrides or "", {r["person_id"] for r in rows})
+    rows = [{**r, "email": overrides.get(r["person_id"], r.get("email"))} for r in rows]
     cols = ", ".join(_ID_COLUMNS)
     updates = ", ".join(f"{c} = excluded.{c}" for c in _ID_COLUMNS[1:])
     with psycopg.connect(conninfo) as conn, conn.transaction():
