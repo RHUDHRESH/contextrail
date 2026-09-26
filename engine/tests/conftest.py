@@ -65,3 +65,33 @@ def migrated_db(empty_db: str) -> str:
 
     apply_all(empty_db)
     return empty_db
+
+
+@pytest.fixture
+async def rail(migrated_db, tmp_path):
+    """A full rail over a fresh migrated database and fresh FIXTURE connector state: (Runner, RailDeps)."""
+    from contextrail.connectors.registry import build_registry
+    from contextrail.db import Database
+    from contextrail.fixtures import load
+    from contextrail.policy.engine import PolicyEngine
+    from contextrail.policy.loader import load_rules
+    from contextrail.rail.discover import HeuristicExtractor
+    from contextrail.rail.plan import TemplateExplainer
+    from contextrail.rail.runner import RailDeps, Runner
+    from contextrail.seed import approver_directory, reset_fixture_state, seed_identity
+
+    reset_fixture_state(tmp_path)
+    seed_identity(migrated_db)
+    people = {p["person_id"]: p["display_name"] for p in load("identity")["people"]}
+    rules = load_rules()
+
+    async def no_sleep(_):
+        return None
+
+    db = Database(migrated_db, max_size=4)
+    await db.open()
+    deps = RailDeps(db=db, registry=build_registry(tmp_path), engine=PolicyEngine(rules, approver_directory()),
+                    rules=rules, extractor=HeuristicExtractor(), explainer=TemplateExplainer(people),
+                    backoff=lambda n: 0, sleep=no_sleep)
+    yield Runner(deps), deps
+    await db.close()

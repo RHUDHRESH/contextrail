@@ -8,10 +8,10 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 <!-- stats:start -->
 | Priority | Tasks | Done |
 |---|---|---|
-| P0 | 148 | 55 |
+| P0 | 148 | 76 |
 | P1 | 92 | 0 |
 | P2 | 10 | 0 |
-| **Total** | **250** | **55** |
+| **Total** | **250** | **76** |
 
 👤 human-owned tasks: 24
 <!-- stats:end -->
@@ -118,32 +118,32 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 
 ## G. The rail (eight stages) and the door layer (26)
 
-- [ ] T083 `P0` `runner.py`: fixed-order stage executor with per-stage timing.
-- [ ] T084 `P0` Stage event emitter feeding SSE and per-door callbacks.
+- [x] T083 `P0` `runner.py`: fixed-order stage executor with per-stage timing.
+- [x] T084 `P0` Stage event emitter feeding SSE and per-door callbacks.
 - [ ] T085 `P0` Discover: intent + mentions + request/query/approval-reply via the intent prompt (structured output).
-- [ ] T086 `P0` Discover: resolve mentions to IDs by exact lookup only (HRIS / Freshservice requester).
-- [ ] T087 `P0` Discover: ambiguity → `needs_input` with a candidate list.
-- [ ] T088 `P0` Discover: peer resolution for "same as X".
-- [ ] T089 `P0` Compile: parallel fetch of records, entitlements and policies (`asyncio.gather`).
+- [x] T086 `P0` Discover: resolve mentions to IDs by exact lookup only (HRIS / Freshservice requester).
+- [x] T087 `P0` Discover: ambiguity → `needs_input` with a candidate list.
+- [x] T088 `P0` Discover: peer resolution for "same as X".
+- [x] T089 `P0` Compile: parallel fetch of records, entitlements and policies (`asyncio.gather`).
 - [ ] T090 `P1` Compile: load OKF concepts by tags/rules.
 - [ ] T091 `P1` Compile: extract SOW constraints with cited spans.
-- [ ] T092 `P0` Compile: mark stale evidence into open blockers.
-- [ ] T093 `P0` Compile: include untrusted messages/email bodies as evidence, wrapped as data.
-- [ ] T094 `P0` Compile: seal the capsule and store the digest.
-- [ ] T095 `P0` Govern: build candidate actions (peer's items minus requester's current items).
-- [ ] T096 `P0` Govern: evaluate every candidate through the policy engine.
-- [ ] T097 `P0` Plan: dependency ordering; add revoke actions for the old team.
+- [x] T092 `P0` Compile: mark stale evidence into open blockers.
+- [x] T093 `P0` Compile: include untrusted messages/email bodies as evidence, wrapped as data.
+- [x] T094 `P0` Compile: seal the capsule and store the digest.
+- [x] T095 `P0` Govern: build candidate actions (peer's items minus requester's current items).
+- [x] T096 `P0` Govern: evaluate every candidate through the policy engine.
+- [x] T097 `P0` Plan: dependency ordering; add revoke actions for the old team.
 - [ ] T098 `P0` Plan: one-line explanations for HOLD and REFUSE (Sonnet).
 - [ ] T099 `P1` Handoff: per-team views (IT, Security) with digest verification.
-- [ ] T100 `P0` Approve: create approval records; dispatch to Freshservice and the approver's doors.
+- [x] T100 `P0` Approve: create approval records; dispatch to Freshservice and the approver's doors.
 - [ ] T101 `P1` Approve: deadline and chase jobs (chase in the approver's preferred door).
-- [ ] T102 `P0` Approve: resume the run when a decision arrives from any door.
-- [ ] T103 `P0` Execute: connector dispatch with idempotency key and backoff on 429/5xx.
-- [ ] T104 `P0` Execute: unknown outcome → reconcile before any retry.
-- [ ] T105 `P0` Verify: read back each action; set verified or failed.
-- [ ] T106 `P0` Finalize: status partial/done; trigger receipt generation.
-- [ ] T107 `P0` `surfaces/door.py`: start_run, get_status, answer_query, decide (identity map, SoD, params_hash, first-wins, mirror to Freshservice), pick_candidate.
-- [ ] T108 `P0` `surfaces/presenter.py`: `RunView` (lamps, clause, approver, deadline, precedent, modes, replay flag) + cross-door message update.
+- [x] T102 `P0` Approve: resume the run when a decision arrives from any door.
+- [x] T103 `P0` Execute: connector dispatch with idempotency key and backoff on 429/5xx.
+- [x] T104 `P0` Execute: unknown outcome → reconcile before any retry.
+- [x] T105 `P0` Verify: read back each action; set verified or failed.
+- [x] T106 `P0` Finalize: status partial/done; trigger receipt generation.
+- [x] T107 `P0` `surfaces/door.py`: start_run, get_status, answer_query, decide (identity map, SoD, params_hash, first-wins, mirror to Freshservice), pick_candidate.
+- [x] T108 `P0` `surfaces/presenter.py`: `RunView` (lamps, clause, approver, deadline, precedent, modes, replay flag) + cross-door message update.
 
 ## H. LLM router and prompts (13)
 
@@ -271,7 +271,7 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 
 ## P. Audit, receipts and glass box (8)
 
-- [ ] T209 `P0` Audit append with hash chaining.
+- [x] T209 `P0` Audit append with hash chaining.
 - [ ] T210 `P0` Receipt builder: short summary + full JSON.
 - [ ] T211 `P0` Write the receipt to Freshservice (note; custom object when ready).
 - [ ] T212 `P0` SSE endpoint `/v1/runs/{id}/events`.
