@@ -89,6 +89,10 @@ class CallSession:
         else:
             await self.ws.send(data)        # websockets library
 
+    def _disclosed(self, line: str) -> str:
+        """Any opening in a language starts with that language's AI disclosure (CLAUDE.md §13.3 item 8)."""
+        return f"{self.lang.lines['disclosure']} {self.lang.lines[line]}"
+
     # ── Vobiz event router ────────────────────────────────────────────────────
 
     async def handle_message(self, message: str):
@@ -103,7 +107,7 @@ class CallSession:
                                   or start.get("callId")
                                   or start.get("callUUID"))
                 logger.info(f"Stream started — id={self.stream_id}, call={self.call_id}")
-                await self._speak("नमस्ते! मैं आपकी कैसे मदद कर सकता हूं?")
+                await self._speak(self._disclosed("help"))
 
             elif event == "media":
                 if not self._processing:
@@ -167,7 +171,7 @@ class CallSession:
             switch = detect_switch(transcript)
             if switch:
                 self.lang = LANGUAGES[switch]
-                await self._speak(self.lang.lines["switched"])
+                await self._speak(self._disclosed("switched"))
                 return
 
             self.conversation.append({"role": "user", "content": transcript})

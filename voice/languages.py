@@ -41,22 +41,30 @@ def _lang(code, name, speaker, names, **lines) -> Language:
 SUPPORTED: dict[str, Language] = {
     "hi-IN": _lang(
         "hi-IN", "Hindi", "anand", ("hindi", "हिंदी", "हिन्दी", "இந்தி", "ஹிந்தி", "ಹಿಂದಿ"),
+        disclosure="नमस्ते, मैं कॉन्टेक्स्टरेल का एआई सहायक हूँ, कोई इंसान नहीं।",
+        help="मैं आपकी कैसे मदद कर सकता हूँ?",
         fallback="माफ करें, मुझे समझने में परेशानी हो रही है।",
         switched="ठीक है, अब हम हिंदी में बात करेंगे।",
     ),
     "en-IN": _lang(
         "en-IN", "English", "priya",
         ("english", "इंग्लिश", "अंग्रेज़ी", "अंग्रेजी", "ஆங்கிலம்", "இங்கிலீஷ்", "ಇಂಗ್ಲಿಷ್", "ಇಂಗ್ಲೀಷ್"),
+        disclosure="Hello, I am ContextRail's AI assistant, not a person.",
+        help="How can I help you?",
         fallback="Sorry, I'm having trouble understanding.",
         switched="Okay, we'll continue in English.",
     ),
     "ta-IN": _lang(
         "ta-IN", "Tamil", "kavitha", ("tamil", "तमिल", "தமிழ்", "ತಮಿಳು"),
+        disclosure="வணக்கம், நான் ContextRail-இன் AI உதவியாளர், மனிதர் அல்ல.",
+        help="நான் உங்களுக்கு எப்படி உதவ முடியும்?",
         fallback="மன்னிக்கவும், எனக்குப் புரிந்துகொள்வதில் சிரமம் உள்ளது.",
         switched="சரி, இனி தமிழில் பேசலாம்.",
     ),
     "kn-IN": _lang(
         "kn-IN", "Kannada", "roopa", ("kannada", "कन्नड़", "कन्नड", "கன்னடம்", "ಕನ್ನಡ"),
+        disclosure="ನಮಸ್ಕಾರ, ನಾನು ContextRail ನ AI ಸಹಾಯಕ, ಮನುಷ್ಯನಲ್ಲ.",
+        help="ನಾನು ನಿಮಗೆ ಹೇಗೆ ಸಹಾಯ ಮಾಡಬಹುದು?",
         fallback="ಕ್ಷಮಿಸಿ, ನನಗೆ ಅರ್ಥಮಾಡಿಕೊಳ್ಳಲು ತೊಂದರೆಯಾಗುತ್ತಿದೆ.",
         switched="ಸರಿ, ಇನ್ನು ಕನ್ನಡದಲ್ಲಿ ಮಾತನಾಡೋಣ.",
     ),

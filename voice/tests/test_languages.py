@@ -83,4 +83,4 @@ async def test_naming_a_language_switches_listening_and_speaking():
     await s._process(b"\xff" * 1600)
     assert s.lang.code == "en-IN"
     assert sarvam.tts[-1]["target_language_code"] == "en-IN"
-    assert sarvam.spoken()[-1] == languages.SUPPORTED["en-IN"].lines["switched"]
+    assert sarvam.spoken()[-1].endswith(languages.SUPPORTED["en-IN"].lines["switched"])
