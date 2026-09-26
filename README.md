@@ -69,6 +69,8 @@ docker compose up -d engine caddy
 
 The engine health endpoint is `/health` behind Caddy at `https://localhost/health` with the default `CR_HOST=localhost`; Caddy uses a local certificate authority there. For a public host, set `CR_HOST`, `PUBLIC_URL`, DNS and credentials before exposing the service. The default Compose network does not publish PostgreSQL to the host. [`Makefile`](Makefile) provides `up`, `down`, `logs`, `migrate`, `seed`, `reset`, `lint`, and `test` targets where GNU Make is available. `seed` applies migrations and resets fixture connector state; it does not erase the audit database.
 
+For an EC2 host, store the complete production `.env` as one SSM SecureString parameter and give the instance role `ssm:GetParameter` for that parameter and `kms:Decrypt` for its key. Then run `./scripts/ssm-env.sh /contextrail/prod/dotenv` on the host. The loader writes `.env` with mode `600` and leaves an existing file intact if retrieval or validation fails. Set `PUBLIC_URL=https://<public-host>` and `CR_HOST=<public-host>`; point DNS at the host and allow inbound 80/443 so Caddy can obtain TLS. Start the voice service explicitly with `docker compose --profile voice up -d --build`, verify `https://<public-host>/health` and `https://<public-host>/voice/health`, then configure Vobiz's Answer URL as `https://<public-host>/voice/answer`. A real phone call also requires an assigned Vobiz number and reachable callbacks. Do not infer call readiness from passing local tests.
+
 For engine tests, install Python 3.12 and [uv](https://docs.astral.sh/uv/), then run:
 
 ```sh
