@@ -8,10 +8,10 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 <!-- stats:start -->
 | Priority | Tasks | Done |
 |---|---|---|
-| P0 | 152 | 117 |
+| P0 | 153 | 118 |
 | P1 | 92 | 49 |
 | P2 | 10 | 4 |
-| **Total** | **254** | **170** |
+| **Total** | **255** | **171** |
 
 👤 human-owned tasks: 0
 <!-- stats:end -->
