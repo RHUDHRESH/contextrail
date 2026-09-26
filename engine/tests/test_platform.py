@@ -1,0 +1,44 @@
+"""The composition root: one object graph per process, built from Settings, with the pool owned by the lifespan."""
+
+import psycopg_pool
+import pytest
+
+from contextrail.app_state import Platform, build_platform
+from contextrail.main import create_app
+from contextrail.rail.discover import HeuristicExtractor
+from contextrail.rail.plan import TemplateExplainer
+from contextrail.settings import Settings
+
+
+def test_create_app_builds_one_platform_every_part_shares(tmp_path):
+    app = create_app(Settings(_env_file=None, state_dir=str(tmp_path)))
+    p: Platform = app.state.platform
+    assert p.door.runner is p.runner and p.door.db is p.db and p.events is p.runner.d.events
+    assert app.state.registry is p.registry and app.state.rules is p.rules
+    assert isinstance(p.runner.d.extractor, HeuristicExtractor) and isinstance(p.runner.d.explainer, TemplateExplainer)
+    assert {r.id for r in p.rules} >= {"POL-CTR-001", "POL-SOD-001"}
+    assert p.modes == {"entitlements": "FIXTURE", "github": "FIXTURE", "hris": "FIXTURE", "slack_corpus": "FIXTURE"}
+    assert p.door.people["p-dana"] == "Dana Osei"
+    assert p.owns_db
+
+
+async def test_lifespan_opens_the_pool_and_closes_it(migrated_db, tmp_path):
+    app = create_app(Settings(_env_file=None, database_url=migrated_db, state_dir=str(tmp_path)))
+    db = app.state.platform.db
+    async with app.router.lifespan_context(app), db.connection() as c:
+        assert (await (await c.execute("select 1 as one")).fetchone())["one"] == 1
+    with pytest.raises(psycopg_pool.PoolClosed):
+        async with db.connection():
+            pass
+
+
+async def test_an_injected_platform_is_used_and_its_pool_is_left_to_its_owner(rail):
+    runner, deps = rail
+    settings = Settings(_env_file=None)
+    platform = build_platform(settings, runner=runner)
+    app = create_app(settings, platform=platform)
+    assert app.state.platform is platform and not platform.owns_db and platform.registry is deps.registry
+    async with app.router.lifespan_context(app):
+        pass
+    async with deps.db.connection() as c:  # still open: the rail fixture owns it
+        assert (await (await c.execute("select 1 as one")).fetchone())["one"] == 1
