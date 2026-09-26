@@ -18,12 +18,14 @@ import textwrap
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
-from typing import Literal
+from typing import Literal, Protocol
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
 
 from contextrail.audit import chain
+from contextrail.connectors.base import ConnectorError
+from contextrail.connectors.once import send_once
 from contextrail.connectors.ses import OutboundEmail, SesConnector
 from contextrail.logs import get_logger
 from contextrail.rail.discover import IntentExtractor, RequestKind
@@ -41,6 +43,29 @@ PHONE_WIDTH = 64  # plain-text lines stay short enough for a phone screen withou
 
 # --- inbound ------------------------------------------------------------------------------------------------
 
+class TicketReplier(Protocol):
+    """A public reply on a Freshservice ticket, which Freshservice emails to the requester in the same thread.
+
+    The LIVE implementation belongs to the Freshservice connector: `POST /api/v2/tickets/{id}/reply` with
+    `{"body": "<html>"}`, answering 201 `{"conversation": {"id": ...}}`, as used by the pinned refs
+    (matthewlboyd/freshservice-mcp `reply_to_ticket`; freshworks-api-sdk swagger `create-ticket-reply`). Not yet
+    verified against a tenant. Freshservice takes no idempotency key, so send_once guards against double replies.
+    """
+
+    mode: str
+
+    async def reply(self, ticket_id: str, body_html: str, *, idempotency_key: str) -> dict: ...
+
+
+class AckResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    outcome: Literal["sent", "replayed", "skipped", "failed"]
+    mode: str | None = None
+    reply_id: str | None = None
+    reason: str | None = None
+
+
 class InboundOutcome(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -50,10 +75,11 @@ class InboundOutcome(BaseModel):
     run: RunView | None = None
     answer: Answer | None = None
     note: str | None = None
+    ack: AckResult | None = None
 
 
-async def handle_inbound_email(door: Door, email: InboundEmail, *,
-                               extractor: IntentExtractor | None = None) -> InboundOutcome:
+async def handle_inbound_email(door: Door, email: InboundEmail, *, extractor: IntentExtractor | None = None,
+                               replier: TicketReplier | None = None) -> InboundOutcome:
     intent = await classify_email(email, extractor or door.runner.d.extractor)
     base = {"kind": intent.kind, "intent": intent.intent, "extractor": intent.extractor}
     if intent.kind == "approval_reply":
@@ -64,7 +90,83 @@ async def handle_inbound_email(door: Door, email: InboundEmail, *,
         return InboundOutcome(**base, answer=answer)
     view = await door.start_run(email.text, channel="email", actor_external_id=email.sender,
                                 source_ref=email.ticket_id)
-    return InboundOutcome(**base, run=view)
+    ack = None
+    if replier is not None:
+        try:
+            ack = await send_requester_ack(door, replier, view, ticket_id=email.ticket_id)
+        except ConnectorError as e:  # the run stands; nothing was recorded, so a later retry sends the reply
+            log.warning("requester_ack_failed", run_id=str(view.run_id), error=str(e))
+            ack = AckResult(outcome="failed", mode=replier.mode, reason=str(e))
+    return InboundOutcome(**base, run=view, ack=ack)
+
+
+# --- requester acknowledgement: a ticket reply rendered from RunView ------------------------------------------
+
+ACK_ACTION_ID = "requester-ack"   # door_messages key: one acknowledgement per run on the Freshservice ticket
+_STATUS_LINE = {
+    "running": "We are working on it.",
+    "awaiting_approval": "Some items are waiting for a named approver. This ticket is updated when they decide.",
+    "partial": "Finished. Some items were refused or could not be completed; the reasons are below.",
+    "done": "Done. Everything you asked for is in place and verified.",
+    "failed": "This request stopped with an error before anything was changed.",
+}
+
+
+def _question(need: dict) -> str:
+    mention, reason = need.get("mention"), need.get("reason")
+    if reason == "ambiguous":
+        options = " or ".join(f"{c['display_name']} ({c['team']})" for c in need.get("candidates", []))
+        return f"Which {mention} do you mean: {options}?"
+    if reason == "no_match":
+        return f"We could not find anyone called '{mention}'. Who do you mean?"
+    if reason == "same_person":
+        return "The person and the one to copy access from are the same. Whose access should be copied?"
+    if reason == "unclear_request":
+        return "What should be done, and for whom?"
+    return "Who is this request for?"
+
+
+def render_requester_ack(view: RunView) -> str:
+    """The acknowledgement body (HTML, as Freshservice replies are). Facts come from the view only."""
+    parts = [f"<p>We received your request: “{_t(view.request_text)}”.</p>"]
+    if view.status == "needs_input":
+        questions = " ".join(_question(n) for n in view.needs)
+        parts.append(f"<p>We need one detail before we can continue. {_t(questions)} Reply on this ticket with the "
+                     "full name or ID.</p>")
+    else:
+        parts.append(f"<p>{_t(_STATUS_LINE.get(view.status, view.status))}</p>")
+    items = []
+    if view.counts.get("verified"):
+        items.append(f"✅ {view.counts['verified']} done and verified")
+    awaiting = [r for r in view.rows if r.state == "awaiting"]
+    if awaiting:
+        names = dict.fromkeys(r.approver_name or r.approver_id or "" for r in awaiting)
+        items.append(f"🟠 {len(awaiting)} waiting for approval: {', '.join(names)}")
+    refused = [f"{r.label} ({r.rule_id})" for r in view.rows if r.verdict == "REFUSE"]
+    if refused:
+        items.append(f"⛔ {len(refused)} refused: {'; '.join(refused)}")
+    if items:
+        parts.append("<ul>" + "".join(f"<li>{_t(i)}</li>" for i in items) + "</ul>")
+    modes = ", ".join(f"{k} {v}" for k, v in view.modes.items())
+    replay = " Some explanations are a recorded demo output (REPLAY)." if view.replay else ""
+    parts.append(f"<p>Mode: {_t(modes)}.{replay} Reference: run {_t(str(view.run_id)[:8])}.</p>")
+    return "".join(parts)
+
+
+async def send_requester_ack(door: Door, replier: TicketReplier, view: RunView, *,
+                             ticket_id: str | None) -> AckResult:
+    """Reply once per run on the requester's ticket. Raises the replier's ConnectorError; records nothing then."""
+    if not ticket_id:
+        return AckResult(outcome="skipped", reason="no Freshservice ticket to reply on")
+    body = render_requester_ack(view)
+
+    async def deliver(key: str) -> dict:
+        response = await replier.reply(ticket_id, body, idempotency_key=key)
+        return {"mode": replier.mode, "ticket_id": ticket_id, "reply_id": str(response.get("id"))}
+
+    ref, replayed = await send_once(door.db, run_id=view.run_id, action_id=ACK_ACTION_ID, channel="freshservice",
+                                    send=deliver)
+    return AckResult(outcome="replayed" if replayed else "sent", mode=ref["mode"], reply_id=ref["reply_id"])
 
 
 # --- the approval email, rendered from RunView ---------------------------------------------------------------
