@@ -32,7 +32,10 @@ from mcp.server.transport_security import TransportSecuritySettings
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from contextrail import __version__
+from contextrail.agentic.knowledge import KnowledgeSearch, RuleIndex
 from contextrail.settings import Settings
+from contextrail.surfaces.door import Door
+from contextrail.surfaces.mcp_tools import ContextRailTools
 
 MCP_PATH = "/mcp"
 _PLACEHOLDER_TOKEN = "change-me"
@@ -76,8 +79,8 @@ def transport_security(settings: Settings) -> TransportSecuritySettings:
     )
 
 
-def build_mcp_server(settings: Settings) -> MCPServer:
-    return MCPServer(
+def build_mcp_server(settings: Settings, tools: ContextRailTools | None = None) -> MCPServer:
+    server = MCPServer(
         "contextrail",
         title="ContextRail",
         version=__version__,
@@ -87,6 +90,9 @@ def build_mcp_server(settings: Settings) -> MCPServer:
         # metadata are served (resource_server_url=None). The bearer check is EngineTokenVerifier alone.
         auth=AuthSettings(issuer_url=settings.public_url, resource_server_url=None),
     )
+    if tools is not None:
+        tools.register(server)
+    return server
 
 
 async def _problem(send: Send, status: int, title: str, detail: str) -> None:
@@ -128,9 +134,24 @@ class McpEndpoint:
         await self._http(scope, receive, send)
 
 
+def app_door(app: FastAPI) -> Door | None:
+    """The engine's one Door: from the composition root (app.state.platform) when it exists, else app.state.door."""
+    platform = getattr(app.state, "platform", None)
+    return platform.door if platform is not None else getattr(app.state, "door", None)
+
+
+def app_knowledge(app: FastAPI) -> KnowledgeSearch | None:
+    """The wired knowledge index (app.state.knowledge), else the fallback index over the engine's loaded rules."""
+    index = getattr(app.state, "knowledge", None)
+    if index is None and getattr(app.state, "rules", None) is not None:
+        index = app.state.knowledge = RuleIndex(app.state.rules)
+    return index
+
+
 def mount_mcp(app: FastAPI, settings: Settings) -> MCPServer:
     """Serve the MCP door at /mcp inside `app`. The only line main.py needs."""
-    server = build_mcp_server(settings)
+    tools = ContextRailTools(door=lambda: app_door(app), knowledge=lambda: app_knowledge(app))
+    server = build_mcp_server(settings, tools)
     endpoint = McpEndpoint(server, settings)
     router = APIRouter(lifespan=endpoint.lifespan)
     router.add_route(MCP_PATH, endpoint, include_in_schema=False)
