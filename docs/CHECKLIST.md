@@ -220,7 +220,7 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 
 ## L. Knowledge layer (OKF + LLM wiki) (11)
 
-- [ ] T170 `P1` `knowledge/SCHEMA.md`: frontmatter conventions and ingest/lint rules.
+- [x] T170 `P1` `knowledge/SCHEMA.md`: frontmatter conventions and ingest/lint rules.
 - [ ] T171 `P1` Root and per-folder `index.md`.
 - [ ] T172 `P1` `log.md` with ISO-dated entries.
 - [ ] T173 `P1` `policies/contractor-onboarding.md` + `policies/access-control-standard.md`, linked to their rules.
