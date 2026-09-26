@@ -18,6 +18,7 @@ Append-only. Each entry records what we chose, why, and what would change our mi
 | D-011 | 2026-09-26 | Stage 1 policy IDs → the brief's 12 rules; rule-format refinements | Accepted |
 | D-012 | — | Teams SDK: Microsoft 365 Agents SDK vs Bot Framework SDK | Open (T240) |
 | D-015 | 2026-09-26 | Freshservice approvals: the API cannot approve or reject, so decisions are mirrored as ticket notes | Accepted |
+| D-016 | — | Freshservice webhook: Workflow Automator cannot sign an HMAC; a signing hop or a weaker scheme | Open |
 
 ---
 
@@ -160,3 +161,21 @@ as approved or rejected.
 
 **Revisit if.** The trial tenant has Parallel Approvals enabled (switch to approval groups), or we decide that
 cancelling superseded approvals is the clearer signal for Freshservice agents.
+
+## D-016 — Signing the Freshservice webhook (open)
+**Built.** `/v1/webhooks/freshservice` accepts only `X-ContextRail-Signature: sha256=HMAC-SHA256(FS_WEBHOOK_SECRET,
+"<timestamp>.<body>")` with `X-ContextRail-Timestamp` within ±300 s, as CLAUDE.md §16 asks. The comparison is
+constant-time, it fails closed without a secret, and replays inside the window are absorbed by the ticket-id
+dedupe (T133).
+**Found.** Workflow Automator's Web Request node offers Basic auth, API key or no auth, and nothing that computes
+a signature (support.freshservice.com, "Web Request Node", read 2026-09-26). §13.2's direct Workflow Automator →
+engine call therefore cannot pass this check as it stands.
+**Options.**
+1. A signing hop. The FDK app's `onTicketCreate` event (§13.2 already names it the backup trigger) signs with
+   the secret stored as a secure iparam and forwards the delivery. The HMAC scheme stays as built.
+2. Accept a static shared secret in the header for Workflow Automator only. This is weaker: the header is
+   replayable for as long as the secret lives. The exposure is bounded, because the payload is only a ticket id
+   that the engine re-reads from Freshservice by ID (P1) and a replay is a 202 no-op after dedupe. It still
+   lowers the bar the brief set, so it needs an explicit yes.
+**Not done.** Option 2 was not implemented unasked: it is a security trade-off for the lead or security to make.
+Until then, T135/T136 (Workflow Automator setup, human tasks) cannot pass end to end without option 1.
