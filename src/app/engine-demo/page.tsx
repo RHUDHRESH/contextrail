@@ -1,11 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowRight, ChevronDown, RefreshCw } from "lucide-react";
 
 type Persona = "employee" | "contractor" | "manager";
 type Row = { action_id: string; label: string; verdict: string; state: string; clause: string; connector_mode: string; approver_id?: string | null; approver_name?: string | null; params_hash: string };
-type RunView = { run_id: string; status: string; request_text: string; subject: string | null; rows: Row[]; modes: Record<string, string>; needs: { question?: string }[] };
+type RunView = { run_id: string; status: string; request_text: string; subject: string | null; peer: string | null; rows: Row[]; modes: Record<string, string>; needs: { question?: string }[] };
+type Ticket = { status: "attempted" | "verified" | "unverified" | "unknown" | "blocked"; ticket_id?: number | null; mode: "LIVE" | "FIXTURE" };
 type SavedRuns = Record<Persona, RunView[]>;
 const defaultRuns: SavedRuns = { employee: [], contractor: [], manager: [] };
 const personas: { id: Persona; title: string; name: string; role: string; description: string; suggestion: string }[] = [
@@ -28,6 +29,8 @@ export default function EngineDemoPage() {
   const [available, setAvailable] = useState<boolean | null>(null);
   const [request, setRequest] = useState(personas[0].suggestion);
   const [run, setRun] = useState<RunView | null>(null);
+  const [ticket, setTicket] = useState<Ticket | null>(null);
+  const requestRef = useRef<{ key: string; sourceRef: string } | null>(null);
   const [runs, setRuns] = useState<SavedRuns>(defaultRuns);
   const [pending, setPending] = useState<RunView[]>([]);
   const [busy, setBusy] = useState(false);
@@ -61,24 +64,35 @@ export default function EngineDemoPage() {
   function selectPersona(next: Persona) {
     setPersona(next); setError(""); setPending([]);
     setRequest(personas.find((item) => item.id === next)!.suggestion);
-    setRun(null); setError(""); setNotice("");
+    setRun(null); setTicket(null); setError(""); setNotice("");
+  }
+
+  async function selectHistory(item: RunView) {
+    setRun(item); setTicket(null);
+    try {
+      const response = await fetch(`/api/engine-demo?run_id=${item.run_id}`, { cache: "no-store" });
+      if (response.ok) setTicket(await response.json() as Ticket);
+    } catch { /* The run remains available even if its ticket readback is unavailable. */ }
   }
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
-    setBusy(true); setError(""); setNotice(""); setRun(null);
+    setBusy(true); setError(""); setNotice(""); setRun(null); setTicket(null);
     try {
-      const response = await fetch("/api/engine-demo", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ persona, request }) });
+      const key = `${persona}:${request.trim()}`;
+      if (requestRef.current?.key !== key) requestRef.current = { key, sourceRef: crypto.randomUUID() };
+      const response = await fetch("/api/engine-demo", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ persona, request, source_ref: requestRef.current.sourceRef }) });
       const body = await response.json();
       if (!response.ok) throw new Error(body.error ?? "The engine could not finish this request.");
-      const view = body as RunView;
+      const view = body.run as RunView;
       setRun(view);
+      setTicket(body.ticket as Ticket);
       setRuns((previous) => {
         const next = { ...previous, [persona]: [view, ...previous[persona].filter((item) => item.run_id !== view.run_id)].slice(0, 20) };
         try { window.localStorage.setItem("contextrail-engine-demo-runs-v1", JSON.stringify(next)); } catch { /* Run stays visible until this page closes. */ }
         return next;
       });
-      setNotice("Run created by the Python engine.");
+      setNotice(body.ticket?.status === "verified" ? `Freshservice ticket #${body.ticket.ticket_id} created and read back.` : "Request recorded by the Python engine. Freshservice ticket is not verified yet.");
       void refreshPersona(persona);
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not run the request."); }
     finally { setBusy(false); }
@@ -112,7 +126,7 @@ export default function EngineDemoPage() {
 
     <div className="mt-5 flex items-center justify-between rounded-xl border border-line bg-panel px-4 py-3"><div><span className="text-xs text-dim">Current persona</span><p className="mt-0.5 text-sm font-medium text-text">{selected.name} <span className="font-normal text-muted">· {selected.role}</span></p></div><span className="text-xs text-muted">{available === null ? "Checking engine…" : available ? "Engine ready" : "Engine offline"}</span></div>
 
-    <form onSubmit={submit} className="mt-5 rounded-[18px] border border-line-strong bg-panel p-4 shadow-[0_12px_40px_rgba(70,53,36,.06)] md:p-5">
+    <form id="engine-request" onSubmit={submit} className="mt-5 rounded-[18px] border border-line-strong bg-panel p-4 shadow-[0_12px_40px_rgba(70,53,36,.06)] md:p-5">
       <label htmlFor="engine-request" className="mb-2 block text-sm font-medium text-text">{persona === "manager" ? "Create a request as Dana" : `What does ${selected.name} need?`}</label>
       <textarea id="engine-request" value={request} onChange={(event) => setRequest(event.target.value)} rows={3} className="w-full resize-y rounded-lg border border-line bg-transparent p-3 text-[16px] leading-6 text-text outline-none focus:border-rail" />
       <div className="mt-3 flex flex-wrap items-center justify-between gap-3 border-t border-line pt-4"><span className="text-xs text-muted">Identity is mapped server-side to a fixed fixture account.</span><button type="submit" disabled={!available || busy || request.trim().length < 8} className="inline-flex h-10 items-center gap-2 rounded-lg bg-rail px-5 text-sm font-semibold text-panel disabled:cursor-not-allowed disabled:opacity-40">{busy ? "Working…" : "Run request"}<ArrowRight className="size-4" /></button></div>
@@ -121,16 +135,16 @@ export default function EngineDemoPage() {
     {error && <p role="alert" className="mt-3 rounded-xl border border-stop/40 bg-stop/5 p-3 text-sm text-text">{error}</p>}
     {notice && <p role="status" className="mt-3 rounded-xl border border-line bg-panel p-3 text-sm text-text">{notice}</p>}
 
-    {run && <RunCard run={run} heading="Latest request" />}
+    {run && <RunCard run={run} ticket={ticket} heading="Latest request" />}
 
-    {persona === "manager" ? <section className="mt-8" aria-label="Manager approval queue"><div className="flex items-center justify-between gap-3"><div><p className="text-xs font-semibold uppercase tracking-wide text-dim">Dana’s approvals</p><h2 className="mt-1 font-display text-2xl text-text">Other side of the request</h2></div><button type="button" onClick={() => void refreshPersona("manager")} disabled={busy} className="inline-flex h-9 items-center gap-2 rounded-lg border border-line px-3 text-sm text-text"><RefreshCw className="size-4" /> Refresh</button></div>
-      {allApprovals.length === 0 ? <div className="mt-3 rounded-xl border border-dashed border-line-strong px-5 py-8 text-center text-sm text-muted">No requests are waiting for Dana. Submit a request as Anil, then switch back to Manager.</div> : <div className="mt-3 space-y-3">{allApprovals.map(({ item, row }) => <div key={`${item.run_id}:${row.action_id}`} className="rounded-xl border border-line-strong bg-panel p-4"><p className="text-xs text-dim">Requested for {item.subject ?? "employee"} · {item.run_id.slice(0, 8)}</p><h3 className="mt-1 font-medium text-text">{row.label}</h3><p className="mt-2 text-sm leading-relaxed text-muted">{item.request_text}</p><p className="mt-2 text-xs text-muted">{row.verdict} · {row.clause}</p><div className="mt-4 flex gap-2"><button type="button" disabled={busy} onClick={() => void decide(item, row, "approved")} className="h-9 rounded-lg bg-rail px-4 text-sm font-semibold text-panel disabled:opacity-50">Approve</button><button type="button" disabled={busy} onClick={() => void decide(item, row, "refused")} className="h-9 rounded-lg border border-line px-4 text-sm font-medium text-text disabled:opacity-50">Decline</button></div></div>)}</div>}
-    </section> : <section className="mt-8" aria-label="My requests"><p className="text-xs font-semibold uppercase tracking-wide text-dim">{selected.name} · this browser</p><h2 className="mt-1 font-display text-2xl text-text">My requests</h2>{history.length === 0 ? <p className="mt-3 rounded-xl border border-dashed border-line-strong px-5 py-7 text-center text-sm text-muted">No requests yet for this persona.</p> : <div className="mt-3 space-y-2">{history.map((item) => <button key={item.run_id} type="button" onClick={() => setRun(item)} className="w-full rounded-xl border border-line bg-panel p-4 text-left hover:border-line-strong"><span className="block text-sm font-medium text-text">{item.request_text}</span><span className="mt-1 block text-xs text-muted">{title(item.status)} · {item.rows.length} actions · {item.run_id.slice(0, 8)}</span></button>)}</div>}</section>}
+    {persona === "manager" ? <section id="engine-history" className="mt-8" aria-label="Manager approval queue"><div className="flex items-center justify-between gap-3"><div><p className="text-xs font-semibold uppercase tracking-wide text-dim">Dana’s approvals</p><h2 className="mt-1 font-display text-2xl text-text">Other side of the request</h2></div><button type="button" onClick={() => void refreshPersona("manager")} disabled={busy} className="inline-flex h-9 items-center gap-2 rounded-lg border border-line px-3 text-sm text-text"><RefreshCw className="size-4" /> Refresh</button></div>
+      {allApprovals.length === 0 ? <div className="mt-3 rounded-xl border border-dashed border-line-strong px-5 py-8 text-center text-sm text-muted">No requests are waiting for Dana. Submit a request as Anil, then switch back to Manager.</div> : <div className="mt-3 space-y-3">{allApprovals.map(({ item, row }) => <div key={`${item.run_id}:${row.action_id}`} className="rounded-xl border border-line-strong bg-panel p-4"><p className="text-xs text-dim">Request {item.run_id.slice(0, 8)} · For {item.subject ?? "employee"}{item.peer ? ` · Based on ${item.peer}` : ""}</p><h3 className="mt-1 font-medium text-text">{row.label}</h3><p className="mt-2 text-sm leading-relaxed text-muted">{item.request_text}</p><p className="mt-2 text-xs text-muted">{row.verdict} · {row.clause}</p><div className="mt-4 flex gap-2"><button type="button" disabled={busy} onClick={() => void decide(item, row, "approved")} className="h-9 rounded-lg bg-rail px-4 text-sm font-semibold text-panel disabled:opacity-50">Approve</button><button type="button" disabled={busy} onClick={() => void decide(item, row, "refused")} className="h-9 rounded-lg border border-line px-4 text-sm font-medium text-text disabled:opacity-50">Decline</button></div></div>)}</div>}
+    </section> : <section id="engine-history" className="mt-8" aria-label="My requests"><p className="text-xs font-semibold uppercase tracking-wide text-dim">{selected.name} · this browser</p><h2 className="mt-1 font-display text-2xl text-text">My requests</h2>{history.length === 0 ? <p className="mt-3 rounded-xl border border-dashed border-line-strong px-5 py-7 text-center text-sm text-muted">No requests yet for this persona.</p> : <div className="mt-3 space-y-2">{history.map((item) => <button key={item.run_id} type="button" onClick={() => void selectHistory(item)} className="w-full rounded-xl border border-line bg-panel p-4 text-left hover:border-line-strong"><span className="block text-sm font-medium text-text">{item.request_text}</span><span className="mt-1 block text-xs text-muted">{title(item.status)} · {item.rows.length} actions · {item.run_id.slice(0, 8)}</span></button>)}</div>}</section>}
 
-    <p className="mt-7 text-xs leading-relaxed text-dim">Local demo only. Personas are fixture identities in this browser, not authenticated accounts. Each request list loads from the engine for that mapped identity. Access changes use fixture connectors unless the engine reports a live mode. This demo approves through the engine’s Slack identity mapping.</p>
+    <p className="mt-7 text-xs leading-relaxed text-dim">Local demo only. Personas are fixture identities in this browser, not authenticated accounts. Each request list loads from the engine for that mapped identity. Access changes use fixture connectors unless the engine reports a live mode. Browser decisions use the engine’s MCP demo channel; Slack approval is a separate integration.</p>
   </div>;
 }
 
-function RunCard({ run, heading }: { run: RunView; heading: string }) {
-  return <section className="mt-5 rounded-2xl border border-line-strong bg-panel p-5" aria-label={heading}><p className="text-xs font-medium text-rail">{heading} · Run {run.run_id.slice(0, 8)}</p><h2 className="mt-1 font-display text-2xl text-text">{title(run.status)}</h2><p className="mt-1 text-sm text-muted">{run.subject ? `For ${run.subject}. ` : ""}{run.rows.length} proposed actions, {run.rows.filter((row) => row.state === "verified").length} verified.</p>{run.needs?.length > 0 && <p className="mt-3 text-sm text-text">{run.needs[0].question ?? "The engine needs a clearer person or request."}</p>}<div className="mt-4 space-y-2">{run.rows.map((row) => <div key={row.action_id} className="rounded-xl bg-panel-2 px-3 py-3 text-sm"><div className="flex items-start justify-between gap-3"><span className="font-medium text-text">{row.label}</span><span className="shrink-0 text-xs text-muted">{row.verdict} · {row.state}</span></div><p className="mt-1 text-xs leading-relaxed text-muted">{row.clause}{row.approver_name ? ` · Approver: ${row.approver_name}` : ""}</p></div>)}</div><details className="mt-4 border-t border-line pt-3"><summary className="flex cursor-pointer list-none items-center justify-between text-sm font-medium text-text">Connector details <ChevronDown className="size-4" /></summary><p className="mt-2 text-xs text-muted">{Object.entries(run.modes).map(([name, mode]) => `${name}: ${mode}`).join(" · ")}</p></details></section>;
+function RunCard({ run, ticket, heading }: { run: RunView; ticket?: Ticket | null; heading: string }) {
+  return <section className="mt-5 rounded-2xl border border-line-strong bg-panel p-5" aria-label={heading}><p className="text-xs font-medium text-rail">{heading} · Run {run.run_id.slice(0, 8)}</p><h2 className="mt-1 font-display text-2xl text-text">{title(run.status)}</h2><p className="mt-1 text-sm text-muted">{run.subject ? `For ${run.subject}` : "Person needs clarification"}{run.peer ? `, based on ${run.peer}` : ""}. {run.rows.filter((row) => row.state === "verified").length} of {run.rows.length} steps verified.</p>{ticket && <p className="mt-2 text-sm text-text">Freshservice: {ticket.status === "verified" && ticket.ticket_id ? <a className="font-medium text-rail underline" target="_blank" rel="noreferrer" href={`https://freshworks065.freshservice.com/a/tickets/${ticket.ticket_id}`}>Ticket #{ticket.ticket_id} · {ticket.mode}</a> : `${ticket.status} · ${ticket.mode}`}</p>}{run.needs?.length > 0 && <p className="mt-3 text-sm text-text">{run.needs[0].question ?? "The engine needs a clearer person or request."}</p>}<details className="mt-4 border-t border-line pt-3"><summary className="flex cursor-pointer list-none items-center justify-between text-sm font-medium text-text">View {run.rows.length} steps <ChevronDown className="size-4" /></summary><div className="mt-3 space-y-2">{run.rows.map((row) => <div key={row.action_id} className="rounded-xl bg-panel-2 px-3 py-3 text-sm"><div className="flex items-start justify-between gap-3"><span className="font-medium text-text">{row.label}</span><span className="shrink-0 text-xs text-muted">{row.verdict} · {row.state}</span></div><p className="mt-1 text-xs leading-relaxed text-muted">{row.clause}{row.approver_name ? ` · Approver: ${row.approver_name}` : ""}</p></div>)}</div></details><details className="mt-4 border-t border-line pt-3"><summary className="flex cursor-pointer list-none items-center justify-between text-sm font-medium text-text">Connector details <ChevronDown className="size-4" /></summary><p className="mt-2 text-xs text-muted">{Object.entries(run.modes).map(([name, mode]) => `${name}: ${mode}`).join(" · ")}</p></details></section>;
 }

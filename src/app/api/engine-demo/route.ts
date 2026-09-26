@@ -3,11 +3,11 @@ import { z } from "zod";
 export const runtime = "nodejs";
 
 const personas = {
-  employee: { label: "Anil Kumar", channel: "slack", externalId: "U0ANIL001" },
-  contractor: { label: "Priya Raghunathan", channel: "email", externalId: "priya.r@contractor.northbeam.example" },
-  manager: { label: "Dana Osei", channel: "slack", externalId: "U0DANA050" },
+  employee: { label: "Anil Kumar", channel: "mcp", externalId: "p-anil" },
+  contractor: { label: "Priya Raghunathan", channel: "mcp", externalId: "p-priya" },
+  manager: { label: "Dana Osei", channel: "mcp", externalId: "p-dana" },
 } as const;
-const Body = z.object({ persona: z.enum(["employee", "contractor", "manager"]), request: z.string().trim().min(8).max(1000) });
+const Body = z.object({ persona: z.enum(["employee", "contractor", "manager"]), request: z.string().trim().min(8).max(1000), source_ref: z.string().uuid() });
 const PersonaQuery = z.enum(["employee", "contractor", "manager"]);
 
 function localDemo(req: Request) {
@@ -37,8 +37,16 @@ export async function GET(req: Request) {
   if (!localDemo(req)) return Response.json({ available: false }, { status: 404 });
   const target = config();
   if (!target) return Response.json({ available: false });
-  const persona = PersonaQuery.safeParse(new URL(req.url).searchParams.get("persona") ?? "");
+  const params = new URL(req.url).searchParams;
+  const runId = params.get("run_id");
+  const persona = PersonaQuery.safeParse(params.get("persona") ?? "");
   try {
+    if (runId) {
+      if (!z.string().uuid().safeParse(runId).success) return Response.json({ error: "Invalid run ID." }, { status: 400 });
+      const response = await engineFetch(target, `/v1/runs/${runId}/ticket`);
+      if (!response.ok) return Response.json({ error: `Engine returned ${response.status}.` }, { status: response.status === 404 ? 404 : 502 });
+      return Response.json(await response.json());
+    }
     if (!persona.success) {
       const response = await engineFetch(target, "/health", { signal: AbortSignal.timeout(3000) });
       return Response.json({ available: response.ok });
@@ -66,9 +74,9 @@ export async function POST(req: Request) {
   if (!parsed.success) return Response.json({ error: "Choose a demo persona and describe the request in one sentence." }, { status: 400 });
   const actor = personas[parsed.data.persona];
   try {
-    const response = await engineFetch(target, "/v1/runs", {
+    const response = await engineFetch(target, "/v1/web/requests", {
       method: "POST",
-      body: JSON.stringify({ request_text: parsed.data.request, channel: actor.channel, actor_external_id: actor.externalId }),
+      body: JSON.stringify({ request_text: parsed.data.request, actor_external_id: actor.externalId, source_ref: parsed.data.source_ref }),
     });
     if (!response.ok) return Response.json({ error: `Engine returned ${response.status}.` }, { status: 502 });
     return Response.json(await response.json(), { status: 201 });
