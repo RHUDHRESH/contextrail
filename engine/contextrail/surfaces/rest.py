@@ -31,7 +31,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from contextrail import repo
 from contextrail.connectors.base import ConnectorError, UnknownOutcome
-from contextrail.connectors.freshservice import ACCESS_REQUEST_TEXT_FIELD, fs_id
+from contextrail.connectors.freshservice import ACCESS_REQUEST_TEXT_FIELD, FreshserviceHTTPError, fs_id
 from contextrail.intake import TICKET_CHANNELS, advisory_lock, find_ticket_run, run_lock, ticket_lock
 from contextrail.metrics import Metrics, collect
 from contextrail.surfaces.door import Answer, Channel, DecisionResult
@@ -124,6 +124,14 @@ class VoiceRequest(BaseModel):
     source_ref: str = Field(min_length=1, max_length=128)  # Vobiz CallUUID, only after a signed callback
 
 
+class WebRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    request_text: str = Field(min_length=1, max_length=1000)
+    actor_external_id: str = Field(pattern=r"^p-[a-z0-9-]{1,60}$")
+    source_ref: str = Field(min_length=1, max_length=128)  # client-generated UUID, reused for safe retries
+
+
 class VoiceTicket(BaseModel):
     status: Literal["attempted", "verified", "unverified", "unknown", "blocked"]
     ticket_id: int | None = None
@@ -181,6 +189,21 @@ async def get_run(run_id: UUID, request: Request) -> RunView:
     return await _view_or_404(_platform(request), run_id)
 
 
+@router.get("/runs/{run_id}/ticket", response_model=VoiceTicket)
+async def get_run_ticket(run_id: UUID, request: Request) -> VoiceTicket:
+    """Return the persisted Freshservice creation/readback result so browser history survives reloads."""
+    p = _platform(request)
+    async with p.db.connection() as c:
+        if await repo.get_run(c, run_id) is None:
+            raise HTTPException(404, f"no run {run_id}")
+        row = await (await c.execute(
+            "select ref from door_messages where run_id = %s and action_id = '' and channel = 'freshservice'",
+            (run_id,))).fetchone()
+    if row is None:
+        raise HTTPException(404, "no Freshservice ticket attempt for this run")
+    return VoiceTicket.model_validate(row["ref"])
+
+
 @router.post("/runs/mine", response_model=MyRuns)
 async def my_runs(body: PendingApprovals, request: Request) -> MyRuns:
     """Return at most 20 requests belonging to the resolved actor, never another fixture persona."""
@@ -233,24 +256,35 @@ async def start_voice_request(body: VoiceRequest, request: Request) -> VoiceRequ
     Freshservice has no idempotency key for place_request. Persist the attempt *before* that POST. A crash or an
     uncertain response therefore requires reconciliation; it can never silently create a duplicate ticket.
     """
+    return await _start_ticket_request(body, request, channel="voice", source="voice")
+
+
+@router.post("/web/requests", response_model=VoiceRequestResult)
+async def start_web_request(body: WebRequest, request: Request) -> VoiceRequestResult:
+    """Start a persona-mapped demo request and create/read back its real Freshservice ticket."""
+    return await _start_ticket_request(body, request, channel="mcp", source="mcp", ticket_tag="web")
+
+
+async def _start_ticket_request(body: VoiceRequest | WebRequest, request: Request, *, channel: str,
+                                source: str, ticket_tag: str | None = None) -> VoiceRequestResult:
     p = _platform(request)
-    actor = await p.door.resolve_actor("voice", body.actor_external_id)
+    actor = await p.door.resolve_actor(channel, body.actor_external_id)
     if actor is None or not actor.get("email"):
-        raise HTTPException(403, "a registered caller with an email is required for a voice request")
-    async with advisory_lock(p.db, f"voice:{body.source_ref}") as c:
+        raise HTTPException(403, "a registered demo persona with an email is required")
+    async with advisory_lock(p.db, f"{source}:{body.source_ref}") as c:
         existing = await (await c.execute(
-            "select id, requested_by, request_text from runs where source = 'voice' and source_ref = %s "
+            "select id, requested_by, request_text from runs where source = %s and source_ref = %s "
             "order by created_at limit 1",
-            (body.source_ref,))).fetchone()
+            (source, body.source_ref))).fetchone()
         if existing and (existing["requested_by"] != actor["person_id"] or
                          existing["request_text"] != body.request_text):
             raise HTTPException(409, "this call reference belongs to a different request")
         view = (await p.door.get_status(existing["id"]) if existing else
-                await p.door.start_run(body.request_text, channel="voice",
+                await p.door.start_run(body.request_text, channel=channel,
                                        actor_external_id=body.actor_external_id, source_ref=body.source_ref))
 
     fs = p.registry.get("freshservice")
-    async with advisory_lock(p.db, f"voice-ticket:{view.run_id}") as c:
+    async with advisory_lock(p.db, f"{source}-ticket:{view.run_id}") as c:
         row = await (await c.execute(
             "select ref from door_messages where run_id = %s and action_id = '' and channel = 'freshservice'",
             (view.run_id,))).fetchone()
@@ -262,15 +296,32 @@ async def start_voice_request(body: VoiceRequest, request: Request) -> VoiceRequ
                                        {"status": "attempted", "mode": fs.mode})
 
     try:
-        placed = await fs.place_access_request(actor["email"], body.request_text)
+        direct = False
+        try:
+            placed = await fs.place_access_request(actor["email"], body.request_text)
+        except FreshserviceHTTPError as e:
+            if e.status != 403 or fs.mode != "LIVE":
+                raise
+            direct = True
+            placed = await fs.create_incident_ticket(
+                email=actor["email"], subject=f"[ContextRail {ticket_tag or source}] Request {view.run_id}",
+                description=body.request_text)
         ticket_id = fs_id(placed.data["id"])
         try:
             seen = await fs.get_ticket(ticket_id)
-            items = await fs.get_requested_items(ticket_id)
-            verified = (seen.mode == placed.mode and items.mode == placed.mode and
-                        seen.data.get("id") == ticket_id and any(
-                            item.get("custom_fields", {}).get(ACCESS_REQUEST_TEXT_FIELD) == body.request_text
-                            for item in items.data))
+            if direct:
+                description = str(seen.data.get("description_text") or seen.data.get("description") or "")
+                workspace_id = getattr(getattr(fs, "live", None), "workspace_id", None)
+                verified = (seen.mode == placed.mode and seen.data.get("id") == ticket_id and
+                            (workspace_id is None or seen.data.get("workspace_id") == workspace_id) and
+                            seen.data.get("subject") == f"[ContextRail {ticket_tag or source}] Request {view.run_id}" and
+                            body.request_text in description)
+            else:
+                items = await fs.get_requested_items(ticket_id)
+                verified = (seen.mode == placed.mode and items.mode == placed.mode and
+                            seen.data.get("id") == ticket_id and any(
+                                item.get("custom_fields", {}).get(ACCESS_REQUEST_TEXT_FIELD) == body.request_text
+                                for item in items.data))
         except ConnectorError:
             verified = False
         ticket = VoiceTicket(status="verified" if verified else "unverified", ticket_id=ticket_id,

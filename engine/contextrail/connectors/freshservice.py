@@ -209,12 +209,14 @@ def _retry_after(r: httpx.Response) -> float | None:
 class FreshserviceClient:
     """Async REST v2 client: auth, base URL, timeouts, keep-alive and error mapping. No retries of its own."""
 
-    def __init__(self, domain: str, api_key: str, *, transport: httpx.AsyncBaseTransport | None = None,
+    def __init__(self, domain: str, api_key: str, *, workspace_id: int | None = None,
+                 transport: httpx.AsyncBaseTransport | None = None,
                  limiter: TokenBucket | None = None) -> None:
         self.base_url = base_url(domain)
         self.limiter = limiter
         self._access_item: dict | None = None
         self._receipts_object: dict | None = None
+        self.workspace_id = workspace_id
         self.http = httpx.AsyncClient(
             base_url=self.base_url + "/",
             auth=httpx.BasicAuth(api_key, "X"),
@@ -301,6 +303,22 @@ class FreshserviceClient:
         """GET /tickets/{id}. `source` tells a mailbox (email) ticket from a portal/catalog one."""
         path = f"tickets/{fs_id(ticket_id)}"
         return _unwrap(await self.get(path), "ticket", path)
+
+    async def create_incident_ticket(self, *, email: str, subject: str, description: str) -> dict:
+        """Create a plain incident ticket when catalog access is unavailable; never blindly retry this POST."""
+        subject = " ".join(subject.split())
+        description = description.strip()
+        if not subject or len(subject) > 255 or not description or len(description) > 5000:
+            raise ValueError("a subject (1-255 chars) and description (1-5000 chars) are required")
+        body: dict[str, Any] = {"email": _email(email), "subject": subject, "description": description,
+                                "priority": 1, "status": 2}
+        if self.workspace_id is not None:
+            body["workspace_id"] = fs_id(self.workspace_id)
+        try:
+            response = await self.post("tickets", body)
+        except ServerError as e:
+            raise UnknownOutcome(f"{e}; the ticket may have been created, and cannot be safely retried") from e
+        return _unwrap(response, "ticket", "tickets")
 
     async def get_requester(self, requester_id: object) -> dict:
         path = f"requesters/{fs_id(requester_id)}"
@@ -599,6 +617,7 @@ class FreshserviceConnector:
         self.live: FreshserviceClient | None = None
         if settings is not None and settings.freshservice_configured:
             self.live = FreshserviceClient(settings.fs_domain, settings.fs_api_key.get_secret_value(),
+                                           workspace_id=settings.fs_workspace_id,
                                            transport=transport,
                                            limiter=limiter or TokenBucket(settings.fs_rate_limit_per_min))
         self.mode: Mode = "LIVE" if self.live is not None else "FIXTURE"
@@ -670,6 +689,10 @@ class FreshserviceConnector:
         """A new 'Access request (ContextRail)' ticket; `data` is the service request, labelled with its mode."""
         return await self._read("place_access_request", lambda c: c.place_access_request(
             email, request_text, requested_for=requested_for), write=True)
+
+    async def create_incident_ticket(self, *, email: str, subject: str, description: str) -> FsRead:
+        return await self._read("create_incident_ticket", lambda c: c.create_incident_ticket(
+            email=email, subject=subject, description=description), write=True)
 
     async def get_approval(self, ticket_id: object, approval_id: object) -> FsApproval:
         tid, aid = fs_id(ticket_id), fs_id(approval_id)

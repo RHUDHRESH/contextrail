@@ -118,3 +118,23 @@ async def test_concurrent_same_call_creates_at_most_one_ticket(api):
     assert all(r.status_code == 200 for r in responses)
     assert len({r.json()["run"]["run_id"] for r in responses}) == 1
     assert len({r.json()["ticket"]["ticket_id"] for r in responses if r.json()["ticket"]["ticket_id"]}) == 1
+
+
+async def test_web_request_creates_and_reuses_one_ticket_and_rejects_unmapped_persona(api):
+    client, platform = api
+    body = {"request_text": REQUEST, "actor_external_id": "p-anil", "source_ref": "web-demo-test-1"}
+    denied = await client.post("/v1/web/requests", json={**body, "actor_external_id": "p-unmapped"})
+    assert denied.status_code == 403
+    first = await client.post("/v1/web/requests", json=body)
+    assert first.status_code == 200, first.text
+    data = first.json()
+    assert data["run"]["source"] == "mcp"
+    assert data["ticket"]["status"] == "verified" and data["ticket"]["mode"] == "FIXTURE"
+    ticket = await platform.registry.get("freshservice").get_ticket(data["ticket"]["ticket_id"])
+    assert ticket.data["id"] == data["ticket"]["ticket_id"]
+    again = await client.post("/v1/web/requests", json=body)
+    assert again.json() == data
+    readback = await client.get(f"/v1/runs/{data['run']['run_id']}/ticket")
+    assert readback.status_code == 200 and readback.json() == data["ticket"]
+    changed = await client.post("/v1/web/requests", json={**body, "request_text": "different request"})
+    assert changed.status_code == 409

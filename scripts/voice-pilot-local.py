@@ -18,6 +18,7 @@ import urllib.request
 from pathlib import Path
 
 import pgserver
+import psycopg
 
 ROOT = Path(__file__).resolve().parents[1]
 ENGINE = ROOT / "engine"
@@ -37,6 +38,8 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--slack", action="store_true",
                         help="also run the real Slack Socket Mode door against this isolated pilot database")
+    parser.add_argument("--freshservice", action="store_true",
+                        help="enable the configured Freshservice tenant for labeled live ticket requests")
     parser.add_argument("--port", type=int, default=8000, help="local engine port (default: 8000)")
     args = parser.parse_args()
     if not LOCAL_ENV.is_file():
@@ -50,8 +53,9 @@ def main() -> int:
         env.update({
             "DATABASE_URL": server.get_uri(),
             "STATE_DIR": str(run_dir / "state"),
-            "FS_DOMAIN": "",
-            "FS_API_KEY": "",
+            "FS_DOMAIN": env.get("FS_DOMAIN", "") if args.freshservice else "",
+            "FS_API_KEY": env.get("FS_API_KEY", "") if args.freshservice else "",
+            "FS_WORKSPACE_ID": env.get("FS_WORKSPACE_ID", "") if args.freshservice else "",
             "FD_DOMAIN": "",
             "FD_API_KEY": "",
             "FS_WEBHOOK_SECRET": "",
@@ -63,6 +67,12 @@ def main() -> int:
         })
         engine_env = {**env, "SLACK_BOT_TOKEN": "", "SLACK_APP_TOKEN": "", "SLACK_SIGNING_SECRET": ""}
         subprocess.run([sys.executable, "-m", "contextrail.seed"], cwd=ENGINE, env=engine_env, check=True)
+        manager_slack_id = env.get("SLACK_DEMO_MANAGER_ID", "").strip()
+        if args.slack and manager_slack_id:
+            # The override is deliberately confined to this throwaway pilot database.
+            with psycopg.connect(env["DATABASE_URL"]) as connection:
+                connection.execute("update identity_map set slack_user_id = %s where person_id = 'p-dana'",
+                                   (manager_slack_id,))
         server_code = (
             f"import asyncio, uvicorn; server=uvicorn.Server(uvicorn.Config('contextrail.main:app', "
             f"host='127.0.0.1', port={args.port})); "
@@ -80,7 +90,8 @@ def main() -> int:
             try:
                 with urllib.request.urlopen(f"http://127.0.0.1:{args.port}/health", timeout=1) as response:
                     if response.status == 200:
-                        print(f"Isolated engine ready at http://127.0.0.1:{args.port} (Freshservice fixture mode)", flush=True)
+                        fs_mode = "configured Freshservice mode" if args.freshservice else "Freshservice fixture mode"
+                        print(f"Isolated engine ready at http://127.0.0.1:{args.port} ({fs_mode})", flush=True)
                         break
             except (OSError, TimeoutError):
                 time.sleep(0.5)
