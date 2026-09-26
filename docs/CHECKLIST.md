@@ -150,7 +150,7 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 - [x] T109 `P0` Router config from env (tiers, model IDs, budgets).
 - [x] T110 `P0` Tier 1 and Tier 2 `Anthropic` clients.
 - [x] T111 `P0` Tier 3 `AnthropicBedrock` client (ap-south-1, global inference IDs).
-- [ ] T112 `P0` Tier 4 replay store: record and replay modes keyed by prompt hash; responses flagged `replay=true`.
+- [x] T112 `P0` Tier 4 replay store: record and replay modes keyed by prompt hash; responses flagged `replay=true`.
 - [ ] T113 `P0` Failover classifier: 429, 529, 5xx, timeout, credit-exhausted (no failover on other 400s).
 - [ ] T114 `P0` Per-tier circuit breaker (180 s).
 - [ ] T115 `P0` Cost calculator per model; write every call to `llm_calls`.

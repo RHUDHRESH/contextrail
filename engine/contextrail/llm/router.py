@@ -22,8 +22,13 @@ from anthropic import Anthropic, AnthropicBedrock
 from anthropic.types import MessageParam
 from pydantic import BaseModel, ConfigDict
 
+from contextrail.canonical import sha256_hex
 from contextrail.fixtures import fixtures_dir
+from contextrail.llm.replay import ReplayStore, request_for
+from contextrail.logs import get_logger
 from contextrail.settings import Settings
+
+log = get_logger("contextrail.llm")
 
 Tier = Literal["T1", "T2", "T3", "T4"]
 Provider = Literal["anthropic", "bedrock", "replay"]
@@ -105,6 +110,10 @@ class NoTierAvailable(LLMError):
     """No enabled tier could serve the call (none configured, all failed over, or all skipped)."""
 
 
+class ReplayMiss(NoTierAvailable):
+    """Replay mode, and this exact request was never recorded (or its recording does not match its key)."""
+
+
 # --- responses -----------------------------------------------------------------------------------------------
 
 class LLMResponse(BaseModel):
@@ -161,9 +170,11 @@ class Router:
     """Calls Claude Haiku 4.5 on the first available tier. The SDK clients are synchronous (`Anthropic`,
     `AnthropicBedrock`, per CLAUDE.md §11), so each call runs in a worker thread to keep the event loop free."""
 
-    def __init__(self, config: RouterConfig, clients: Mapping[str, Any]) -> None:
+    def __init__(self, config: RouterConfig, clients: Mapping[str, Any], *,
+                 replay_store: ReplayStore | None = None) -> None:
         self.config = config
         self.clients = dict(clients)
+        self.replay_store = replay_store or ReplayStore(config.replay_dir)
 
     async def call(self, *, system: str, messages: list[MessageParam], max_tokens: int, model: str | None = None,
                    policy_text: str | None = None, tools: list[dict] | None = None, tool_choice: dict | None = None,
@@ -174,10 +185,14 @@ class Router:
             self.config.check_model(model)
         if max_tokens > self.config.max_tokens_cap:
             raise ValueError(f"max_tokens={max_tokens} exceeds the cap of {self.config.max_tokens_cap} (§11)")
-        chain = [t for t in self.config.chain() if t.tier in self.clients]
+        keyed = request_for(model=self.config.model, system=system, policy_text=policy_text, messages=messages,
+                            tools=tools)
+        chain = [t for t in self.config.chain() if t.provider == "replay" or t.tier in self.clients]
         if not chain:
             raise NoTierAvailable(f"no enabled tier can serve {self.config.model}")
         tier = chain[0]
+        if tier.provider == "replay":
+            return self._replay(keyed)
         request: dict[str, Any] = {"model": tier.model, "system": system_blocks(system, policy_text),
                                    "messages": messages, "max_tokens": max_tokens}
         optional = {"tools": tools, "tool_choice": tool_choice, "thinking": thinking}
@@ -186,6 +201,12 @@ class Router:
             # anthropic 1.8.0 has no typed `temperature` argument; Haiku 4.5 accepts it in the body (§11: 0 for
             # extraction). extra_body is the SDK's documented way to send a body field it does not type.
             request["extra_body"] = {"temperature": temperature}
+        response = await self._live(tier, request)
+        if self.config.replay_mode == "record":
+            self._record(keyed, response)
+        return response
+
+    async def _live(self, tier: TierConfig, request: dict[str, Any]) -> LLMResponse:
         t0 = time.perf_counter()
         msg = await asyncio.to_thread(self.clients[tier.tier].messages.create, **request)
         u = msg.usage
@@ -195,6 +216,29 @@ class Router:
             input_tokens=u.input_tokens, output_tokens=u.output_tokens,
             cache_write_tokens=u.cache_creation_input_tokens or 0, cache_read_tokens=u.cache_read_input_tokens or 0,
             latency_ms=int((time.perf_counter() - t0) * 1000))
+
+    # --- T4 replay (T112) ------------------------------------------------------------------------------------
+
+    def _replay(self, keyed: dict) -> LLMResponse:
+        t0 = time.perf_counter()
+        key = sha256_hex(keyed)
+        rec = self.replay_store.load(key)
+        if rec is None:
+            raise ReplayMiss(f"no recording for this request (key {key[:12]}) in {self.replay_store.directory}")
+        return LLMResponse(tier="T4", model=self.config.model, replay=True, content=rec["content"],
+                           stop_reason=rec.get("stop_reason"), input_tokens=rec["usage"]["input_tokens"],
+                           output_tokens=rec["usage"]["output_tokens"],
+                           latency_ms=int((time.perf_counter() - t0) * 1000))
+
+    def _record(self, keyed: dict, r: LLMResponse) -> None:
+        """Save a live answer for the demo script. A failed write is logged; it never costs the caller the answer."""
+        try:
+            self.replay_store.save(
+                request=keyed, recorded_from={"tier": r.tier, "model": r.model},
+                response={"content": r.content, "stop_reason": r.stop_reason,
+                          "usage": {"input_tokens": r.input_tokens, "output_tokens": r.output_tokens}})
+        except OSError as e:
+            log.warning("llm.replay_record_failed", error=type(e).__name__)
 
 
 def system_blocks(system: str, policy_text: str | None = None) -> list[dict]:
