@@ -6,6 +6,7 @@ tags: [precedent, github, contractors, production, approval]
 last_verified: 2026-09-20
 owner: security@northbeam.example
 rules: [POL-ACC-004]
+precedent: {rule: POL-ACC-004, entitlement: gh-perception-sdk-read}
 claims:
   repository.production-tagged-approver: security on-call
 ---

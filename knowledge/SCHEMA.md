@@ -49,6 +49,7 @@ Only `type` is required (OKF v0.1). Unknown keys are preserved and never cause a
 | `owner` | email | Who confirms the page and answers for it |
 | `rules` | list of rule ids | Rules whose source clause lives on this page, or that the page is about |
 | `claims` | mapping, key to short value | Facts other pages may also state. `lint` compares them across the bundle |
+| `precedent` | `{rule, entitlement}` | On a precedent page: the rule and entitlement whose decisions the page counts |
 
 Example:
 
