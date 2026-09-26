@@ -301,7 +301,7 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 - [x] T230 `P0` SES connector (boto3 sesv2, ap-south-1); idempotent send keyed by (run_id, action_id, "email").
 - [x] T231 `P0` Approval email (HTML + plain text) rendered from `RunView` with the LIVE/FIXTURE label.
 - [x] T232 `P0` Signed decision links: HMAC token; `GET /a/{token}` renders a confirm page only; `POST` decides.
-- [ ] T233 `P0` Email decisions go through `door.decide` → mirrored to Freshservice and every other door.
+- [x] T233 `P0` Email decisions go through `door.decide` → mirrored to Freshservice and every other door.
 - [ ] T234 `P0` Requester acknowledgement via Freshservice ticket reply (verify the endpoint).
 - [ ] T235 `P1` Receipt email to the requester on finalize.
 - [ ] T236 `P1` Status/query emails answered only from receipts, citing audit seq numbers.
