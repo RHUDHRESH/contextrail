@@ -213,6 +213,46 @@ async def test_an_edited_verdict_outside_the_seal_is_caught_and_audited(door):
     assert "capsule.view_mismatch" in await _audit_events(door, handle["run_id"])
 
 
+async def test_an_unknown_run_is_an_error_for_every_handle_tool(door):
+    ghost = {"run_id": "00000000-0000-4000-8000-000000000000", "digest": "a" * 64}
+    for tool in ("generate_action_plan",):
+        r = await call(server(door), tool, {"capsule_handle": ghost})
+        assert r.is_error and "no sealed case file" in r.content[0].text, tool
+
+
+# --- generate_action_plan (T185) ----------------------------------------------------------------------------
+
+PHASES = ["execute", "revoke", "await_approval", "refused"]
+
+
+async def test_the_plan_orders_work_and_keeps_refusals_visible(door):
+    handle = await _compiled(door)
+    r = await call(server(door), "generate_action_plan", {"capsule_handle": handle})
+    out = r.structured_content
+    assert not r.is_error and out["capsule_handle"] == handle
+    steps = out["steps"]
+    assert [s["step"] for s in steps] == list(range(1, len(steps) + 1))
+    assert [PHASES.index(s["phase"]) for s in steps] == sorted(PHASES.index(s["phase"]) for s in steps)
+    waiting = [s for s in steps if s["phase"] == "await_approval"]
+    assert {s["approver_name"] for s in waiting} == {"Dana Osei", "Meera Iyer"} and all(s["why"] for s in waiting)
+    refused = [s for s in steps if s["phase"] == "refused"]
+    assert len(refused) == 1 and refused[0]["clause"] and refused[0]["why"]
+    view = await door.get_status(handle["run_id"])
+    assert [s["action_id"] for s in steps] == [row.action_id for row in view.rows]   # the sealed plan order
+    async with door.db.connection() as c:
+        case = await load_case(c, handle["run_id"])
+    assert (out["constraints"], out["open_blockers"]) == (case.constraints, case.open_blockers)
+
+
+async def test_the_plan_follows_decisions_made_in_other_doors(door):
+    handle = await _compiled(door)
+    await _dana_approves(door, handle["run_id"])
+    fresh = {"run_id": handle["run_id"], "digest": (await door.get_status(handle["run_id"])).capsule_digest}
+    out = (await call(server(door), "generate_action_plan", {"capsule_handle": fresh})).structured_content
+    danas = next(s for s in out["steps"] if s["approver_name"] == "Dana Osei")
+    assert danas["phase"] == "execute" and danas["state"] == "verified" and danas["verified"]
+
+
 async def test_an_unknown_run_is_an_error(door):
     r = await call(server(door), "check_policy_and_permissions",
                    {"capsule_handle": {"run_id": "00000000-0000-4000-8000-000000000000", "digest": "a" * 64}})

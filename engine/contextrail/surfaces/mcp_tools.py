@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import UTC, datetime
-from typing import Annotated
+from typing import Annotated, Literal
 from urllib.parse import urlsplit
 from uuid import UUID
 
@@ -81,6 +81,47 @@ class VerdictTable(BaseModel):
     replay: bool
     note: str = ("Report ALLOW, HOLD (with the named approver) and REFUSE (with the clause) exactly as given. A REFUSE "
                  "is final and cannot be approved. Approvals happen only in the approver's own door.")
+
+
+Phase = Literal["execute", "revoke", "await_approval", "refused"]
+
+
+class PlanStep(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    step: int
+    phase: Phase
+    action_id: str
+    kind: str
+    label: str
+    verdict: str
+    state: str
+    verified: bool
+    rule_id: str
+    clause: str
+    approver_name: str | None
+    why: str
+    explainer: str | None
+
+
+class ActionPlan(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    capsule_handle: CapsuleHandle
+    status: str
+    steps: list[PlanStep]
+    constraints: list[str]
+    open_blockers: list[str]
+    order: str = ("Allowed grants first, then revocations (new access lands before old access goes), then actions "
+                  "waiting on a named approver, then refusals: last, but never removed.")
+
+
+def _phase(row: RowView) -> Phase:
+    if row.state == "refused":
+        return "refused"
+    if row.state == "awaiting":
+        return "await_approval"
+    return "revoke" if row.kind == "revoke" else "execute"
 
 
 _SEALED_FIELDS = ("verdict", "rule_id", "clause", "approver", "state", "params_hash")
@@ -218,6 +259,16 @@ class ContextRailTools:
                             subject=view.subject, peer=view.peer, rows=view.rows, counts=view.counts,
                             modes=view.modes, replay=view.replay)
 
+    async def generate_action_plan(self, capsule_handle: CapsuleHandle) -> ActionPlan:
+        case, view = await self.open_handle(capsule_handle)
+        steps = [PlanStep(step=i, phase=_phase(r), action_id=r.action_id, kind=r.kind, label=r.label,
+                          verdict=r.verdict, state=r.state, verified=r.verified, rule_id=r.rule_id, clause=r.clause,
+                          approver_name=r.approver_name, why=r.explanation or f"Allowed under {r.rule_id}.",
+                          explainer=r.explainer)
+                 for i, r in enumerate(view.rows, 1)]
+        return ActionPlan(capsule_handle=capsule_handle, status=view.status, steps=steps,
+                          constraints=case.constraints, open_blockers=case.open_blockers)
+
     def register(self, server: MCPServer) -> None:
         server.add_tool(
             self.search_enterprise_knowledge, name="search_enterprise_knowledge", title="Search enterprise knowledge",
@@ -248,3 +299,11 @@ class ContextRailTools:
                 "The same table Slack, Teams, email and voice render. Verdicts come from written policy, not a "
                 "model. Report them exactly; never reinterpret a REFUSE. The handle's digest must be current; a "
                 "stale handle is refused with the current one. Read-only."))
+        server.add_tool(
+            self.generate_action_plan, name="generate_action_plan", title="Generate the action plan",
+            description=(
+                "Return the run's ordered plan for a capsule handle: numbered steps in the rail's dependency order "
+                "(allowed grants, then revocations, then actions waiting on a named approver, then refusals, which "
+                "stay visible), each with its phase, state, verification, rule, clause and a one-line reason, plus "
+                "the case file's constraints and open blockers. Nothing executes while a blocker is open. "
+                "Read-only: the plan was fixed by the rail, not by this call."))
