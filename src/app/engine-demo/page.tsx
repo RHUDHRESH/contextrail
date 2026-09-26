@@ -10,7 +10,7 @@ type SavedRuns = Record<Persona, RunView[]>;
 const defaultRuns: SavedRuns = { employee: [], contractor: [], manager: [] };
 const personas: { id: Persona; title: string; name: string; role: string; description: string; suggestion: string }[] = [
   { id: "employee", title: "Employee", name: "Anil Kumar", role: "End person", description: "Ask for access or check your own request.", suggestion: "Give Anil the same access as Rahul Mehta" },
-  { id: "contractor", title: "Contractor", name: "Priya Raghunathan", role: "Contractor", description: "See the request path with contractor identity and policy.", suggestion: "I need access to the Payments Dashboard for my current contract" },
+  { id: "contractor", title: "Contractor", name: "Priya Raghunathan", role: "Contractor", description: "See the request path with contractor identity and policy.", suggestion: "Priya starts Monday, give her everything she needs" },
   { id: "manager", title: "Manager", name: "Dana Osei", role: "Approver", description: "See pending work assigned to you and decide through the engine.", suggestion: "Give Anil the same access as Rahul Mehta" },
 ];
 
