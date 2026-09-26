@@ -107,7 +107,7 @@ class Runner:
         prev = check_stage_order(prev, Stage.DISCOVER)
         t0 = time.perf_counter()
         found = await discover_.discover(row["request_text"], self.d.extractor, self.d.registry.get("hris"),
-                                         subject_id=subject_id, peer_id=peer_id)
+                                         subject_id=subject_id, peer_id=peer_id, source=row["source"])
         audit = {"intent": found.intent.intent, "extractor": found.intent.extractor,
                  "subject_id": found.subject.source_id if found.subject else None,
                  "peer_id": found.peer.source_id if found.peer else None,
