@@ -2,9 +2,30 @@
   "_meta": {
     "mode": "FIXTURE",
     "system": "dodo",
-    "note": "Stand-in for Dodo Payments when no DODO_API_KEY is configured. Shapes follow the official SDK types (dodopayments 1.118.0): usage events, checkout sessions. Amounts are in the currency's smallest unit, as in Dodo. Ids use a 'fx' infix so they can never be mistaken for real Dodo ids."
+    "note": "Stand-in for Dodo Payments when no DODO_API_KEY is configured. Shapes follow the official SDK types (dodopayments 1.118.0): usage events, checkout sessions, payments, refunds. Amounts are in the currency's smallest unit, as in Dodo. Ids use a 'fx' infix so they can never be mistaken for real Dodo ids. Refund metadata carries promise_ref (the Freshdesk ticket that promised the credit), credit_type and quarter; refunds ContextRail issues also carry contextrail_idempotency_key.",
+    "story": "Five customers hit by INC-4412 (2026-09-24). Acme: a small credit, paid on the rail. Bluepeak: a large credit, held for Finance. Cedar: already had an outage credit this quarter, so the new one is the duplicate. Dunmore: promised a credit against a payment that never succeeded. Everly: one promise refunded twice."
   },
   "pilot": {"customer_id": "cus_fx_northbeam", "product_id": "pdt_fx_governed_run"},
+  "customers": {
+    "cus_fx_acme":     {"customer_id": "cus_fx_acme",     "name": "Acme Retail",        "email": "billing@acme-retail.example"},
+    "cus_fx_bluepeak": {"customer_id": "cus_fx_bluepeak", "name": "Bluepeak Logistics", "email": "ap@bluepeak.example"},
+    "cus_fx_cedar":    {"customer_id": "cus_fx_cedar",    "name": "Cedar Health",       "email": "finance@cedar-health.example"},
+    "cus_fx_dunmore":  {"customer_id": "cus_fx_dunmore",  "name": "Dunmore Foods",      "email": "accounts@dunmore.example"},
+    "cus_fx_everly":   {"customer_id": "cus_fx_everly",   "name": "Everly Studio",      "email": "hello@everly.example"}
+  },
+  "payments": {
+    "pay_fx_acme_0901":     {"payment_id": "pay_fx_acme_0901",     "customer_id": "cus_fx_acme",     "status": "succeeded", "total_amount": 480000,  "currency": "USD", "created_at": "2026-09-01T06:00:00Z", "product_cart": [{"product_id": "pdt_fx_platform", "quantity": 1}]},
+    "pay_fx_bluepeak_0901": {"payment_id": "pay_fx_bluepeak_0901", "customer_id": "cus_fx_bluepeak", "status": "succeeded", "total_amount": 1250000, "currency": "USD", "created_at": "2026-09-01T06:00:00Z", "product_cart": [{"product_id": "pdt_fx_platform", "quantity": 1}]},
+    "pay_fx_cedar_0701":    {"payment_id": "pay_fx_cedar_0701",    "customer_id": "cus_fx_cedar",    "status": "succeeded", "total_amount": 900000,  "currency": "USD", "created_at": "2026-07-01T06:00:00Z", "product_cart": [{"product_id": "pdt_fx_platform", "quantity": 1}]},
+    "pay_fx_cedar_0901":    {"payment_id": "pay_fx_cedar_0901",    "customer_id": "cus_fx_cedar",    "status": "succeeded", "total_amount": 900000,  "currency": "USD", "created_at": "2026-09-01T06:00:00Z", "product_cart": [{"product_id": "pdt_fx_platform", "quantity": 1}]},
+    "pay_fx_dunmore_0901":  {"payment_id": "pay_fx_dunmore_0901",  "customer_id": "cus_fx_dunmore",  "status": "failed",    "total_amount": 300000,  "currency": "USD", "created_at": "2026-09-01T06:00:00Z", "product_cart": [{"product_id": "pdt_fx_platform", "quantity": 1}]},
+    "pay_fx_everly_0901":   {"payment_id": "pay_fx_everly_0901",   "customer_id": "cus_fx_everly",   "status": "succeeded", "total_amount": 250000,  "currency": "USD", "created_at": "2026-09-01T06:00:00Z", "product_cart": [{"product_id": "pdt_fx_platform", "quantity": 1}]}
+  },
+  "refunds": {
+    "ref_fx_cedar_0715":  {"refund_id": "ref_fx_cedar_0715",  "payment_id": "pay_fx_cedar_0701",  "customer_id": "cus_fx_cedar",  "amount": 30000, "currency": "USD", "status": "succeeded", "is_partial": true, "reason": "Outage credit, INC-4380", "created_at": "2026-07-15T11:00:00Z", "metadata": {"promise_ref": "FD-6990", "credit_type": "outage", "quarter": "2026-Q3", "incident_id": "INC-4380"}},
+    "ref_fx_everly_0925a": {"refund_id": "ref_fx_everly_0925a", "payment_id": "pay_fx_everly_0901", "customer_id": "cus_fx_everly", "amount": 20000, "currency": "USD", "status": "succeeded", "is_partial": true, "reason": "Outage credit, INC-4412", "created_at": "2026-09-25T10:02:00Z", "metadata": {"promise_ref": "FD-7005", "credit_type": "outage", "quarter": "2026-Q3", "incident_id": "INC-4412"}},
+    "ref_fx_everly_0925b": {"refund_id": "ref_fx_everly_0925b", "payment_id": "pay_fx_everly_0901", "customer_id": "cus_fx_everly", "amount": 20000, "currency": "USD", "status": "succeeded", "is_partial": true, "reason": "Outage credit, INC-4412", "created_at": "2026-09-25T10:04:00Z", "metadata": {"promise_ref": "FD-7005", "credit_type": "outage", "quarter": "2026-Q3", "incident_id": "INC-4412"}}
+  },
   "events": {},
   "checkouts": {}
 }

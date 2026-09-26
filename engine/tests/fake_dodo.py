@@ -53,9 +53,15 @@ class FakeDodo:
             method, prefix = key.split(" ", 1)
             if request.method == method and request.url.path.startswith(prefix):
                 del self.fail_next[key]
-                if fault == "timeout":
+                if fault == "timeout":        # dropped before Dodo saw it
                     raise httpx.ReadTimeout("injected timeout", request=request)
+                if fault == "timeout_after":  # Dodo applied it, then the response was lost
+                    self._route(request)
+                    raise httpx.ReadTimeout("injected timeout after apply", request=request)
                 return httpx.Response(int(fault), json={"message": "injected"})
+        return self._route(request)
+
+    def _route(self, request: httpx.Request) -> httpx.Response:
         path, method = request.url.path, request.method
         if method == "POST" and path == "/events/ingest":
             return self._ingest(json.loads(request.content))
@@ -66,6 +72,12 @@ class FakeDodo:
             sid = f"cks_test_{len(self.requests)}"
             return httpx.Response(200, json={"session_id": sid,
                                              "checkout_url": f"https://test.checkout.dodopayments.com/{sid}"})
+        if method == "GET" and path == "/payments":
+            q = request.url.params
+            size, page = int(q.get("page_size", 10)), int(q.get("page_number", 0))   # 0-based, as Dodo's docs
+            mine = [{**p, "has_license_key": False} for p in self.payments.values()
+                    if p["customer"]["customer_id"] == q.get("customer_id")]
+            return httpx.Response(200, json={"items": mine[page * size:(page + 1) * size]})
         if method == "GET" and path.startswith("/payments/"):
             p = self.payments.get(path.removeprefix("/payments/"))
             return httpx.Response(200, json=p) if p else httpx.Response(404, json={"message": "not found"})
