@@ -103,3 +103,18 @@ export async function PATCH(req: Request) {
     return Response.json({ error: "Could not reach the local engine." }, { status: 502 });
   }
 }
+
+export async function PUT(req: Request) {
+  if (!localDemo(req)) return Response.json({ error: "Local demo only." }, { status: 404 });
+  const target = config();
+  if (!target) return Response.json({ error: "Local engine demo is not configured." }, { status: 503 });
+  const body = z.object({ run_id: z.string().uuid(), role: z.enum(["subject", "peer"]), source_id: z.string().min(1).max(64) }).safeParse(await req.json().catch(() => null));
+  if (!body.success) return Response.json({ error: "Choose a person from this request." }, { status: 400 });
+  try {
+    const response = await engineFetch(target, `/v1/runs/${body.data.run_id}/pick`, { method: "POST", body: JSON.stringify({ role: body.data.role, source_id: body.data.source_id }) });
+    if (!response.ok) return Response.json({ error: `Engine returned ${response.status}.` }, { status: 502 });
+    return Response.json(await response.json());
+  } catch {
+    return Response.json({ error: "Could not reach the local engine." }, { status: 502 });
+  }
+}
