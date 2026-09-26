@@ -1,6 +1,6 @@
 # ContextRail — Stage 2 build checklist (250 tasks)
 
-Build, integration, UI/UX and connectors only. Tests are required by CLAUDE.md §18 but are not counted here.
+Build, integration, UI/UX and connectors only (250 planned + section T added at the user's request). Tests are required by CLAUDE.md §18 but are not counted here.
 Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains · 👤 needs a human (accounts, keys, tenants, recordings).
 **Finish every P0 across all sections before starting any P1.** Each task is ticked in the commit that completes it (CLAUDE.md §24);
 `scripts/buildlog.sh` maps every ticked task to its commits in `docs/BUILDLOG.md`.
@@ -8,10 +8,10 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 <!-- stats:start -->
 | Priority | Tasks | Done |
 |---|---|---|
-| P0 | 148 | 76 |
-| P1 | 92 | 0 |
+| P0 | 152 | 100 |
+| P1 | 92 | 1 |
 | P2 | 10 | 0 |
-| **Total** | **250** | **76** |
+| **Total** | **254** | **101** |
 
 👤 human-owned tasks: 24
 <!-- stats:end -->
@@ -147,28 +147,28 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 
 ## H. LLM router and prompts (13)
 
-- [ ] T109 `P0` Router config from env (tiers, model IDs, budgets).
-- [ ] T110 `P0` Tier 1 and Tier 2 `Anthropic` clients.
-- [ ] T111 `P0` Tier 3 `AnthropicBedrock` client (ap-south-1, global inference IDs).
-- [ ] T112 `P0` Tier 4 replay store: record and replay modes keyed by prompt hash; responses flagged `replay=true`.
-- [ ] T113 `P0` Failover classifier: 429, 529, 5xx, timeout, credit-exhausted (no failover on other 400s).
-- [ ] T114 `P0` Per-tier circuit breaker (180 s).
+- [x] T109 `P0` Router config from env (tiers, model IDs, budgets).
+- [x] T110 `P0` Tier 1 and Tier 2 `Anthropic` clients.
+- [x] T111 `P0` Tier 3 `AnthropicBedrock` client (ap-south-1, global inference IDs).
+- [x] T112 `P0` Tier 4 replay store: record and replay modes keyed by prompt hash; responses flagged `replay=true`.
+- [x] T113 `P0` Failover classifier: 429, 529, 5xx, timeout, credit-exhausted (no failover on other 400s).
+- [x] T114 `P0` Per-tier circuit breaker (180 s).
 - [ ] T115 `P0` Cost calculator per model; write every call to `llm_calls`.
 - [ ] T116 `P0` Per-run budget enforcement.
 - [ ] T117 `P0` Structured-output helper: pydantic model → tool schema → validated object.
-- [ ] T118 `P1` Prompt caching on the system prompt and policy text.
+- [x] T118 `P1` Prompt caching on the system prompt and policy text.
 - [ ] T119 `P0` Prompts `intent.md`, `explain_verdict.md`, `approval_card.md` (cites capsule fields only).
 - [ ] T120 `P1` Prompt `extract_constraints.md`.
 - [ ] T121 `P1` Prompts `team_brief.md`, `mismatch_explain.md`, `audit_answer.md` (receipts only, cites audit seq numbers).
 
 ## I. Freshservice (the base) and Workflow Automator (17)
 
-- [ ] T122 `P0` REST client: basic auth, base URL, timeouts, keep-alive.
-- [ ] T123 `P0` Token-bucket rate limiter (default 80 calls/min).
-- [ ] T124 `P0` GET ticket (incl. `source`), GET requester by ID, GET agent by ID and by email.
-- [ ] T125 `P0` List service catalog items; store the Access Request item ID.
-- [ ] T126 `P0` POST approval on a ticket + read approval state (approvals list or activities).
-- [ ] T127 `P0` POST private note (receipt).
+- [x] T122 `P0` REST client: basic auth, base URL, timeouts, keep-alive.
+- [x] T123 `P0` Token-bucket rate limiter (default 80 calls/min).
+- [x] T124 `P0` GET ticket (incl. `source`), GET requester by ID, GET agent by ID and by email.
+- [x] T125 `P0` List service catalog items; store the Access Request item ID.
+- [x] T126 `P0` POST approval on a ticket + read approval state (approvals list or activities).
+- [x] T127 `P0` POST private note (receipt).
 - [ ] T128 `P1` Receipts custom object in admin; POST receipt records.
 - [ ] T129 `P1` GET Solutions article (policy source for OKF ingest).
 - [ ] T130 `P2` GET/PUT asset (laptop assignment for onboarding).
@@ -179,25 +179,25 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 - [ ] T135 `P0` 👤 Workflow Automator: ticket raised → item is Access request → Web Request to the engine.
 - [ ] T136 `P0` Check Workflow Automator execution logs; fix the `{{ticket.id_numeric}}` payload.
 - [ ] T137 `P1` Freshservice MCP client for exploratory reads, wrapped as a read-only tool.
-- [ ] T138 `P0` LIVE flag per call path; labelled fixture fallback if a tenant call fails.
+- [x] T138 `P0` LIVE flag per call path; labelled fixture fallback if a tenant call fails.
 
 ## J. Slack door (18)
 
-- [ ] T139 `P0` Slack app manifest YAML in the repo (scopes, slash command, interactivity, assistant).
-- [ ] T140 `P0` Bolt app init (Socket Mode in dev, HTTP in prod).
-- [ ] T141 `P0` `/contextrail <request>` → `door.start_run`; ephemeral acknowledgement.
-- [ ] T142 `P0` Run status message updated in place per stage (`chat.update`).
+- [x] T139 `P0` Slack app manifest YAML in the repo (scopes, slash command, interactivity, assistant).
+- [x] T140 `P0` Bolt app init (Socket Mode in dev, HTTP in prod).
+- [x] T141 `P0` `/contextrail <request>` → `door.start_run`; ephemeral acknowledgement.
+- [x] T142 `P0` Run status message updated in place per stage (`chat.update`).
 - [ ] T143 `P1` Assistant pane: thread started → suggested prompts.
 - [ ] T144 `P1` Assistant pane: user message → start run; `set_status` per stage.
 - [ ] T145 `P1` Assistant pane: final summary blocks (granted / held / refused) with receipt link.
-- [ ] T146 `P0` Approval card Block Kit renderer from `RunView` (action, rule, risk, precedent, deadline, LIVE/FIXTURE).
+- [x] T146 `P0` Approval card Block Kit renderer from `RunView` (action, rule, risk, precedent, deadline, LIVE/FIXTURE).
 - [ ] T147 `P0` Deliver the card to the approver's DM (`users.lookupByEmail`); record in `door_messages`.
 - [ ] T148 `P0` Approve / Refuse handlers parsing `run_id|action_id|params_hash` → `door.decide`.
 - [ ] T149 `P0` On click: params_hash still matches and approver identity via the identity map.
 - [ ] T150 `P0` Update the card after a decision, including decisions made in another door.
 - [ ] T151 `P1` "Why refused?" button → explanation with clause.
 - [ ] T152 `P1` Refuse-with-reason modal (`views.open`).
-- [ ] T153 `P0` Seed identity map for demo Slack users.
+- [x] T153 `P0` Seed identity map for demo Slack users.
 - [ ] T154 `P0` Friendly `needs_input` message with candidate buttons.
 - [ ] T155 `P0` Candidate picker handler resumes the run with the chosen ID.
 - [ ] T156 `P1` Copy and design pass: consistent verbs, lamps (✅ 🟠 ⛔), short sentences.
@@ -297,11 +297,11 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 
 - [ ] T227 `P0` 👤 Freshservice support mailbox configured (forwarding from the demo address).
 - [ ] T228 `P0` Workflow Automator condition for email-sourced tickets → same Web Request; webhook reads ticket `source`.
-- [ ] T229 `P0` Discover classifies email as request / query / approval-reply; body wrapped as untrusted.
-- [ ] T230 `P0` SES connector (boto3 sesv2, ap-south-1); idempotent send keyed by (run_id, action_id, "email").
-- [ ] T231 `P0` Approval email (HTML + plain text) rendered from `RunView` with the LIVE/FIXTURE label.
-- [ ] T232 `P0` Signed decision links: HMAC token; `GET /a/{token}` renders a confirm page only; `POST` decides.
-- [ ] T233 `P0` Email decisions go through `door.decide` → mirrored to Freshservice and every other door.
+- [x] T229 `P0` Discover classifies email as request / query / approval-reply; body wrapped as untrusted.
+- [x] T230 `P0` SES connector (boto3 sesv2, ap-south-1); idempotent send keyed by (run_id, action_id, "email").
+- [x] T231 `P0` Approval email (HTML + plain text) rendered from `RunView` with the LIVE/FIXTURE label.
+- [x] T232 `P0` Signed decision links: HMAC token; `GET /a/{token}` renders a confirm page only; `POST` decides.
+- [x] T233 `P0` Email decisions go through `door.decide` → mirrored to Freshservice and every other door.
 - [ ] T234 `P0` Requester acknowledgement via Freshservice ticket reply (verify the endpoint).
 - [ ] T235 `P1` Receipt email to the requester on finalize.
 - [ ] T236 `P1` Status/query emails answered only from receipts, citing audit seq numbers.
@@ -322,3 +322,10 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 - [ ] T248 `P1` Query answering in Teams ("why was X refused?") via `door.answer_query`.
 - [ ] T249 `P1` `ONE-WAY` fallback: Workflows incoming webhook card + signed decision links.
 - [ ] T250 `P1` 👤 Sideload the app into the tenant; set the Azure Bot messaging endpoint to the public host.
+
+## T. Agentic core: memory, RAG, tools, capabilities (4) — added 2026-09-26 at the user's request (D-014)
+
+- [ ] T251 `P0` Memory: working memory (the sealed case file per run), episodic memory (precedents derived from the audit chain: approved/refused counts per rule and entitlement), conversational memory (per door thread, bounded, PII-redacted, with retention); every memory read cites its source.
+- [ ] T252 `P0` RAG: chunked OKF knowledge + receipts indexed in Postgres full-text search, hybrid retrieval (lexical + rule/tag links), Haiku answers grounded only in retrieved chunks with citations, and an explicit "not in the knowledge base" refusal when nothing supports an answer.
+- [ ] T253 `P0` Tools: a bounded, read-only tool-use loop (Haiku) for questions (search knowledge, run status, my runs, precedents), with a step limit and cost cap; it can read and explain, never approve, execute or change a verdict; the same tools exposed to other agents via MCP (section M).
+- [ ] T254 `P0` Capabilities: a machine-readable capability manifest (GET /v1/capabilities and /.well-known/agent.json) listing skills, tools, doors, connector modes and limits, generated from code so it cannot drift.

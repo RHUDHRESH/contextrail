@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import logging
 import re
-import sys
 from typing import Any
 
 import structlog
@@ -53,7 +52,9 @@ def configure_logging(level: str = "INFO", json: bool = True) -> None:
             renderer,
         ],
         wrapper_class=structlog.make_filtering_bound_logger(logging.getLevelName(level.upper())),
-        logger_factory=structlog.PrintLoggerFactory(file=sys.stdout),
+        # No file argument: print to the stdout of the moment, not a stream pinned at configure time (which may
+        # since have been closed, e.g. a test's capture stream).
+        logger_factory=structlog.PrintLoggerFactory(),
         cache_logger_on_first_use=True,
     )
 

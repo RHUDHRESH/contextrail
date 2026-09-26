@@ -11,6 +11,7 @@ from pathlib import Path
 
 from contextrail.connectors.base import Connector
 from contextrail.connectors.fixture import FixtureEntitlements, FixtureGitHub, FixtureHRIS, FixtureSlackCorpus
+from contextrail.connectors.freshservice import FreshserviceConnector
 from contextrail.connectors.state import FixtureState
 from contextrail.settings import Settings
 
@@ -44,7 +45,10 @@ class Registry:
         return {"connectors": built, "planned": planned}
 
 
-def build_registry(state_directory: Path | None = None) -> Registry:
+def build_registry(state_directory: Path | None = None, settings: Settings | None = None) -> Registry:
+    """Without settings, every connector is FIXTURE (tests, tools). The app passes its settings, so Freshservice
+    is LIVE exactly when FS_DOMAIN and FS_API_KEY are configured (T138)."""
+
     def st(name: str) -> FixtureState:
         return FixtureState(name, directory=state_directory)
 
@@ -53,4 +57,5 @@ def build_registry(state_directory: Path | None = None) -> Registry:
         "entitlements": FixtureEntitlements(st("entitlements")),
         "github": FixtureGitHub(st("github")),
         "slack_corpus": FixtureSlackCorpus(st("slack_corpus")),
+        "freshservice": FreshserviceConnector(settings, state=st("freshservice")),
     })

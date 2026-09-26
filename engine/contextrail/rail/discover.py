@@ -16,6 +16,7 @@ from pydantic import BaseModel, ConfigDict
 from contextrail.connectors.base import ConnectorError
 from contextrail.fixtures import subject_from_record
 from contextrail.models import Subject
+from contextrail.rail.email_intake import untrusted_email
 
 IntentName = Literal["access.same_as_peer", "onboarding", "access.request", "refund.outage", "query",
                      "approval_reply", "unknown"]
@@ -58,6 +59,19 @@ _QUERY = re.compile(r"^\s*(what|why|status|how|when|where|who|is|has|did|can)\b|
 _DAY = re.compile(r"\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday|today|tomorrow|next week|"
                   r"\d{4}-\d{2}-\d{2})\b", re.IGNORECASE)
 _STOP = {"The", "Give", "Grant", "Please", "Our", "New", "Hi", "Hello", "Can", "Could"}
+_FENCED = re.compile(r'^<untrusted source="[^"]*" uri="[^"]*" trust="untrusted">\n(?P<body>.*)\n</untrusted>$', re.DOTALL)
+UNTRUSTED_SOURCES = {"email"}  # doors whose request text reaches an extractor fenced as data (T229)
+
+
+def unwrap_untrusted(text: str) -> str:
+    """The heuristic is code, not a prompt: it reads the text inside a wrap_untrusted fence, unescaped."""
+    m = _FENCED.match(text)
+    return m["body"].replace("&lt;", "<").replace("&gt;", ">") if m else text
+
+
+def extractor_input(text: str, source: str | None) -> str:
+    """What an extractor is handed. Email text is cleaned and fenced, so no prompt ever holds it bare (§11)."""
+    return untrusted_email(text) if source in UNTRUSTED_SOURCES else text
 
 
 def _clean(name: str | None) -> str | None:
@@ -73,6 +87,7 @@ class HeuristicExtractor:
     name = "heuristic"
 
     async def extract(self, text: str) -> Intent:
+        text = unwrap_untrusted(text)
         dates = [m.group(0) for m in _DAY.finditer(text)]
         if _APPROVAL.match(text):
             return Intent(intent="approval_reply", kind="approval_reply", dates=dates, extractor=self.name)
@@ -167,8 +182,8 @@ async def resolve_one(hris, mention: str | None, role: str, *, pinned_id: str | 
 
 
 async def discover(text: str, extractor: IntentExtractor, hris, *, subject_id: str | None = None,
-                   peer_id: str | None = None) -> Discovery:
-    intent = await extractor.extract(text)
+                   peer_id: str | None = None, source: str | None = None) -> Discovery:
+    intent = await extractor.extract(extractor_input(text, source))
     needs: list[NeedsInput] = []
     if intent.kind == "request" and intent.intent == "unknown":
         # A request nobody can classify never proceeds: ask what is wanted (and for whom) instead.

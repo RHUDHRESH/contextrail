@@ -1,0 +1,60 @@
+{
+  "_meta": {
+    "mode": "FIXTURE",
+    "system": "freshservice",
+    "note": "Stand-in for the Freshservice tenant, used when FS_DOMAIN/FS_API_KEY are not set or a tenant call fails; every result served from here is labelled FIXTURE. Record shapes follow api.freshservice.com (View a Ticket, View a Requester, View an Agent, View List of Service Items, Approvals, Conversations). People are the fixtures/identity.json people, matched by email; approvers are agents. Ids are fixture ids, not a tenant's."
+  },
+  "next_id": 8000000001,
+  "tickets": {
+    "4412": {
+      "id": 4412,
+      "subject": "Access request (ContextRail)",
+      "description": "<div>Give Anil the same access as Rahul</div>",
+      "description_text": "Give Anil the same access as Rahul",
+      "requester_id": 5000001042,
+      "requested_for_id": 5000001042,
+      "responder_id": null,
+      "group_id": null,
+      "source": 2,
+      "status": 2,
+      "priority": 2,
+      "urgency": 1,
+      "impact": 1,
+      "type": "Service Request",
+      "category": null,
+      "sub_category": null,
+      "item_category": null,
+      "department_id": null,
+      "custom_fields": {},
+      "created_at": "2026-09-26T09:00:00Z",
+      "updated_at": "2026-09-26T09:00:00Z",
+      "due_by": "2026-09-29T09:00:00Z",
+      "fr_due_by": "2026-09-27T09:00:00Z",
+      "is_escalated": false,
+      "deleted": false,
+      "approval_status": 4,
+      "approval_status_name": "Not Requested"
+    }
+  },
+  "requesters": {
+    "5000001042": {"id": 5000001042, "is_agent": false, "first_name": "Anil", "last_name": "Kumar", "job_title": "Payments Engineer", "primary_email": "anil.kumar@northbeam.example", "secondary_emails": [], "department_ids": [], "reporting_manager_id": 7000000301, "active": true, "custom_fields": {}},
+    "5000000007": {"id": 5000000007, "is_agent": false, "first_name": "Rahul", "last_name": "Mehta", "job_title": "Senior Payments Engineer", "primary_email": "rahul.mehta@northbeam.example", "secondary_emails": [], "department_ids": [], "reporting_manager_id": 7000000301, "active": true, "custom_fields": {}},
+    "5000000415": {"id": 5000000415, "is_agent": false, "first_name": "Rahul", "last_name": "Verma", "job_title": "Risk Analyst", "primary_email": "rahul.verma@northbeam.example", "secondary_emails": [], "department_ids": [], "reporting_manager_id": 7000000210, "active": true, "custom_fields": {}},
+    "5000008841": {"id": 5000008841, "is_agent": false, "first_name": "Priya", "last_name": "Raghunathan", "job_title": "Contract Engineer", "primary_email": "priya.r@contractor.northbeam.example", "secondary_emails": [], "department_ids": [], "reporting_manager_id": 7000000120, "active": true, "custom_fields": {}}
+  },
+  "agents": {
+    "7000000301": {"id": 7000000301, "first_name": "Meera", "last_name": "Iyer", "email": "meera.iyer@northbeam.example", "job_title": "Engineering Manager", "occasional": false, "active": true, "department_ids": [], "reporting_manager_id": 7000000002, "custom_fields": {}},
+    "7000000050": {"id": 7000000050, "first_name": "Dana", "last_name": "Osei", "email": "dana.osei@northbeam.example", "job_title": "Security Engineer", "occasional": false, "active": true, "department_ids": [], "reporting_manager_id": 7000000002, "custom_fields": {}},
+    "7000000051": {"id": 7000000051, "first_name": "Omar", "last_name": "Haddad", "email": "omar.haddad@northbeam.example", "job_title": "Security Engineer", "occasional": false, "active": true, "department_ids": [], "reporting_manager_id": 7000000002, "custom_fields": {}},
+    "7000000120": {"id": 7000000120, "first_name": "Marc", "last_name": "Liu", "email": "marc.liu@northbeam.example", "job_title": "Engineering Manager", "occasional": false, "active": true, "department_ids": [], "reporting_manager_id": 7000000002, "custom_fields": {}},
+    "7000000210": {"id": 7000000210, "first_name": "Sam", "last_name": "Whitfield", "email": "sam.whitfield@northbeam.example", "job_title": "Engineering Manager", "occasional": false, "active": true, "department_ids": [], "reporting_manager_id": 7000000002, "custom_fields": {}},
+    "7000000002": {"id": 7000000002, "first_name": "Ravi", "last_name": "Menon", "email": "ravi.menon@northbeam.example", "job_title": "VP Finance", "occasional": false, "active": true, "department_ids": [], "reporting_manager_id": null, "custom_fields": {}}
+  },
+  "service_items": [
+    {"id": 9000000001, "display_id": 1, "name": "Office Desktop", "category_id": 9100000001, "deleted": false, "item_type": 1, "visibility": 2, "workspace_id": 2},
+    {"id": 9000000002, "display_id": 2, "name": "Software Request", "category_id": 9100000001, "deleted": false, "item_type": 1, "visibility": 2, "workspace_id": 2},
+    {"id": 9000000041, "display_id": 41, "name": "Access request (ContextRail)", "category_id": 9100000002, "deleted": false, "item_type": 1, "visibility": 2, "workspace_id": 2}
+  ],
+  "approvals": {"4412": []},
+  "conversations": {"4412": []}
+}

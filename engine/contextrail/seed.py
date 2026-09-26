@@ -20,7 +20,7 @@ from contextrail.fixtures import load
 from contextrail.migrate import apply_all
 from contextrail.policy.approvers import StaticDirectory
 
-FIXTURE_CONNECTORS = ("hris", "entitlements", "github", "slack_corpus")
+FIXTURE_CONNECTORS = ("hris", "entitlements", "github", "slack_corpus", "freshservice")
 _ID_COLUMNS = ("person_id", "display_name", "email", "slack_user_id", "teams_aad_id", "phone", "hris_id",
                "preferred_door", "can_approve")
 
