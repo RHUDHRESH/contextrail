@@ -16,8 +16,12 @@ def test_worker_process_drains_ready_jobs_it_has_handlers_for(migrated_db, tmp_p
                   (rid, "Give Anil the same access as Rahul Mehta"))
         c.execute("insert into jobs (kind, payload) values ('rail.run', %s), ('door.update', '{}')",
                   (Jsonb({"run_id": str(rid)}),))
+    # The subprocess inherits a developer's repo-root .env. Keep this fixture test offline even when
+    # that file contains working Freshservice, model, Slack, or SES credentials.
     env = {**os.environ, "DATABASE_URL": migrated_db, "STATE_DIR": str(tmp_path / "state"),
-           "WORKER_IN_PROCESS": "false", "LOG_JSON": "true"}
+           "WORKER_IN_PROCESS": "false", "LOG_JSON": "true", "FS_DOMAIN": "", "FS_API_KEY": "",
+           "ANTHROPIC_KEY_A": "", "ANTHROPIC_KEY_B": "", "BEDROCK_ENABLED": "false",
+           "SLACK_BOT_TOKEN": "", "SES_FROM_ADDRESS": ""}
     r = subprocess.run([sys.executable, "-m", "contextrail.worker", "--drain"], cwd=tmp_path, env=env,
                        capture_output=True, text=True, timeout=180, check=False)
     assert r.returncode == 0, r.stdout + r.stderr
@@ -25,5 +29,5 @@ def test_worker_process_drains_ready_jobs_it_has_handlers_for(migrated_db, tmp_p
         status = c.execute("select status from runs where id = %s", (rid,)).fetchone()[0]
         jobs = dict(c.execute("select kind, done from jobs where kind in ('rail.run', 'door.update')").fetchall())
     assert status == "awaiting_approval"
-    assert jobs == {"rail.run": True, "door.update": False}   # door.update's handler lives with the doors
+    assert jobs == {"rail.run": True, "door.update": True}
     assert '"worker_drained"' in r.stdout
