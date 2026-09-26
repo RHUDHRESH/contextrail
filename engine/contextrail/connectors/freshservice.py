@@ -71,6 +71,26 @@ _QUERY_VALUE = re.compile(r"^[A-Za-z0-9:_.@-]{1,120}$")  # no quotes or spaces: 
 CATALOG_PAGE_SIZE = 30  # View List of Service Items: "per_page ... (default: 30, max: 30)"
 MAX_PAGES = 50          # a tenant that always answers rel="next" cannot keep us paging forever
 CONVERSATION_PAGE_SIZE = 30  # the documented default page size for a ticket's conversations
+ONBOARDING_TASKS = (
+    ("[ContextRail Demo] Verify worker identity and paperwork",
+     ("Confirm the exact worker, manager, start and end dates, signed NDA, and countersigned SOW in the source "
+      "records. Record the evidence or an open blocker on this ticket before provisioning.")),
+    ("[ContextRail Demo] Prepare loaner device and identity",
+     ("Check the contractor loaner, restricted image, assignee, and identity setup. Record verified results or a "
+      "blocker; creating this task does not assign a device or account.")),
+    ("[ContextRail Demo] Set up scoped communication",
+     ("Review the single-channel guest scope and expiry against the verified SOW. Record the destination's "
+      "invitation ID and confirmation before describing access as active.")),
+    ("[ContextRail Demo] Review repository access and exclusions",
+     ("Check that any read-only repository is named in the signed SOW. Obtain independent Security approval for "
+      "production-tagged repositories. Exclude production credentials, production databases, and customer PII.")),
+    ("[ContextRail Demo] Complete first-day handoff",
+     ("Check security awareness, device readiness, communication scope, and approved repository access. Give the "
+      "manager verified results, pending approvals, and blockers with owners.")),
+    ("[ContextRail Demo] Plan access expiry and device return",
+     ("Schedule revocation and loaner return for the verified SOW end date with no grace period. A changed end date "
+      "requires new evidence before any extension.")),
+)
 _MARKER = re.compile(r"^[a-z0-9][a-z0-9:_-]{7,79}$")  # plain tokens survive Freshservice's HTML handling
 
 
@@ -393,6 +413,56 @@ class FreshserviceClient:
         path = f"tickets/{fs_id(ticket_id)}/requested_items"
         return _unwrap(await self.get(path), "requested_items", path)
 
+    # --- onboarding ticket tasks -----------------------------------------------------------------------------
+
+    async def list_ticket_tasks(self, ticket_id: object) -> list[dict]:
+        """GET every page of /tickets/{id}/tasks before deciding whether a checklist item is missing."""
+        return await self.get_all(f"tickets/{fs_id(ticket_id)}/tasks", "tasks")
+
+    async def create_ticket_task(self, ticket_id: object, title: str, description: str) -> dict:
+        """POST one open task. An uncertain response must be reconciled by title before another POST."""
+        path = f"tickets/{fs_id(ticket_id)}/tasks"
+        body: dict[str, Any] = {"title": title, "description": description}
+        if self.workspace_id is not None:
+            body["workspace_id"] = fs_id(self.workspace_id)
+        try:
+            response = await self.post(path, body)
+        except ServerError as e:
+            raise UnknownOutcome(f"{e}; the task may have been created") from e
+        if not isinstance(response, dict) or not isinstance(response.get("task"), dict):
+            raise UnknownOutcome(f"freshservice POST /{path}: no task in response; outcome unknown")
+        return response["task"]
+
+    async def ensure_onboarding_tasks(self, ticket_id: object) -> list[dict]:
+        """Create missing demo checklist tasks once and return only tasks confirmed by a fresh list read.
+
+        Freshservice has no idempotency key for task creation. Exact titles on the same ticket provide the replay
+        check. A timed-out POST is reconciled by GET; if it is not visible yet, the outcome stays unknown rather
+        than risking a duplicate POST. No due date is sent because this tenant ignored due_date on task creation.
+        """
+        tid = fs_id(ticket_id)
+        path = f"tickets/{tid}/tasks"
+        existing = {task.get("title"): task for task in await self.list_ticket_tasks(tid)}
+        for title, description in ONBOARDING_TASKS:
+            if title in existing:
+                continue
+            try:
+                await self.create_ticket_task(tid, title, description)
+            except UnknownOutcome:
+                existing = {task.get("title"): task for task in await self.list_ticket_tasks(tid)}
+                if title not in existing:
+                    raise
+            else:
+                # Check after each write so an acknowledged but missing task is never counted as complete.
+                existing = {task.get("title"): task for task in await self.list_ticket_tasks(tid)}
+                if title not in existing:
+                    raise UnknownOutcome(f"freshservice POST /{path}: task {title!r} was not visible on readback")
+        confirmed = {task.get("title"): task for task in await self.list_ticket_tasks(tid)}
+        missing = [title for title, _ in ONBOARDING_TASKS if title not in confirmed]
+        if missing:
+            raise UnknownOutcome(f"freshservice GET /{path}: onboarding tasks missing on final readback: {missing}")
+        return [confirmed[title] for title, _ in ONBOARDING_TASKS]
+
     # --- approvals on a ticket (T126) --------------------------------------------------------------------------
 
     async def create_approval(self, ticket_id: object, approver_id: object, *,
@@ -693,6 +763,13 @@ class FreshserviceConnector:
     async def create_incident_ticket(self, *, email: str, subject: str, description: str) -> FsRead:
         return await self._read("create_incident_ticket", lambda c: c.create_incident_ticket(
             email=email, subject=subject, description=description), write=True)
+
+    async def ensure_onboarding_tasks(self, ticket_id: object) -> list[dict]:
+        """Return six live, read-back-confirmed open checklist tasks on an onboarding ticket."""
+        tid = fs_id(ticket_id)
+        if self.live is None:
+            raise ConnectorError("freshservice onboarding tasks require a configured live tenant")
+        return await self.live.ensure_onboarding_tasks(tid)
 
     async def get_approval(self, ticket_id: object, approval_id: object) -> FsApproval:
         tid, aid = fs_id(ticket_id), fs_id(approval_id)
