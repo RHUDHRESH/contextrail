@@ -97,7 +97,7 @@ Dodo usage billing + refund reconciliation run · precedent-aware approval cards
 |---|---|---|---|
 | 1 | Agent engine | **Python 3.12**, FastAPI, Pydantic v2, httpx, tenacity, structlog | Freshworks' AI/agent preference; typed boundaries. **3.12, not 3.13**: the voice clone uses `audioop` (removed in 3.13). Local interpreter: `D:\AIWorkspace\Python\cpython-3.12-windows-x86_64-none\python.exe` via `uv` |
 | 2 | Freshworks app | **FDK 10.x, Node 24.x, Platform 3.0, Crayons 4.x**, `service_ticket` module | Mandatory for in-product apps; matches `fw-dev-tools` |
-| 3 | Models | `anthropic` Python SDK (`Anthropic` + `AnthropicBedrock`): Claude Haiku 4.5 + Claude Sonnet 5 | Same Messages API across direct and Bedrock tiers |
+| 3 | Models | `anthropic` Python SDK (`Anthropic` + `AnthropicBedrock`): **Claude Haiku 4.5 only** (D-013) | Same Messages API across direct and Bedrock tiers; one key, $20 Bedrock cap |
 | 4 | MCP | `mcp` Python SDK (`FastMCP`) as server; `mcp` client for Freshservice MCP | Track 2 "MCP integrations" |
 | 5 | Chat doors | `slack_bolt` (Python), Socket Mode for dev, HTTP mode in prod · Teams via the Microsoft 365 Agents SDK or Bot Framework SDK for Python (**verify which is current before coding**; record in DECISIONS.md) | "Meet users where they live" |
 | 6 | Email door | Inbound: Freshservice support mailbox → ticket. Outbound: **Amazon SES** (`boto3`, ap-south-1) | Same AWS account/region; SES is supported in ap-south-1 |
@@ -276,10 +276,10 @@ class CaseFile(BaseModel):          # the sealed capsule
 |---|---|---|---|---|
 | **Discover** | request → `Subject`(+peer) | Haiku: intent + *mentions* (names/IDs/dates) as JSON; also classifies request / query / approval-reply for email and voice | Resolve mentions to IDs via Freshservice/HRIS **exact** lookup; if ambiguous → **elicit** (P1-6) or ask in the originating door | No ID → run status `needs_input`; never guess |
 | **Compile** | Subject → CaseFile | Haiku: extract constraints from contracts/policies with cited spans | Fetch records in parallel (`asyncio.gather`), load OKF concepts, mark `stale`, seal digest | Missing policy → blocker, not assumption |
-| **Govern** | CaseFile → verdicts | Nothing (Sonnet may *explain* after) | `policy/engine.py` evaluates each action against rules using **Subject fields only**; untrusted evidence is never read by rules | Unknown action kind → REFUSE (default deny for access) |
-| **Plan** | verdicts → ordered plan | Sonnet: 1-line explanation per HOLD/REFUSE | Dependency order; REFUSE kept visible | — |
-| **Handoff** | plan → per-team views | Sonnet: team brief from capsule | Pass capsule **by value**; receiving stage re-computes digest and rejects mismatch | Digest mismatch → halt + audit event |
-| **Approve** | HOLD actions → decisions | Sonnet: approval card text (cites capsule fields only) | Freshservice approval + card/email in the approver's preferred door (+ Slack); bind to `params_hash`; deadline job; separation of duties | Changed params → approval void |
+| **Govern** | CaseFile → verdicts | Nothing (Haiku may *explain* after) | `policy/engine.py` evaluates each action against rules using **Subject fields only**; untrusted evidence is never read by rules | Unknown action kind → REFUSE (default deny for access) |
+| **Plan** | verdicts → ordered plan | Haiku: 1-line explanation per HOLD/REFUSE | Dependency order; REFUSE kept visible | — |
+| **Handoff** | plan → per-team views | Haiku: team brief from capsule | Pass capsule **by value**; receiving stage re-computes digest and rejects mismatch | Digest mismatch → halt + audit event |
+| **Approve** | HOLD actions → decisions | Haiku: approval card text (cites capsule fields only) | Freshservice approval + card/email in the approver's preferred door (+ Slack); bind to `params_hash`; deadline job; separation of duties | Changed params → approval void |
 | **Execute** | ALLOW/approved → results | Nothing | Connector call with idempotency key; backoff on 429/5xx; `unknown` on timeout → reconcile before retry | Never blind-retry an unknown outcome |
 | **Verify** | results → verified | Nothing (Haiku may explain mismatch) | Read back target state; compare to intended; set `verified_at` | Mismatch → `failed`, alert |
 
@@ -373,14 +373,14 @@ See [GitHub](../systems/github.md) and [precedent](../precedents/github-readonly
 ### Router (`llm/router.py`)
 | Tier | Client | Models |
 |---|---|---|
-| T1 | `Anthropic(api_key=ANTHROPIC_KEY_A)` | `claude-haiku-4-5-20251001`, `claude-sonnet-5` |
-| T2 | `Anthropic(api_key=ANTHROPIC_KEY_B)` | same |
-| T3 | `AnthropicBedrock(aws_region="ap-south-1")` | `global.anthropic.claude-haiku-4-5-20251001-v1:0`, Sonnet 5 global profile ID (read from console, put in env) |
+| T1 | `Anthropic(api_key=ANTHROPIC_KEY_A)` | `claude-haiku-4-5-20251001` (the only model, D-013) |
+| T2 | `Anthropic(api_key=ANTHROPIC_KEY_B)` | same (skipped while no key B exists) |
+| T3 | `AnthropicBedrock(aws_region="ap-south-1")` | `global.anthropic.claude-haiku-4-5-20251001-v1:0` only |
 | T4 | Replay | Recorded outputs for the demo script only; response carries `replay=true` and every door shows it |
 
 - **Fail over** on 429 (after one retry-after wait), 529, 5xx, timeouts, and credit-exhausted errors. **Do not** fail over on other 400s.
 - **Circuit breaker:** skip a failed tier for 180 s.
-- **Budgets:** per-run cap (default $0.50); Bedrock cap $30 in code (AWS Budgets alert at $25).
+- **Budgets:** per-run cap (default $0.50); Bedrock cap **$20** in code; AWS Budgets alerts at 40/70/90% of $50, credits excluded (D-013).
 - **Log** every call to `llm_calls` with tier, tokens, cost and latency.
 
 ### Call discipline
@@ -636,7 +636,7 @@ ANTHROPIC_KEY_B=
 AWS_REGION=ap-south-1
 BEDROCK_HAIKU_ID=global.anthropic.claude-haiku-4-5-20251001-v1:0
 BEDROCK_SONNET_ID=
-BEDROCK_BUDGET_USD=30
+BEDROCK_BUDGET_USD=20
 SES_FROM_ADDRESS=contextrail@yourdomain.example
 SES_CONFIGURATION_SET=
 SLACK_BOT_TOKEN=
@@ -739,3 +739,14 @@ Refs: CLAUDE.md §9, docs/CHECKLIST.md
 - **Milestone tags:** `stage2-p0-skeleton`, `stage2-p0-rail`, `stage2-p0-live-loop`, `stage2-p0-doors`, `stage2-p1-complete`, `stage2-demo-freeze`.
 - `scripts/buildlog.sh` regenerates `docs/BUILDLOG.md` (task → commits → date) from `git log`. Never hand-edit it.
 - **Honesty:** a commit never claims LIVE or verified for something that was not observed.
+
+---
+
+## 25. AGENTIC CORE — MEMORY, RAG, TOOLS, CAPABILITIES (section T, D-014)
+
+| Pillar | What it is here | Guardrail |
+|---|---|---|
+| **Memory** | *Working*: the sealed case file per run. *Episodic*: precedents computed from the audit chain (approved/refused counts per rule + entitlement), shown on approval cards (X5). *Semantic*: the OKF bundle. *Conversational*: bounded per-door thread memory so "why was that refused?" resolves to the right run | Memory is evidence, never instruction; conversational memory is PII-redacted and expires; counts come only from the audit chain |
+| **RAG** | OKF pages and receipts chunked and indexed in Postgres full-text search; hybrid retrieval (lexical rank + `rules:`/`tags:` links); Haiku writes answers only from retrieved chunks, citing chunk ids and audit seq numbers | No supporting chunk → "not in the knowledge base"; untrusted text is fenced; retrieval never feeds policy |
+| **Tools** | A bounded read-only tool-use loop (Haiku) for questions: search_knowledge, run_status, my_runs, precedent; the same capabilities exposed to other agents as MCP tools (§13.4) | Step limit + per-question cost cap; tools are read-only, and approve/execute stay behind door.decide and the rail |
+| **Capabilities** | Skills (§13.5), MCP tools, doors and connector modes, published at `GET /v1/capabilities` and `/.well-known/agent.json`, generated from code | The manifest is built from the registry and rules, so it cannot claim what is not built |

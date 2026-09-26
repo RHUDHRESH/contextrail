@@ -1,6 +1,6 @@
 # ContextRail — Stage 2 build checklist (250 tasks)
 
-Build, integration, UI/UX and connectors only. Tests are required by CLAUDE.md §18 but are not counted here.
+Build, integration, UI/UX and connectors only (250 planned + section T added at the user's request). Tests are required by CLAUDE.md §18 but are not counted here.
 Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains · 👤 needs a human (accounts, keys, tenants, recordings).
 **Finish every P0 across all sections before starting any P1.** Each task is ticked in the commit that completes it (CLAUDE.md §24);
 `scripts/buildlog.sh` maps every ticked task to its commits in `docs/BUILDLOG.md`.
@@ -8,10 +8,10 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 <!-- stats:start -->
 | Priority | Tasks | Done |
 |---|---|---|
-| P0 | 148 | 76 |
+| P0 | 152 | 76 |
 | P1 | 92 | 0 |
 | P2 | 10 | 0 |
-| **Total** | **250** | **76** |
+| **Total** | **254** | **76** |
 
 👤 human-owned tasks: 24
 <!-- stats:end -->
@@ -322,3 +322,10 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 - [ ] T248 `P1` Query answering in Teams ("why was X refused?") via `door.answer_query`.
 - [ ] T249 `P1` `ONE-WAY` fallback: Workflows incoming webhook card + signed decision links.
 - [ ] T250 `P1` 👤 Sideload the app into the tenant; set the Azure Bot messaging endpoint to the public host.
+
+## T. Agentic core: memory, RAG, tools, capabilities (4) — added 2026-09-26 at the user's request (D-014)
+
+- [ ] T251 `P0` Memory: working memory (the sealed case file per run), episodic memory (precedents derived from the audit chain: approved/refused counts per rule and entitlement), conversational memory (per door thread, bounded, PII-redacted, with retention); every memory read cites its source.
+- [ ] T252 `P0` RAG: chunked OKF knowledge + receipts indexed in Postgres full-text search, hybrid retrieval (lexical + rule/tag links), Haiku answers grounded only in retrieved chunks with citations, and an explicit "not in the knowledge base" refusal when nothing supports an answer.
+- [ ] T253 `P0` Tools: a bounded, read-only tool-use loop (Haiku) for questions (search knowledge, run status, my runs, precedents), with a step limit and cost cap; it can read and explain, never approve, execute or change a verdict; the same tools exposed to other agents via MCP (section M).
+- [ ] T254 `P0` Capabilities: a machine-readable capability manifest (GET /v1/capabilities and /.well-known/agent.json) listing skills, tools, doors, connector modes and limits, generated from code so it cannot drift.
