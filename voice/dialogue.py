@@ -18,6 +18,7 @@ from flows import Turn
 from intents import route
 from languages import Language, LanguageTable, detect_switch
 from llm import Conversation
+from sarvam_chat import SarvamConversation
 
 # Fixed, not read from the environment: this prompt is a guardrail, not a setting.
 SYSTEM_PROMPT = (
@@ -45,16 +46,18 @@ DOOR_FLOWS: dict[str, Flow] = {"request": door_flows.request_flow, "status": doo
 
 
 class Dialogue:
-    def __init__(self, *, languages: LanguageTable, llm: Conversation, flows: dict[str, Flow] | None = None,
+    def __init__(self, *, languages: LanguageTable, llm: Conversation | SarvamConversation,
+                 flows: dict[str, Flow] | None = None,
                  lang: Language | None = None, caller: Caller | None = None, caller_phone: str | None = None,
                  engine: EngineClient | None = None, call_ref: str | None = None,
-                 transfer_available: bool = False) -> None:
+                 transfer_available: bool = False, outbound_test: bool = False) -> None:
         self.languages, self.llm, self.engine = languages, llm, engine
         self.lang = lang or languages.default
         # Who is calling, as identity_map.phone resolved it; both None for an unknown or unverified number.
         self.caller, self.caller_phone = caller, caller_phone if caller else None
         self.call_ref = call_ref  # the Vobiz CallUUID: the run's source_ref
         self.transfer_available = transfer_available
+        self.outbound_test = outbound_test
         self.history: list[dict] = []  # the model's turns only; flows' turns never enter a prompt
         self.flows: dict[str, Flow] = ({name: _conversation_flow for name in FLOW_NAMES} | DOOR_FLOWS
                                        | (flows or {}))
@@ -83,6 +86,8 @@ class Dialogue:
         if self._resume is not None:
             say, self._resume = self._resume, None
             return Turn(say)
+        if self.outbound_test:
+            return Turn([self.disclosed("outbound_test")])
         return Turn([self.disclosed("menu" if self.registered else "unregistered")])
 
     async def on_utterance(self, text: str) -> Turn:
@@ -120,7 +125,7 @@ class Dialogue:
         return turn
 
     async def converse(self, text: str) -> str:
-        """A conversational turn by Haiku; without a reply, the fixed apology and the menu."""
+        """A conversational turn by Sarvam; without a reply, the fixed apology and menu."""
         self.history.append({"role": "user", "content": text})
         reply = await self.llm.reply(self.history, system=SYSTEM_PROMPT)
         if reply is None:

@@ -40,20 +40,21 @@ class Call:
     token: str = field(default_factory=lambda: secrets.token_urlsafe(24))
     started: float = field(default_factory=time.monotonic)
     dialogue: Dialogue | None = None
+    outbound_test: bool = False
 
 
 class CallRegistry:
     def __init__(self) -> None:
         self._calls: dict[str, Call] = {}
 
-    def register(self, call_uuid: str, caller: str | None) -> Call:
+    def register(self, call_uuid: str, caller: str | None, *, outbound_test: bool = False) -> Call:
         now = time.monotonic()
         for uuid in [u for u, c in self._calls.items() if now - c.started > _MAX_AGE_S]:
             del self._calls[uuid]
         existing = self._calls.get(call_uuid)
         if existing is not None:  # Vobiz retried the answer callback: same call, same conversation
             return existing
-        call = self._calls[call_uuid] = Call(call_uuid, caller)
+        call = self._calls[call_uuid] = Call(call_uuid, caller, outbound_test=outbound_test)
         return call
 
     def get(self, call_uuid: str) -> Call | None:

@@ -91,6 +91,30 @@ async def verified_live_caller(call_uuid: str, callback_from: str, callback_to: 
     return origin
 
 
+async def verified_outbound_destination(call_uuid: str, callback_from: str, callback_to: str, *, auth_id: str,
+                                        auth_token: str, transport=None) -> str | None:
+    """Identify a provider-confirmed outbound call for a harmless test-call greeting."""
+    from calls import normalize_phone
+
+    origin, target = normalize_phone(callback_from), normalize_phone(callback_to)
+    if not auth_id or not auth_token or not call_uuid or not origin or not target:
+        return None
+    try:
+        async with httpx.AsyncClient(transport=transport, timeout=3.0) as client:
+            response = await client.get(f"https://api.vobiz.ai/api/v1/Account/{quote(auth_id, safe='')}/Call/"
+                                        f"{quote(call_uuid, safe='')}/", params={"status": "live"},
+                                        headers={"X-Auth-ID": auth_id, "X-Auth-Token": auth_token})
+            response.raise_for_status()
+            live = response.json()
+    except (httpx.HTTPError, ValueError):
+        return None
+    if (not isinstance(live, dict) or live.get("call_uuid") != call_uuid or
+            live.get("direction") != "outbound" or live.get("call_status") != "in-progress" or
+            normalize_phone(live.get("from")) != origin or normalize_phone(live.get("to")) != target):
+        return None
+    return target
+
+
 def _doc(body: str) -> str:
     return f'<?xml version="1.0" encoding="UTF-8"?>\n<Response>\n{body}\n</Response>'
 

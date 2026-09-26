@@ -4,7 +4,7 @@ Keywords decide first, in all four languages at once (callers mix languages; Saa
 Latin or native script). Precedence is fixed: human, status, approve, policy, request, so "what happened to my
 access request" is a status question, and "can contractors get production access?" is a policy question.
 
-Only when no keyword matches is Haiku asked, through a forced tool whose only output is one label from INTENTS.
+Only when no keyword matches is the phone's Sarvam conversation model asked for one label from INTENTS.
 Routing never acts: it picks which flow talks next, and each flow confirms with the caller before the engine is
 called (read-back for requests, spoken confirmation and DTMF for approvals); status and policy are read-only.
 """

@@ -1,6 +1,7 @@
 # voice/
 
-The voice door: an inbound conversational agent over a Vobiz phone number with Sarvam STT/TTS. It is based on
+The voice door: an inbound and outbound conversational agent over a Vobiz phone number with Sarvam
+Saaras STT, Sarvam-105B Conversations and Bulbul TTS. It is based on
 `vobiz-ai/Vobiz-Sarvam` and runs on Python 3.12, because it needs `audioop`. It never decides anything; it calls
 the engine's door contract. See CLAUDE.md §13.3.
 
@@ -44,6 +45,22 @@ body-bound callback authentication. High-risk approvals stay in Slack or Teams. 
 [voice XML guidance](https://github.com/vobiz-ai/Agent-Skills/blob/main/skills/vobiz-voice-xml/SKILL.md).
 
 **Tests** are offline: Sarvam, Vobiz, the model and the engine are all faked.
+
+For one live outbound test, run the deployed voice service at a public HTTPS
+`VOICE_PUBLIC_URL` such as `https://your-host/voice`. It must report `LIVE`
+Vobiz callbacks, Sarvam speech, Sarvam dialogue, and a configured engine at
+`GET /health`. Then use the one-shot CLI; without `--dial` it checks the live
+service and your owned caller ID but places no call:
+
+```bash
+python voice/make_call.py --to +919999999999 --voice-base https://your-host/voice
+python voice/make_call.py --to +919999999999 --voice-base https://your-host/voice --dial
+```
+
+The CLI validates an active voice-capable number on the Vobiz account and
+submits a single call to Vobiz. A timeout is an unknown outcome: inspect Vobiz
+call history before considering another attempt. The voice conversation never
+calls Anthropic; the engine can use Anthropic separately for workflow work.
 
 ```bash
 uv venv --python D:/AIWorkspace/Python/cpython-3.12-windows-x86_64-none/python.exe voice/.venv

@@ -46,6 +46,7 @@ SUPPORTED: dict[str, Language] = {
               "या अपनी मंज़ूरी के लिए रुके आइटम तय कर सकते हैं। भाषा बदलने के लिए English, Tamil या Kannada कहें।"),
         unregistered=("आपका नंबर कॉन्टेक्स्टरेल में पंजीकृत नहीं है, इसलिए मैं केवल सामान्य नीति से जुड़े सवालों के "
                       "जवाब दे सकता हूँ।"),
+        outbound_test="यह कॉन्टेक्स्टरेल की परीक्षण कॉल है। फोन सहायक जुड़ गया है। आप मुझसे बात कर सकते हैं।",
         fallback="माफ करें, मुझे समझने में परेशानी हो रही है।",
         switched="ठीक है, अब हम हिंदी में बात करेंगे।",
         ask_request="आप क्या अनुरोध करना चाहते हैं? कृपया एक वाक्य में बताइए।",
@@ -88,6 +89,7 @@ SUPPORTED: dict[str, Language] = {
               "waiting for your approval. To change language, say Hindi, Tamil or Kannada."),
         unregistered=("Your number is not registered with ContextRail, so I can only answer general policy "
                       "questions."),
+        outbound_test="This is a ContextRail test call. The phone assistant is connected. You can talk to me now.",
         fallback="Sorry, I'm having trouble understanding.",
         switched="Okay, we'll continue in English.",
         ask_request="What would you like to request? Please say it in one sentence.",
@@ -130,6 +132,7 @@ SUPPORTED: dict[str, Language] = {
               "Kannada என்று சொல்லுங்கள்."),
         unregistered=("உங்கள் எண் ContextRail-இல் பதிவு செய்யப்படவில்லை, எனவே பொதுவான கொள்கைக் கேள்விகளுக்கு "
                       "மட்டுமே என்னால் பதில் சொல்ல முடியும்."),
+        outbound_test="இது ContextRail சோதனை அழைப்பு. தொலைபேசி உதவியாளர் இணைந்துள்ளார். நீங்கள் இப்போது பேசலாம்.",
         fallback="மன்னிக்கவும், எனக்குப் புரிந்துகொள்வதில் சிரமம் உள்ளது.",
         switched="சரி, இனி தமிழில் பேசலாம்.",
         ask_request="நீங்கள் என்ன கோரிக்கை வைக்க விரும்புகிறீர்கள்? ஒரே வாக்கியத்தில் சொல்லுங்கள்.",
@@ -172,6 +175,7 @@ SUPPORTED: dict[str, Language] = {
               "ಅನುಮೋದನೆಗಾಗಿ ಕಾಯುತ್ತಿರುವವನ್ನು ನಿರ್ಧರಿಸಬಹುದು. ಭಾಷೆ ಬದಲಾಯಿಸಲು Hindi, English ಅಥವಾ Tamil ಎಂದು ಹೇಳಿ."),
         unregistered=("ನಿಮ್ಮ ಸಂಖ್ಯೆ ContextRail ನಲ್ಲಿ ನೋಂದಣಿಯಾಗಿಲ್ಲ, ಆದ್ದರಿಂದ ನಾನು ಸಾಮಾನ್ಯ ನೀತಿ ಪ್ರಶ್ನೆಗಳಿಗೆ ಮಾತ್ರ "
                       "ಉತ್ತರಿಸಬಲ್ಲೆ."),
+        outbound_test="ಇದು ContextRail ಪರೀಕ್ಷಾ ಕರೆ. ಫೋನ್ ಸಹಾಯಕ ಸಂಪರ್ಕಗೊಂಡಿದ್ದಾನೆ. ನೀವು ಈಗ ಮಾತನಾಡಬಹುದು.",
         fallback="ಕ್ಷಮಿಸಿ, ನನಗೆ ಅರ್ಥಮಾಡಿಕೊಳ್ಳಲು ತೊಂದರೆಯಾಗುತ್ತಿದೆ.",
         switched="ಸರಿ, ಇನ್ನು ಕನ್ನಡದಲ್ಲಿ ಮಾತನಾಡೋಣ.",
         ask_request="ನೀವು ಏನು ವಿನಂತಿಸಲು ಬಯಸುತ್ತೀರಿ? ದಯವಿಟ್ಟು ಒಂದೇ ವಾಕ್ಯದಲ್ಲಿ ಹೇಳಿ.",

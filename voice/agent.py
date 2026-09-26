@@ -1,11 +1,11 @@
 """
-agent.py — Sarvam Saaras v3 STT + Claude Haiku 4.5 (conversation only) + Sarvam Bulbul v3 TTS
+agent.py — Sarvam Saaras v3 STT + Sarvam-105B dialogue + Sarvam Bulbul v3 TTS
 =====================================================================
 Pipeline:
   Vobiz audio (mu-law 8kHz)
     → silence-based VAD
     → Sarvam Saaras v3  (STT)
-    → Claude Haiku 4.5  (conversation only; llm.py)
+    → Sarvam-105B Conversations (conversation only; sarvam_chat.py)
     → Sarvam Bulbul v3   (TTS)
     → Vobiz audio (mu-law 8kHz)
 
@@ -28,12 +28,12 @@ from dotenv import load_dotenv
 from dialogue import Dialogue
 from languages import DEFAULT, Language, configure
 from llm import Conversation
+from sarvam_chat import SarvamConversation
 
 # Load the .env sitting next to this file, whatever the working directory is.
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
 
 SARVAM_API_KEY = os.getenv("SARVAM_API_KEY", "")
-ANTHROPIC_KEY  = os.getenv("ANTHROPIC_KEY_A", "")
 WS_PORT        = int(os.getenv("AGENT_WS_PORT", "8001"))
 # hi-IN (default), en-IN, ta-IN, kn-IN; TTS_SPEAKER, if set, replaces the default language's voice (languages.py)
 LANGUAGES      = configure(os.getenv("AGENT_LANGUAGE", DEFAULT), tts_speaker=os.getenv("TTS_SPEAKER", ""))
@@ -56,7 +56,8 @@ logger = logging.getLogger("sarvam_agent")
 # =============================================================================
 
 class CallSession:
-    def __init__(self, ws, *, dialogue: Dialogue | None = None, llm: Conversation | None = None,
+    def __init__(self, ws, *, dialogue: Dialogue | None = None,
+                 llm: Conversation | SarvamConversation | None = None,
                  lang: Language | None = None, sarvam_transport: httpx.AsyncBaseTransport | None = None):
         self.ws          = ws
         self.stream_id   = None
@@ -64,7 +65,8 @@ class CallSession:
         self.is_playing  = False
         # What is said lives in the Dialogue; this session only moves audio.
         self.dialogue    = dialogue or Dialogue(
-            languages=LANGUAGES, llm=llm if llm is not None else Conversation.from_key(ANTHROPIC_KEY), lang=lang)
+            languages=LANGUAGES, llm=llm if llm is not None else SarvamConversation.from_key(SARVAM_API_KEY),
+            lang=lang)
         self._sarvam_transport = sarvam_transport     # None = the real Sarvam API; tests pass a fake
         self._played     = 0                          # utterances sent; names each playback checkpoint
         self._playback_done = asyncio.Event()

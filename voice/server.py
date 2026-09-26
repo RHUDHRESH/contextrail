@@ -25,6 +25,7 @@ from dialogue import Dialogue
 from engine_client import EngineClient, EngineError
 from languages import LanguageTable
 from llm import Conversation
+from sarvam_chat import SarvamConversation
 from vobiz import (
     NonceCache,
     dial_xml,
@@ -33,6 +34,7 @@ from vobiz import (
     signature_valid,
     stream_xml,
     verified_live_caller,
+    verified_outbound_destination,
 )
 
 # Load the .env sitting next to this file, whatever the working directory is.
@@ -51,7 +53,7 @@ def public_url_from_env() -> str:
 
 
 def create_app(*, public_url: str, vobiz_auth_token: str, engine: EngineClient, languages: LanguageTable,
-               llm: Conversation, sarvam_transport=None, transfer_number: str = "",
+               llm: Conversation | SarvamConversation, sarvam_transport=None, transfer_number: str = "",
                vobiz_auth_id: str = "", vobiz_transport=None) -> FastAPI:
     app = FastAPI()
     calls = app.state.calls = CallRegistry()
@@ -89,7 +91,11 @@ def create_app(*, public_url: str, vobiz_auth_token: str, engine: EngineClient, 
         caller = await verified_live_caller(form["CallUUID"], form.get("From", ""), form.get("To", ""),
                                             auth_id=vobiz_auth_id, auth_token=vobiz_auth_token,
                                             transport=vobiz_transport) if signed else None
-        call = calls.register(form.get("CallUUID", ""), caller)
+        outbound = await verified_outbound_destination(
+            form["CallUUID"], form.get("From", ""), form.get("To", ""),
+            auth_id=vobiz_auth_id, auth_token=vobiz_auth_token,
+            transport=vobiz_transport) if signed and caller is None else None
+        call = calls.register(form.get("CallUUID", ""), caller, outbound_test=outbound is not None)
         logger.info(f"Answering call {call.call_uuid} (caller id not trusted)")
         xml = stream_xml(f"{ws_base}/ws/{call.token}", f"{public_url}/stream-status",
                          f"{public_url}/next")
@@ -143,7 +149,8 @@ def create_app(*, public_url: str, vobiz_auth_token: str, engine: EngineClient, 
             person = await resolve(call.caller)
             call.dialogue = Dialogue(languages=languages, llm=llm, caller=person,
                                      caller_phone=call.caller if person else None, engine=engine,
-                                     call_ref=call.call_uuid, transfer_available=bool(transfer_number))
+                                     call_ref=call.call_uuid, transfer_available=bool(transfer_number),
+                                     outbound_test=call.outbound_test)
         session = agent.CallSession(websocket, dialogue=call.dialogue, sarvam_transport=sarvam_transport)
         try:
             async for message in websocket.iter_text():
@@ -170,6 +177,7 @@ def create_app(*, public_url: str, vobiz_auth_token: str, engine: EngineClient, 
         return {"status": "ok", "base_url": public_url,
                 "modes": {"vobiz_callbacks": "LIVE" if signed else "FIXTURE",
                           "sarvam": "LIVE" if agent.SARVAM_API_KEY else "FIXTURE", "llm": llm.mode,
+                          "llm_provider": getattr(llm, "provider", "LEGACY"),
                           "engine": "configured" if engine.configured else "unconfigured",
                           "caller_identity": "provider_lookup_configured" if signed and vobiz_auth_id else "UNVERIFIED",
                           "phone_approvals": "DISABLED",
@@ -182,7 +190,7 @@ def create_app_from_env() -> FastAPI:
     return create_app(
         public_url=public_url_from_env(), vobiz_auth_token=os.getenv("VOBIZ_AUTH_TOKEN", ""),
         engine=EngineClient(os.getenv("ENGINE_URL", "http://localhost:8000"), os.getenv("ENGINE_TOKEN", "")),
-        languages=agent.LANGUAGES, llm=Conversation.from_key(agent.ANTHROPIC_KEY),
+        languages=agent.LANGUAGES, llm=SarvamConversation.from_key(agent.SARVAM_API_KEY),
         transfer_number=os.getenv("HUMAN_TRANSFER_NUMBER", ""),
         vobiz_auth_id=os.getenv("VOBIZ_AUTH_ID", ""))
 
