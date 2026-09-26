@@ -36,6 +36,8 @@ The engine in [`engine/`](engine/) is the decision and write authority: Python 3
 
 Other agents can use the engine's bearer-protected Streamable HTTP MCP endpoint at `/mcp`; the five user doors above are distinct from that agent interface. The root [`skills/`](skills/) directory contains Agent Skills. The FDK sidebar lives in [`fdk-app/`](fdk-app/).
 
+The separate Stage 1 fixture MCP server in [`mcp/server.ts`](mcp/server.ts) registers six rail tools: `search_enterprise_knowledge`, `compile_context_capsule`, `check_policy_and_permissions`, `generate_action_plan`, `handoff_to_specialist`, and `execute_and_verify`. Its additional `list_runs` tool is read-only. That fixture ships twelve policy rules and five skills for agents; for example, `POL-CTR-001` denies production credentials for contractors. These counts describe the fixture catalog, not live Freshservice actions.
+
 ## Connector modes
 
 `GET /v1/connectors` reports the runtime mode; configuration alone is not proof that an external transaction succeeded. Each receipt and door should preserve its reported mode.
