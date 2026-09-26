@@ -4,6 +4,10 @@
 // No run yet (engine 404): the empty state starts one through the startRun request template, exactly once.
 import { boot, fakeClient, ok, fail, runView, bodyMessage, flush } from './helpers/sidebar.js';
 
+// Fake timers so a running run's 3 s poll never leaks from one test into the next.
+beforeEach(() => vi.useFakeTimers());
+afterEach(() => vi.useRealTimers());
+
 function runButton() {
   return document.querySelector('#cr-body fw-button#cr-run');
 }

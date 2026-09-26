@@ -5,6 +5,10 @@
 // failure on the way is shown to the agent (fw-review FF-04A), never swallowed.
 import { boot, fakeClient, ok, fail, runView, bodyMessage } from './helpers/sidebar.js';
 
+// Fake timers so a running run's 3 s poll never leaks from one test into the next.
+beforeEach(() => vi.useFakeTimers());
+afterEach(() => vi.useRealTimers());
+
 describe('sidebar init', () => {
   test('reads the open ticket and asks the engine for that ticket\'s run', async () => {
     const client = fakeClient({ engine: { getRunByTicket: () => ok(runView()) } });

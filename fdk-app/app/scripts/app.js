@@ -2,7 +2,10 @@
 // it with CRView. It holds no secrets and makes no decisions; the engine is the only source of every verdict.
 (function () {
   const V = window.CRView;
-  const state = { client: null, ticketId: null, starting: false };
+  // Poll only while the rail is actively moving. Held and ambiguous runs wait on people for hours, and the request
+  // method is capped at 50 calls a minute per app per account, so those are refreshed on demand instead.
+  const POLL_MS = 3000;
+  const state = { client: null, ticketId: null, starting: false, timer: null };
   const TOKEN_REJECTED = 'The ContextRail engine rejected this app\'s credentials. Ask an admin to check the app settings.';
   const ENGINE_ERRORS = new Map([
     [401, TOKEN_REJECTED],
@@ -95,6 +98,13 @@
   function render(view) {
     document.getElementById('cr-status').replaceChildren(V.renderHeader(document, view));
     document.getElementById('cr-body').replaceChildren(V.renderRows(document, view));
+    schedule(view);
+  }
+
+  // A chain of timeouts, each armed only after the previous answer arrived, so polls never overlap.
+  function schedule(view) {
+    clearTimeout(state.timer);
+    state.timer = view.status === 'running' ? setTimeout(refresh, POLL_MS) : null;
   }
 
   function ticketIdOf(data) {
