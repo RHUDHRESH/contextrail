@@ -12,22 +12,29 @@ POST /v1/runs runs the first pass synchronously through Door.start_run, the same
 and returns the finished RunView (awaiting_approval, needs_input, partial or done), which the sidebar renders at
 once. Webhook-started runs use the 'rail.run' job instead, so the webhook can answer 202 immediately. A ticket gets
 one run: a second POST for the same ticket returns the existing run with 200 (intake.py).
+
+GET /v1/runs/{id}/events streams the run's StageEvents as Server-Sent Events (sse.py). A browser EventSource cannot
+send the bearer header, so browser clients go through a server-side proxy (the glass box) or use fetch streaming.
 """
 
 from __future__ import annotations
 
 import hmac
+from collections.abc import AsyncIterable
 from typing import Annotated, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Path, Request, Response
+from fastapi import APIRouter, Depends, Header, HTTPException, Path, Request, Response
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from fastapi.sse import EventSourceResponse, ServerSentEvent
 from pydantic import BaseModel, ConfigDict, Field
 
 from contextrail import repo
 from contextrail.intake import TICKET_CHANNELS, find_ticket_run, run_lock, ticket_lock
+from contextrail.metrics import Metrics, collect
 from contextrail.surfaces.door import Channel, DecisionResult
 from contextrail.surfaces.presenter import RunView
+from contextrail.surfaces.sse import stage_events
 
 _PLACEHOLDER_TOKEN = "change-me"
 _bearer = HTTPBearer(auto_error=False)
@@ -136,3 +143,34 @@ async def decide(run_id: UUID, body: Decide, request: Request) -> DecisionResult
     return await _platform(request).door.decide(
         run_id, body.action_id, body.params_hash, channel=body.channel, actor_external_id=body.actor_external_id,
         decision=body.decision, reason=body.reason)
+
+
+@router.get("/metrics", response_model=Metrics, tags=["ops"])
+async def metrics(request: Request) -> Metrics:
+    """Runs, verdicts, median time to access, LLM cost by tier, decisions per door (metrics.py)."""
+    async with _platform(request).db.connection() as c:
+        return await collect(c)
+
+
+async def _existing_run(run_id: UUID, request: Request) -> UUID:
+    """Resolved before the stream starts, so an unknown run is a 404, not a 200 that ends at once."""
+    async with _platform(request).db.connection() as c:
+        if await repo.get_run(c, run_id) is None:
+            raise HTTPException(404, f"no run {run_id}")
+    return run_id
+
+
+@router.get("/runs/{run_id}/events", response_class=EventSourceResponse)
+async def run_events(run_id: Annotated[UUID, Depends(_existing_run)], request: Request,
+                     last_event_id: Annotated[int | None, Header()] = None) -> AsyncIterable[ServerSentEvent]:
+    """StageEvents as Server-Sent Events: history, then live, until the run is partial, done or failed (sse.py)."""
+    p = _platform(request)
+
+    async def status() -> str | None:
+        async with p.db.connection() as c:
+            run = await repo.get_run(c, run_id)
+        return run["status"] if run else None
+
+    async for item in stage_events(p.events, run_id, status, heartbeat_s=p.sse_heartbeat_s,
+                                   after_seq=last_event_id):
+        yield item
