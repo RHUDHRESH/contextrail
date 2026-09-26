@@ -1,14 +1,26 @@
 """The MCP door's tools, called through a real MCP client (in-process), over the FIXTURE rail (T182-T188)."""
 
+import pytest
 from mcp import Client
 from mcp_helpers import app_with, mcp_over_http, running, settings
 
 from contextrail.agentic.knowledge import KnowledgeHit, RuleIndex
+from contextrail.fixtures import load
 from contextrail.policy.loader import load_rules
+from contextrail.rail.store import load_case
+from contextrail.surfaces.door import Door
 from contextrail.surfaces.mcp_server import build_mcp_server
 from contextrail.surfaces.mcp_tools import ContextRailTools
 
 INDEX = RuleIndex(load_rules())
+PEOPLE = {p["person_id"]: p["display_name"] for p in load("identity")["people"]}
+SAME_AS_RAHUL = "Give Anil the same access as Rahul Mehta"
+
+
+@pytest.fixture
+async def door(rail):
+    runner, deps = rail
+    return Door(runner, people=PEOPLE, modes={n: c.mode for n, c in deps.registry.connectors.items()})
 
 
 def server(door=None, knowledge=INDEX):
@@ -57,3 +69,48 @@ async def test_the_engine_app_serves_search_from_its_loaded_rules():
     async with running(app), mcp_over_http(app) as c:
         r = await c.call_tool("search_enterprise_knowledge", {"query": "POL-ACC-004", "limit": 1})
     assert [h["id"] for h in r.structured_content["hits"]] == ["POL-ACC-004"]
+
+
+# --- compile_context_capsule (T183) -------------------------------------------------------------------------
+
+async def test_compile_returns_a_capsule_handle_for_the_sealed_case_file(door):
+    r = await call(server(door), "compile_context_capsule", {"request_text": SAME_AS_RAHUL})
+    out = r.structured_content
+    assert not r.is_error and out["status"] == "awaiting_approval"
+    async with door.db.connection() as c:
+        case = await load_case(c, out["run_id"])
+    assert out["capsule_handle"] == {"run_id": str(case.run_id), "digest": case.digest}
+    assert (out["subject"], out["peer"]) == ("Anil Kumar", "Rahul Mehta")
+    view = await door.get_status(case.run_id)
+    assert out["counts"] == view.counts and (view.counts["hold"], view.counts["refuse"]) == (2, 1)
+    assert view.source == "mcp"
+
+
+async def test_an_ambiguous_mention_returns_needs_input_with_candidates_and_no_handle(door):
+    r = await call(server(door), "compile_context_capsule",
+                   {"request_text": "Give Anil the same access as Rahul"})
+    out = r.structured_content
+    assert out["status"] == "needs_input" and out["capsule_handle"] is None
+    need = out["needs"][0]
+    assert need["role"] == "peer" and {c["source_id"] for c in need["candidates"]} == {"E-0007", "E-0415"}
+
+
+async def test_a_pinned_id_is_looked_up_exactly_and_resolves_the_ambiguity(door):
+    r = await call(server(door), "compile_context_capsule",
+                   {"request_text": "Give Anil the same access as Rahul", "peer_id": "E-0007"})
+    out = r.structured_content
+    assert out["status"] == "awaiting_approval" and out["peer"] == "Rahul Mehta" and out["capsule_handle"]
+
+
+@pytest.mark.parametrize("name", ["Anil Kumar", "Anil"])
+async def test_a_name_is_never_accepted_as_a_pinned_id(door, name):
+    # The rail's lookup would resolve a bare name; the door refuses it before the rail sees it (P1).
+    r = await call(server(door), "compile_context_capsule", {"request_text": SAME_AS_RAHUL, "subject_id": name})
+    assert r.is_error and "subject_id" in r.content[0].text
+    async with door.db.connection() as c:
+        assert await (await c.execute("select count(*) as n from runs")).fetchone() == {"n": 0}
+
+
+async def test_compile_without_a_wired_door_is_an_honest_error():
+    r = await call(server(door=None), "compile_context_capsule", {"request_text": SAME_AS_RAHUL})
+    assert r.is_error and "no door" in r.content[0].text
