@@ -1,8 +1,12 @@
 """The LLM router (CLAUDE.md §11): T1 -> T2 -> T3 (Bedrock) -> T4 (replay), tier recorded on every call.
 
+One model only: Claude Haiku 4.5 (D-013). The direct tiers send `claude-haiku-4-5-20251001`; Bedrock sends the global
+inference profile `global.anthropic.claude-haiku-4-5-20251001-v1:0`. Any other model is refused, both when the
+router is configured and when a call names one. The settings `sonnet_model` / `bedrock_sonnet_id` are not read.
+
 Configuration (T109) is read once from Settings. The tier order is fixed; configuration only decides which tiers are
-enabled and which model ID each tier sends. Callers name a model by alias ("haiku", "sonnet"); the logical model ID
-behind the alias (the first-party ID) is what prices a call and keys a replay recording, whichever tier served it.
+enabled. The direct model ID is the logical model: it prices every call and keys replay recordings, whichever tier
+served it.
 """
 
 from __future__ import annotations
@@ -25,6 +29,13 @@ Tier = Literal["T1", "T2", "T3", "T4"]
 Provider = Literal["anthropic", "bedrock", "replay"]
 ReplayMode = Literal["off", "record", "replay"]
 
+HAIKU_DIRECT_ID = "claude-haiku-4-5-20251001"
+HAIKU_BEDROCK_ID = "global.anthropic.claude-haiku-4-5-20251001-v1:0"
+
+
+class ModelNotAllowed(ValueError):
+    """A model other than Claude Haiku 4.5 was configured or requested (D-013). A caller bug, so it is loud."""
+
 
 class TierConfig(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -32,7 +43,7 @@ class TierConfig(BaseModel):
     tier: Tier
     provider: Provider
     enabled: bool
-    models: dict[str, str]  # alias -> the model ID this tier sends; a missing alias is not served by this tier
+    model: str  # the model ID this tier sends
 
 
 class RouterConfig(BaseModel):
@@ -41,7 +52,7 @@ class RouterConfig(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     tiers: tuple[TierConfig, ...]
-    models: dict[str, str]              # alias -> logical (first-party) model ID
+    model: str                          # the logical model (direct Haiku ID): prices calls, keys replays
     run_budget_usd: Decimal
     bedrock_budget_usd: Decimal
     replay_mode: ReplayMode
@@ -49,32 +60,39 @@ class RouterConfig(BaseModel):
     breaker_cooldown_s: float = 180.0   # a failed tier is skipped this long (§11)
     timeout_s: float = 30.0             # per request; a timeout fails over
     max_retry_after_s: float = 10.0     # cap on the one retry-after wait before a 429 fails over
+    max_tokens_cap: int = 800           # §11: Haiku calls stay small; callers use far less (<= 300)
 
     @classmethod
     def from_settings(cls, s: Settings) -> RouterConfig:
-        direct = {"haiku": s.haiku_model, "sonnet": s.sonnet_model}
-        bedrock = {k: v for k, v in {"haiku": s.bedrock_haiku_id, "sonnet": s.bedrock_sonnet_id}.items() if v}
+        for configured, allowed in ((s.haiku_model, HAIKU_DIRECT_ID), (s.bedrock_haiku_id, HAIKU_BEDROCK_ID)):
+            if configured != allowed:
+                raise ModelNotAllowed(f"only Claude Haiku 4.5 is allowed (D-013): got {configured!r}, "
+                                      f"expected {allowed!r}")
         return cls(
             tiers=(
                 TierConfig(tier="T1", provider="anthropic", enabled=bool(s.anthropic_key_a.get_secret_value()),
-                           models=direct),
+                           model=HAIKU_DIRECT_ID),
                 TierConfig(tier="T2", provider="anthropic", enabled=bool(s.anthropic_key_b.get_secret_value()),
-                           models=direct),
-                TierConfig(tier="T3", provider="bedrock", enabled=s.bedrock_enabled, models=bedrock),
-                TierConfig(tier="T4", provider="replay", enabled=s.llm_replay_mode == "replay", models=direct),
+                           model=HAIKU_DIRECT_ID),
+                TierConfig(tier="T3", provider="bedrock", enabled=s.bedrock_enabled, model=HAIKU_BEDROCK_ID),
+                TierConfig(tier="T4", provider="replay", enabled=s.llm_replay_mode == "replay",
+                           model=HAIKU_DIRECT_ID),
             ),
-            models=direct,
+            model=HAIKU_DIRECT_ID,
             run_budget_usd=s.run_budget_usd,
             bedrock_budget_usd=s.bedrock_budget_usd,
             replay_mode=s.llm_replay_mode,
             replay_dir=Path(s.llm_replay_dir) if s.llm_replay_dir else fixtures_dir() / "llm_replay",
         )
 
-    def chain(self, alias: str) -> list[TierConfig]:
-        """The enabled tiers that can serve this model, in failover order."""
-        if alias not in self.models:
-            raise ValueError(f"unknown model alias {alias!r}; expected one of {sorted(self.models)}")
-        return [t for t in self.tiers if t.enabled and t.models.get(alias)]
+    def chain(self) -> list[TierConfig]:
+        """The enabled tiers, in failover order."""
+        return [t for t in self.tiers if t.enabled]
+
+    def check_model(self, model: str) -> None:
+        """A call may name the model, but only as one of the configured Haiku IDs."""
+        if model not in {t.model for t in self.tiers}:
+            raise ModelNotAllowed(f"model {model!r} is not allowed; only Claude Haiku 4.5 ({self.model}) (D-013)")
 
 
 # --- errors: callers catch LLMError and fall back to their deterministic path --------------------------------
@@ -129,24 +147,32 @@ def build_clients(s: Settings, config: RouterConfig) -> dict[Tier, Any]:
 # --- the router ----------------------------------------------------------------------------------------------
 
 class Router:
-    """Calls the first tier of the chain that can serve the model. The SDK clients are synchronous (`Anthropic`,
+    """Calls Claude Haiku 4.5 on the first available tier. The SDK clients are synchronous (`Anthropic`,
     `AnthropicBedrock`, per CLAUDE.md §11), so each call runs in a worker thread to keep the event loop free."""
 
     def __init__(self, config: RouterConfig, clients: Mapping[str, Any]) -> None:
         self.config = config
         self.clients = dict(clients)
 
-    async def call(self, *, model: str, system: str, messages: list[MessageParam], max_tokens: int,
-                   tools: list[dict] | None = None, tool_choice: dict | None = None,
-                   thinking: dict | None = None) -> LLMResponse:
-        chain = [t for t in self.config.chain(model) if t.tier in self.clients]
+    async def call(self, *, system: str, messages: list[MessageParam], max_tokens: int, model: str | None = None,
+                   tools: list[dict] | None = None, tool_choice: dict | None = None, thinking: dict | None = None,
+                   temperature: float | None = None) -> LLMResponse:
+        if model is not None:
+            self.config.check_model(model)
+        if max_tokens > self.config.max_tokens_cap:
+            raise ValueError(f"max_tokens={max_tokens} exceeds the cap of {self.config.max_tokens_cap} (§11)")
+        chain = [t for t in self.config.chain() if t.tier in self.clients]
         if not chain:
-            raise NoTierAvailable(f"no enabled tier can serve {model!r}")
+            raise NoTierAvailable(f"no enabled tier can serve {self.config.model}")
         tier = chain[0]
-        request: dict[str, Any] = {"model": tier.models[model], "system": system, "messages": messages,
+        request: dict[str, Any] = {"model": tier.model, "system": system, "messages": messages,
                                    "max_tokens": max_tokens}
         optional = {"tools": tools, "tool_choice": tool_choice, "thinking": thinking}
         request.update({k: v for k, v in optional.items() if v is not None})
+        if temperature is not None:
+            # anthropic 1.8.0 has no typed `temperature` argument; Haiku 4.5 accepts it in the body (§11: 0 for
+            # extraction). extra_body is the SDK's documented way to send a body field it does not type.
+            request["extra_body"] = {"temperature": temperature}
         t0 = time.perf_counter()
         msg = await asyncio.to_thread(self.clients[tier.tier].messages.create, **request)
         return LLMResponse(
