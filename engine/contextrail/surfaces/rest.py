@@ -30,9 +30,11 @@ from fastapi.sse import EventSourceResponse, ServerSentEvent
 from pydantic import BaseModel, ConfigDict, Field
 
 from contextrail import repo
-from contextrail.intake import TICKET_CHANNELS, find_ticket_run, run_lock, ticket_lock
+from contextrail.connectors.base import ConnectorError, UnknownOutcome
+from contextrail.connectors.freshservice import ACCESS_REQUEST_TEXT_FIELD, fs_id
+from contextrail.intake import TICKET_CHANNELS, advisory_lock, find_ticket_run, run_lock, ticket_lock
 from contextrail.metrics import Metrics, collect
-from contextrail.surfaces.door import Channel, DecisionResult
+from contextrail.surfaces.door import Answer, Channel, DecisionResult
 from contextrail.surfaces.presenter import RunView
 from contextrail.surfaces.sse import stage_events
 
@@ -79,6 +81,56 @@ class Decide(BaseModel):
     reason: str | None = Field(default=None, max_length=1000)
 
 
+class Query(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    question: str = Field(min_length=1, max_length=4000)
+    channel: Channel
+    actor_external_id: str | None = Field(default=None, min_length=1, max_length=256)
+
+
+class ResolveIdentity(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    channel: Channel
+    external_id: str = Field(min_length=1, max_length=256)
+
+
+class PendingApprovals(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    channel: Channel
+    actor_external_id: str = Field(min_length=1, max_length=256)
+
+
+class CallerIdentity(BaseModel):
+    person_id: str
+    display_name: str
+
+
+class PendingRuns(BaseModel):
+    runs: list[RunView]
+
+
+class VoiceRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    request_text: str = Field(min_length=1, max_length=4000)
+    actor_external_id: str = Field(min_length=1, max_length=256)
+    source_ref: str = Field(min_length=1, max_length=128)  # Vobiz CallUUID, only after a signed callback
+
+
+class VoiceTicket(BaseModel):
+    status: Literal["attempted", "verified", "unverified", "unknown", "blocked"]
+    ticket_id: int | None = None
+    mode: Literal["LIVE", "FIXTURE"]
+
+
+class VoiceRequestResult(BaseModel):
+    run: RunView
+    ticket: VoiceTicket
+
+
 def _platform(request: Request):
     return request.app.state.platform
 
@@ -123,6 +175,103 @@ async def run_by_ticket(ticket_id: Annotated[str, Path(min_length=1, max_length=
 @router.get("/runs/{run_id}", response_model=RunView)
 async def get_run(run_id: UUID, request: Request) -> RunView:
     return await _view_or_404(_platform(request), run_id)
+
+
+@router.post("/queries", response_model=Answer)
+async def answer_query(body: Query, request: Request) -> Answer:
+    """Ask the shared door for stored facts; this route never asks a model for an answer."""
+    return await _platform(request).door.answer_query(
+        body.question, channel=body.channel, actor_external_id=body.actor_external_id)
+
+
+@router.post("/identities/resolve", response_model=CallerIdentity)
+async def resolve_identity(body: ResolveIdentity, request: Request) -> CallerIdentity:
+    """Resolve a door identifier without returning email, phone or other identity-map fields."""
+    actor = await _platform(request).door.resolve_actor(body.channel, body.external_id)
+    if actor is None:
+        raise HTTPException(404, "no identity for this door")
+    return CallerIdentity(person_id=actor["person_id"], display_name=actor["display_name"])
+
+
+@router.post("/approvals/pending", response_model=PendingRuns)
+async def pending_approvals(body: PendingApprovals, request: Request) -> PendingRuns:
+    p = _platform(request)
+    actor = await p.door.resolve_actor(body.channel, body.actor_external_id)
+    if actor is None:
+        return PendingRuns(runs=[])
+    async with p.db.connection() as c:
+        rows = await (await c.execute(
+            "select distinct r.id, r.created_at from runs r "
+            "join actions a on a.run_id = r.id "
+            "where a.approver = %s and a.state = 'awaiting' "
+            "order by r.created_at desc, r.id desc limit 25", (actor["person_id"],))).fetchall()
+    return PendingRuns(runs=[await p.door.get_status(row["id"]) for row in rows])
+
+
+@router.post("/voice/requests", response_model=VoiceRequestResult)
+async def start_voice_request(body: VoiceRequest, request: Request) -> VoiceRequestResult:
+    """One governed run per call and at most one Freshservice catalog POST per run.
+
+    Freshservice has no idempotency key for place_request. Persist the attempt *before* that POST. A crash or an
+    uncertain response therefore requires reconciliation; it can never silently create a duplicate ticket.
+    """
+    p = _platform(request)
+    actor = await p.door.resolve_actor("voice", body.actor_external_id)
+    if actor is None or not actor.get("email"):
+        raise HTTPException(403, "a registered caller with an email is required for a voice request")
+    async with advisory_lock(p.db, f"voice:{body.source_ref}") as c:
+        existing = await (await c.execute(
+            "select id, requested_by, request_text from runs where source = 'voice' and source_ref = %s "
+            "order by created_at limit 1",
+            (body.source_ref,))).fetchone()
+        if existing and (existing["requested_by"] != actor["person_id"] or
+                         existing["request_text"] != body.request_text):
+            raise HTTPException(409, "this call reference belongs to a different request")
+        view = (await p.door.get_status(existing["id"]) if existing else
+                await p.door.start_run(body.request_text, channel="voice",
+                                       actor_external_id=body.actor_external_id, source_ref=body.source_ref))
+
+    fs = p.registry.get("freshservice")
+    async with advisory_lock(p.db, f"voice-ticket:{view.run_id}") as c:
+        row = await (await c.execute(
+            "select ref from door_messages where run_id = %s and action_id = '' and channel = 'freshservice'",
+            (view.run_id,))).fetchone()
+        if row:
+            return VoiceRequestResult(run=view, ticket=VoiceTicket.model_validate(row["ref"]))
+        # This transaction commits before the external POST. If the process dies afterward, the next call sees
+        # 'attempted' and refuses to place another request whose outcome is unknown.
+        await repo.upsert_door_message(c, view.run_id, "freshservice",
+                                       {"status": "attempted", "mode": fs.mode})
+
+    try:
+        placed = await fs.place_access_request(actor["email"], body.request_text)
+        ticket_id = fs_id(placed.data["id"])
+        try:
+            seen = await fs.get_ticket(ticket_id)
+            items = await fs.get_requested_items(ticket_id)
+            verified = (seen.mode == placed.mode and items.mode == placed.mode and
+                        seen.data.get("id") == ticket_id and any(
+                            item.get("custom_fields", {}).get(ACCESS_REQUEST_TEXT_FIELD) == body.request_text
+                            for item in items.data))
+        except ConnectorError:
+            verified = False
+        ticket = VoiceTicket(status="verified" if verified else "unverified", ticket_id=ticket_id,
+                             mode=placed.mode)
+    except UnknownOutcome:
+        ticket = VoiceTicket(status="unknown", mode=fs.mode)
+    except (ConnectorError, KeyError, TypeError, ValueError):
+        ticket = VoiceTicket(status="blocked", mode=fs.mode)
+
+    async with p.db.transaction() as c:
+        await repo.upsert_door_message(c, view.run_id, "freshservice", ticket.model_dump(exclude_none=True))
+        if ticket.status == "verified":
+            actions = await repo.list_actions(c, view.run_id)
+            for action in actions:
+                if action["state"] == "awaiting":
+                    await repo.enqueue_job(c, "approval.dispatch",
+                                           {"run_id": str(view.run_id), "action_id": action["id"]},
+                                           dedupe_key=f"approval.dispatch:ticket:{view.run_id}:{action['id']}")
+    return VoiceRequestResult(run=view, ticket=ticket)
 
 
 @router.post("/runs/{run_id}/pick", response_model=RunView)

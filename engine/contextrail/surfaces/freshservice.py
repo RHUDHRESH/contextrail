@@ -57,6 +57,25 @@ def ticket_of(run: dict) -> int | None:
         return None
 
 
+async def ticket_for_run(conn: AsyncConnection, run: dict, mode: str) -> int | None:
+    """A ticket on the originating Freshservice run or a verified door-created catalog request.
+
+    A fixture ticket ID must never be used after switching to the live tenant (or vice versa).
+    """
+    source_ticket = ticket_of(run)
+    if source_ticket is not None:
+        return source_ticket
+    row = await _one(conn, "select ref from door_messages where run_id = %s and action_id = '' "
+                     "and channel = 'freshservice'", run["id"])
+    ref = row["ref"] if row else {}
+    if ref.get("status") != "verified" or ref.get("mode") != mode:
+        return None
+    try:
+        return fs_id(ref.get("ticket_id"))
+    except (ValueError, TypeError):
+        return None
+
+
 async def _one(conn: AsyncConnection, sql: str, *params: object) -> dict | None:
     return await (await conn.execute(sql, params)).fetchone()
 
@@ -98,7 +117,7 @@ async def request_fs_approval(ctx: JobContext, run_id: UUID, action_id: str) -> 
             return _skip(run_id, action_id, "no such action")
         if action["state"] != "awaiting":
             return _skip(run_id, action_id, f"action is {action['state']}, not awaiting a decision")
-        ticket_id = ticket_of(run)
+        ticket_id = await ticket_for_run(c, run, fs.mode)
         if ticket_id is None:
             return _skip(run_id, action_id, "the run has no Freshservice ticket")
         # Only an approval made in the connector's current mode counts: one made while unconfigured (FIXTURE) does
@@ -173,7 +192,8 @@ async def handle_fs_approval_mirror(payload: dict, ctx: JobContext) -> dict:
         stored = await _one(c, "select ref from door_messages where run_id = %s and action_id = %s and channel = %s",
                             run_id, action_id, CHANNEL)
         ref = dict(stored["ref"]) if stored else {}
-        ticket_id = ref.get("ticket_id") or ticket_of(run)
+        ticket_id = (ref.get("ticket_id") if ref.get("mode") == fs.mode else None) or \
+            await ticket_for_run(c, run, fs.mode)
         if ticket_id is None:
             return _skip(run_id, action_id, "the run has no Freshservice ticket")
         row = (await _rows(ctx, c, run)).get(action_id)
