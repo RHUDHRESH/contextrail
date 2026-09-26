@@ -62,7 +62,9 @@ def main() -> int:
             "SLACK_BOT_TOKEN": "" if not args.slack else env.get("SLACK_BOT_TOKEN", ""),
             "SLACK_APP_TOKEN": "" if not args.slack else env.get("SLACK_APP_TOKEN", ""),
             "SLACK_SIGNING_SECRET": "",
-            "WORKER_IN_PROCESS": "true",
+            # When Socket Mode is enabled, its worker has the live Slack client. A separate API worker with Slack
+            # credentials stripped would claim approvals first and incorrectly exhaust its retries.
+            "WORKER_IN_PROCESS": "false" if args.slack else "true",
             "PUBLIC_URL": f"http://127.0.0.1:{args.port}",
         })
         engine_env = {**env, "SLACK_BOT_TOKEN": "", "SLACK_APP_TOKEN": "", "SLACK_SIGNING_SECRET": ""}
