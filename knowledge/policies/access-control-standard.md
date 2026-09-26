@@ -6,7 +6,7 @@ resource: https://notion.so/northbeam/access-control
 tags: [policy, access, security, least-privilege, approval, github, production]
 last_verified: 2026-09-20
 owner: security@northbeam.example
-rules: [POL-ACC-001, POL-ACC-002, POL-ACC-003, POL-ACC-004, POL-ACC-005, POL-SOD-001]
+rules: [POL-ACC-001, POL-ACC-002, POL-ACC-003, POL-ACC-004, POL-ACC-005, POL-DAT-001, POL-SOD-001]
 claims:
   contractor.production-credentials: never
   contractor.repository-write-access: never
@@ -46,8 +46,11 @@ No one may approve a request they raised or from which they benefit. An approval
 
 Approval authority cannot be delegated to the requester's own manager when the requester is the beneficiary.
 
+## §8 Customer personal data
+Raw customer personal data is available only to members of the data analytics team. Anyone else is refused and offered the masked view of the same data instead.
+
 # Citations
 - Access Control & Least Privilege Standard (Stage 1 source `ntn_access_control`, last updated 2026-08-01): §1, the
   earlier production-repository line quoted in §3, the elevated-role line in §4 and the delegation line in §7,
   verbatim.
-- The clause texts of §2 to §7 were written for ContextRail and are recorded as authored in docs/DECISIONS.md D-011.
+- The clause texts of §2 to §8 were written for ContextRail and are recorded as authored in docs/DECISIONS.md D-011.
