@@ -29,6 +29,9 @@ class Settings(BaseSettings):
     log_json: bool = True
     cors_allowed_origins: list[str] = Field(default_factory=list)
     fixtures_dir: str = ""      # read-only seeds (default: <repo>/fixtures)
+    # Local demo only: route fixture people's mail to real inboxes, e.g. "p-dana=you+dana@example.com,p-meera=...".
+    # Applied when the identity map is seeded; never committed (lives in .env).
+    demo_email_overrides: str = ""
     state_dir: str = ""         # mutable FIXTURE connector state (default: <repo>/.state)
     knowledge_dir: str = ""     # OKF bundle (default: <repo>/knowledge)
 

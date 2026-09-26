@@ -55,3 +55,32 @@ def test_reset_restores_seed_state(tmp_path):
     reset_fixture_state(tmp_path)
     doc = json.loads((tmp_path / "entitlements.json").read_text(encoding="utf-8"))
     assert "aws-payments-prod-admin" not in doc["holdings"]["E-1042"] and doc["_ledger"] == {}
+
+
+# --- local demo email override (routes fixture approvers to SES-verified inboxes) --------------------------
+
+def test_overrides_route_approver_mail_and_leave_everyone_else(migrated_db):
+    import pytest as _pytest
+
+    from contextrail.seed import OverrideError, parse_email_overrides
+
+    people = {p["person_id"] for p in load("identity")["people"]}
+    spec = "p-dana=demo+dana@example.com, p-meera=demo+meera@example.com"
+    assert parse_email_overrides(spec, people) == {"p-dana": "demo+dana@example.com",
+                                                  "p-meera": "demo+meera@example.com"}
+    seed_identity(migrated_db, email_overrides=spec)
+    with psycopg.connect(migrated_db) as c:
+        emails = dict(c.execute("select person_id, email from identity_map").fetchall())
+    assert emails["p-dana"] == "demo+dana@example.com" and emails["p-meera"] == "demo+meera@example.com"
+    assert emails["p-anil"] == "anil.kumar@northbeam.example"  # untouched
+    for bad in ("p-dana", "p-dana=not-an-email", "p-nobody=x@example.com",
+                "p-dana=same@example.com,p-meera=SAME@example.com"):
+        with _pytest.raises(OverrideError):
+            parse_email_overrides(bad, people)
+
+
+def test_no_override_keeps_fixture_addresses(migrated_db):
+    seed_identity(migrated_db, email_overrides="")
+    with psycopg.connect(migrated_db) as c:
+        assert c.execute("select email from identity_map where person_id = 'p-dana'").fetchone()[0] == \
+            "dana.osei@northbeam.example"
