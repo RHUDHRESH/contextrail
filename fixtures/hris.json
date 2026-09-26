@@ -57,6 +57,217 @@
       "source": "hris", "source_id": "E-0002", "display_name": "Ravi Menon", "employment_type": "employee",
       "role": "vp-engineering", "team": "engineering", "seniority": "principal", "manager_id": null,
       "start_date": "2018-04-02", "end_date": null, "sow_repos": []
+    },
+    {
+      "source": "hris", "source_id": "E-0003", "display_name": "Helen Brandt", "employment_type": "employee",
+      "role": "vp-finance", "team": "finance", "seniority": "principal", "manager_id": null,
+      "start_date": "2019-06-17", "end_date": null, "sow_repos": []
+    },
+    {
+      "source": "hris", "source_id": "E-0004", "display_name": "Vikram Sethi", "employment_type": "employee",
+      "role": "vp-operations", "team": "operations", "seniority": "principal", "manager_id": null,
+      "start_date": "2019-01-14", "end_date": null, "sow_repos": []
+    },
+    {
+      "source": "hris", "source_id": "E-0356", "display_name": "Ifeoma Obi", "employment_type": "employee",
+      "role": "payments-engineer", "team": "payments", "seniority": "senior", "manager_id": "E-0301",
+      "start_date": "2022-03-07", "end_date": null, "sow_repos": []
+    },
+    {
+      "source": "hris", "source_id": "E-0388", "display_name": "Chloe Martin", "employment_type": "employee",
+      "role": "payments-engineer", "team": "payments", "seniority": "junior", "manager_id": "E-0301",
+      "start_date": "2025-07-14", "end_date": null, "sow_repos": []
+    },
+    {
+      "source": "hris", "source_id": "E-0279", "display_name": "Jonas Weber", "employment_type": "employee",
+      "role": "product-designer", "team": "payments", "seniority": "senior", "manager_id": "E-0301",
+      "start_date": "2022-11-14", "end_date": null, "sow_repos": []
+    },
+    {
+      "source": "hris", "source_id": "E-0462", "display_name": "Leela Krishnan", "employment_type": "employee",
+      "role": "product-designer", "team": "payments", "seniority": "mid", "manager_id": "E-0301",
+      "start_date": "2024-06-03", "end_date": null, "sow_repos": []
+    },
+    {
+      "source": "hris", "source_id": "E-0521", "display_name": "Beatriz Costa", "employment_type": "employee",
+      "role": "risk-analyst", "team": "risk-analytics", "seniority": "senior", "manager_id": "E-0210",
+      "start_date": "2021-09-20", "end_date": null, "sow_repos": []
+    },
+    {
+      "source": "hris", "source_id": "E-0547", "display_name": "Tariq Aziz", "employment_type": "employee",
+      "role": "risk-analyst", "team": "risk-analytics", "seniority": "junior", "manager_id": "E-0210",
+      "start_date": "2025-02-10", "end_date": null, "sow_repos": []
+    },
+    {
+      "source": "hris", "source_id": "E-0134", "display_name": "Kenji Watanabe", "employment_type": "employee",
+      "role": "perception-engineer", "team": "perception", "seniority": "senior", "manager_id": "E-0120",
+      "start_date": "2021-01-11", "end_date": null, "sow_repos": []
+    },
+    {
+      "source": "hris", "source_id": "E-0171", "display_name": "Aditi Bhatt", "employment_type": "employee",
+      "role": "perception-engineer", "team": "perception", "seniority": "mid", "manager_id": "E-0120",
+      "start_date": "2023-04-17", "end_date": null, "sow_repos": []
+    },
+    {
+      "source": "hris", "source_id": "E-0188", "display_name": "Lucas Ferreira", "employment_type": "employee",
+      "role": "perception-engineer", "team": "perception", "seniority": "junior", "manager_id": "E-0120",
+      "start_date": "2025-08-04", "end_date": null, "sow_repos": []
+    },
+    {
+      "source": "hris", "source_id": "W-8790", "display_name": "Oskar Nilsson", "employment_type": "contractor",
+      "role": "contract-engineer", "team": "perception", "seniority": null, "manager_id": "E-0120",
+      "start_date": "2026-04-06", "end_date": "2026-12-31", "sow_repos": ["northbeam/perception-sdk"],
+      "nda_signed": true, "sow_countersigned": true, "sow_id": "SOW-2026-012"
+    },
+    {
+      "source": "hris", "source_id": "E-0140", "display_name": "Grace Okafor", "employment_type": "employee",
+      "role": "engineering-lead", "team": "platform", "seniority": "lead", "manager_id": "E-0002",
+      "start_date": "2020-07-06", "end_date": null, "sow_repos": []
+    },
+    {
+      "source": "hris", "source_id": "E-0190", "display_name": "Kiran Desai", "employment_type": "employee",
+      "role": "platform-engineer", "team": "platform", "seniority": "senior", "manager_id": "E-0140",
+      "start_date": "2021-05-24", "end_date": null, "sow_repos": []
+    },
+    {
+      "source": "hris", "source_id": "E-0195", "display_name": "Mariam Qureshi", "employment_type": "employee",
+      "role": "platform-engineer", "team": "platform", "seniority": "senior", "manager_id": "E-0140",
+      "start_date": "2020-11-02", "end_date": null, "sow_repos": []
+    },
+    {
+      "source": "hris", "source_id": "E-0237", "display_name": "Zoe Chen", "employment_type": "employee",
+      "role": "site-reliability-engineer", "team": "platform", "seniority": "mid", "manager_id": "E-0140",
+      "start_date": "2023-09-11", "end_date": null, "sow_repos": []
+    },
+    {
+      "source": "hris", "source_id": "E-0266", "display_name": "Arjun Pillai", "employment_type": "employee",
+      "role": "platform-engineer", "team": "platform", "seniority": "mid", "manager_id": "E-0140",
+      "start_date": "2022-02-14", "end_date": null, "sow_repos": [],
+      "previous_team": "it-ops", "transfer_date": "2026-09-07"
+    },
+    {
+      "source": "hris", "source_id": "W-8862", "display_name": "Dmitri Volkov", "employment_type": "contractor",
+      "role": "contract-engineer", "team": "platform", "seniority": null, "manager_id": "E-0140",
+      "start_date": "2026-06-01", "end_date": "2026-11-30", "sow_repos": ["northbeam/platform-tooling"],
+      "nda_signed": true, "sow_countersigned": true, "sow_id": "SOW-2026-019"
+    },
+    {
+      "source": "hris", "source_id": "E-0063", "display_name": "Ines Carvalho", "employment_type": "employee",
+      "role": "security-engineer", "team": "security", "seniority": "mid", "manager_id": "E-0002",
+      "start_date": "2024-01-15", "end_date": null, "sow_repos": []
+    },
+    {
+      "source": "hris", "source_id": "E-0180", "display_name": "Tomas Novak", "employment_type": "employee",
+      "role": "analytics-manager", "team": "data-analytics", "seniority": "lead", "manager_id": "E-0002",
+      "start_date": "2020-09-14", "end_date": null, "sow_repos": []
+    },
+    {
+      "source": "hris", "source_id": "E-0612", "display_name": "Aisha Bello", "employment_type": "employee",
+      "role": "data-analyst", "team": "data-analytics", "seniority": "senior", "manager_id": "E-0180",
+      "start_date": "2021-11-08", "end_date": null, "sow_repos": []
+    },
+    {
+      "source": "hris", "source_id": "E-0634", "display_name": "Wei Zhang", "employment_type": "employee",
+      "role": "data-analyst", "team": "data-analytics", "seniority": "mid", "manager_id": "E-0180",
+      "start_date": "2023-06-19", "end_date": null, "sow_repos": []
+    },
+    {
+      "source": "hris", "source_id": "E-0655", "display_name": "Rohan Gupta", "employment_type": "employee",
+      "role": "data-engineer", "team": "data-analytics", "seniority": "senior", "manager_id": "E-0180",
+      "start_date": "2022-01-24", "end_date": null, "sow_repos": []
+    },
+    {
+      "source": "hris", "source_id": "E-0641", "display_name": "Tanvi Shah", "employment_type": "employee",
+      "role": "data-analyst", "team": "data-analytics", "seniority": "mid", "manager_id": "E-0180",
+      "start_date": "2023-02-27", "end_date": null, "sow_repos": [],
+      "previous_team": "risk-analytics", "transfer_date": "2026-09-14"
+    },
+    {
+      "source": "hris", "source_id": "E-0698", "display_name": "Neha Joshi", "employment_type": "employee",
+      "role": "data-analyst", "team": "data-analytics", "seniority": "junior", "manager_id": "E-0180",
+      "start_date": "2026-09-28", "end_date": null, "sow_repos": []
+    },
+    {
+      "source": "hris", "source_id": "E-0705", "display_name": "Rafael Souza", "employment_type": "employee",
+      "role": "it-ops-manager", "team": "it-ops", "seniority": "lead", "manager_id": "E-0004",
+      "start_date": "2020-05-11", "end_date": null, "sow_repos": []
+    },
+    {
+      "source": "hris", "source_id": "E-0718", "display_name": "Mei Lin", "employment_type": "employee",
+      "role": "it-support-specialist", "team": "it-ops", "seniority": "mid", "manager_id": "E-0705",
+      "start_date": "2022-10-03", "end_date": null, "sow_repos": []
+    },
+    {
+      "source": "hris", "source_id": "E-0726", "display_name": "Kwame Asante", "employment_type": "employee",
+      "role": "it-support-specialist", "team": "it-ops", "seniority": "junior", "manager_id": "E-0705",
+      "start_date": "2025-03-17", "end_date": null, "sow_repos": []
+    },
+    {
+      "source": "hris", "source_id": "V-3107", "display_name": "Tobias Keller", "employment_type": "vendor",
+      "role": "vendor-technician", "team": "it-ops", "seniority": null, "manager_id": "E-0705",
+      "start_date": "2026-01-05", "end_date": "2026-12-31", "sow_repos": [],
+      "vendor_company": "Quayside Device Services", "contract_id": "VND-2026-004"
+    },
+    {
+      "source": "hris", "source_id": "E-0804", "display_name": "Yusuf Karim", "employment_type": "employee",
+      "role": "finance-manager", "team": "finance", "seniority": "lead", "manager_id": "E-0003",
+      "start_date": "2020-02-03", "end_date": null, "sow_repos": []
+    },
+    {
+      "source": "hris", "source_id": "E-0819", "display_name": "Clara Jensen", "employment_type": "employee",
+      "role": "finance-analyst", "team": "finance", "seniority": "mid", "manager_id": "E-0804",
+      "start_date": "2023-08-21", "end_date": null, "sow_repos": []
+    },
+    {
+      "source": "hris", "source_id": "E-0833", "display_name": "Ananya Reddy", "employment_type": "employee",
+      "role": "finance-analyst", "team": "finance", "seniority": "junior", "manager_id": "E-0804",
+      "start_date": "2025-06-30", "end_date": null, "sow_repos": []
+    },
+    {
+      "source": "hris", "source_id": "W-8915", "display_name": "Marta Kowalski", "employment_type": "contractor",
+      "role": "contract-analyst", "team": "finance", "seniority": null, "manager_id": "E-0804",
+      "start_date": "2026-07-01", "end_date": "2026-10-31", "sow_repos": [],
+      "nda_signed": true, "sow_countersigned": true, "sow_id": "SOW-2026-024"
+    },
+    {
+      "source": "hris", "source_id": "E-0901", "display_name": "Joel Mensah", "employment_type": "employee",
+      "role": "support-manager", "team": "support", "seniority": "lead", "manager_id": "E-0004",
+      "start_date": "2020-08-17", "end_date": null, "sow_repos": []
+    },
+    {
+      "source": "hris", "source_id": "E-0902", "display_name": "Alicia Fenn", "employment_type": "employee",
+      "role": "customer-success-manager", "team": "support", "seniority": "senior", "manager_id": "E-0901",
+      "start_date": "2021-04-12", "end_date": null, "sow_repos": []
+    },
+    {
+      "source": "hris", "source_id": "E-0915", "display_name": "Hana Suzuki", "employment_type": "employee",
+      "role": "support-agent", "team": "support", "seniority": "mid", "manager_id": "E-0901",
+      "start_date": "2023-01-16", "end_date": null, "sow_repos": []
+    },
+    {
+      "source": "hris", "source_id": "E-0927", "display_name": "Diego Ramos", "employment_type": "employee",
+      "role": "support-agent", "team": "support", "seniority": "junior", "manager_id": "E-0901",
+      "start_date": "2025-10-06", "end_date": null, "sow_repos": []
+    },
+    {
+      "source": "hris", "source_id": "E-0938", "display_name": "Fatima Sheikh", "employment_type": "employee",
+      "role": "support-agent", "team": "support", "seniority": "senior", "manager_id": "E-0901",
+      "start_date": "2022-05-09", "end_date": null, "sow_repos": []
+    },
+    {
+      "source": "hris", "source_id": "E-0950", "display_name": "Ruth Abebe", "employment_type": "employee",
+      "role": "people-ops-manager", "team": "people-ops", "seniority": "lead", "manager_id": "E-0004",
+      "start_date": "2019-10-21", "end_date": null, "sow_repos": []
+    },
+    {
+      "source": "hris", "source_id": "E-0961", "display_name": "Sanjay Kulkarni", "employment_type": "employee",
+      "role": "people-partner", "team": "people-ops", "seniority": "senior", "manager_id": "E-0950",
+      "start_date": "2021-07-19", "end_date": null, "sow_repos": []
+    },
+    {
+      "source": "hris", "source_id": "E-0974", "display_name": "Elena Petrova", "employment_type": "employee",
+      "role": "people-ops-coordinator", "team": "people-ops", "seniority": "junior", "manager_id": "E-0950",
+      "start_date": "2025-01-06", "end_date": null, "sow_repos": []
     }
   ]
 }
