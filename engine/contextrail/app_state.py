@@ -20,6 +20,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from contextrail.connectors.registry import Registry, build_registry
 from contextrail.db import Database
@@ -38,6 +39,9 @@ from contextrail.seed import approver_directory
 from contextrail.settings import Settings
 from contextrail.surfaces.door import Door
 
+if TYPE_CHECKING:
+    from contextrail.receipts import TicketNotes
+
 log = get_logger("contextrail.app")
 
 
@@ -54,6 +58,7 @@ class Platform:
     owns_db: bool = True
     sse_heartbeat_s: float = 15.0
     tickets: TicketReader | None = None      # Freshservice ticket reads for 'rail.run' {ticket_id} (section I)
+    notes: TicketNotes | None = None         # the receipt as a private note on the ticket (T211, section I)
     shutdown_grace_s: float = 8.0            # under Docker's 10 s stop timeout
     worker: Worker | None = field(default=None, init=False)
 
