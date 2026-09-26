@@ -25,7 +25,7 @@ from contextrail.models import CaseFile, Evidence
 from contextrail.rail.compile import wrap_untrusted
 from contextrail.rail.store import load_case
 from contextrail.surfaces.door import Door
-from contextrail.surfaces.presenter import RunView
+from contextrail.surfaces.presenter import RowView, RunView
 
 NOT_IN_KNOWLEDGE_BASE = "Not in the knowledge base: nothing curated supports an answer. Do not answer from memory."
 
@@ -63,6 +63,42 @@ class CompileResult(BaseModel):
     modes: dict[str, str]
     replay: bool
     next_step: str
+
+
+class VerdictTable(BaseModel):
+    """The verdict table: RunView's rows, exactly as every other door renders them (P9)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    capsule_handle: CapsuleHandle
+    status: str
+    request_text: str
+    subject: str | None
+    peer: str | None
+    rows: list[RowView]
+    counts: dict[str, int]
+    modes: dict[str, str]
+    replay: bool
+    note: str = ("Report ALLOW, HOLD (with the named approver) and REFUSE (with the clause) exactly as given. A REFUSE "
+                 "is final and cannot be approved. Approvals happen only in the approver's own door.")
+
+
+_SEALED_FIELDS = ("verdict", "rule_id", "clause", "approver", "state", "params_hash")
+
+
+def _drift(view: RunView, case: CaseFile) -> list[str]:
+    """Where the rendered rows differ from the sealed case file's actions (empty when they agree)."""
+    sealed = {a.id: a for a in case.actions}
+    out = [f"{aid}: missing from the view" for aid in sealed.keys() - {r.action_id for r in view.rows}]
+    for row in view.rows:
+        a = sealed.get(row.action_id)
+        if a is None:
+            out.append(f"{row.action_id}: not in the sealed case file")
+            continue
+        rendered = {"verdict": row.verdict, "rule_id": row.rule_id, "clause": row.clause,
+                    "approver": row.approver_id, "state": row.state, "params_hash": row.params_hash}
+        out += [f"{row.action_id}.{f}" for f in _SEALED_FIELDS if rendered[f] != getattr(a, f)]
+    return sorted(out)
 
 
 def _next_step(view: RunView, sealed: bool) -> str:
@@ -122,11 +158,31 @@ class ContextRailTools:
         except LookupError as e:
             raise ToolError(f"Run {run_id} has no sealed case file.") from e
         except DigestMismatch as e:
-            async with door.db.transaction() as c:
-                await chain.append(c, run_id=run_id, event="capsule.digest_mismatch",
-                                   payload={"expected": e.expected, "actual": e.actual, "channel": "mcp"})
-            raise ToolError(f"Halted: the stored case file for run {run_id} does not match its seal. "
-                            "Nothing was read from it; the mismatch is in the audit chain.") from e
+            await self._halt(run_id, "capsule.digest_mismatch", {"expected": e.expected, "actual": e.actual},
+                             f"Halted: the stored case file for run {run_id} does not match its seal.")
+
+    async def _halt(self, run_id: UUID, event: str, payload: dict, message: str):
+        async with self.door().db.transaction() as c:
+            await chain.append(c, run_id=run_id, event=event, payload={**payload, "channel": "mcp"})
+        raise ToolError(f"{message} Nothing was returned from it; the event is in the audit chain.")
+
+    async def open_handle(self, handle: CapsuleHandle) -> tuple[CaseFile, RunView]:
+        """Every tool that takes a handle starts here (§13.4): the sealed case file must verify, the handle must
+        name its current digest, and the rendered view must equal what was sealed."""
+        case = await self.sealed(handle.run_id)
+        if handle.digest != case.digest:
+            current = CapsuleHandle(run_id=case.run_id, digest=case.digest).model_dump_json()
+            raise ToolError(f"Stale capsule handle: run {handle.run_id}'s case file is sealed as {case.digest}, not "
+                            f"{handle.digest}. It changed since you received the handle (for example an approver "
+                            f"decided). Nothing was done. Re-read it with check_policy_and_permissions using "
+                            f"capsule_handle {current}.")
+        view = await self.door().get_status(handle.run_id)
+        drift = _drift(view, case) if view.capsule_digest == case.digest else ["run re-sealed during the read"]
+        if drift:
+            await self._halt(handle.run_id, "capsule.view_mismatch", {"digest": case.digest, "drift": drift},
+                             f"Halted: run {handle.run_id}'s stored actions do not match the sealed case file "
+                             f"({', '.join(drift[:5])}).")
+        return case, view
 
     # --- tools ----------------------------------------------------------------------------------------------
 
@@ -156,6 +212,12 @@ class ContextRailTools:
                              subject=view.subject, peer=view.peer, counts=view.counts, needs=view.needs,
                              modes=view.modes, replay=view.replay, next_step=_next_step(view, handle is not None))
 
+    async def check_policy_and_permissions(self, capsule_handle: CapsuleHandle) -> VerdictTable:
+        _, view = await self.open_handle(capsule_handle)
+        return VerdictTable(capsule_handle=capsule_handle, status=view.status, request_text=view.request_text,
+                            subject=view.subject, peer=view.peer, rows=view.rows, counts=view.counts,
+                            modes=view.modes, replay=view.replay)
+
     def register(self, server: MCPServer) -> None:
         server.add_tool(
             self.search_enterprise_knowledge, name="search_enterprise_knowledge", title="Search enterprise knowledge",
@@ -176,3 +238,13 @@ class ContextRailTools:
                 "than one person the result is needs_input with the candidates: ask, never guess. This starts "
                 "the rail: allowed actions are carried out and verified, held actions are sent to their named "
                 "approvers, refusals are final."))
+        server.add_tool(
+            self.check_policy_and_permissions, name="check_policy_and_permissions",
+            title="Check policy and permissions",
+            description=(
+                "Read the verdict table for a capsule handle: for every proposed action, ALLOW, HOLD (with the "
+                "named approver) or REFUSE (struck through, with the policy clause quoted verbatim), plus its "
+                "state, whether it was verified by read-back, and each connector's honest mode (LIVE/FIXTURE). "
+                "The same table Slack, Teams, email and voice render. Verdicts come from written policy, not a "
+                "model. Report them exactly; never reinterpret a REFUSE. The handle's digest must be current; a "
+                "stale handle is refused with the current one. Read-only."))

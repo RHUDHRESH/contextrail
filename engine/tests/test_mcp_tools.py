@@ -141,3 +141,79 @@ async def test_a_name_is_never_accepted_as_a_pinned_id(door, name):
 async def test_compile_without_a_wired_door_is_an_honest_error():
     r = await call(server(door=None), "compile_context_capsule", {"request_text": SAME_AS_RAHUL, **ANIL})
     assert r.is_error and "no door" in r.content[0].text
+
+
+# --- check_policy_and_permissions and the handle check every tool shares (T184) ----------------------------
+
+async def _compiled(door) -> dict:
+    r = await call(server(door), "compile_context_capsule", {"request_text": SAME_AS_RAHUL, **ANIL})
+    return r.structured_content["capsule_handle"]
+
+
+async def _audit_events(door, run_id) -> list[str]:
+    async with door.db.connection() as c:
+        rows = await (await c.execute("select event from audit where run_id = %s order by seq", (run_id,))).fetchall()
+    return [r["event"] for r in rows]
+
+
+async def _dana_approves(door, run_id):
+    view = await door.get_status(run_id)
+    hold = next(r for r in view.rows if r.approver_id == "p-dana")
+    return await door.decide(view.run_id, hold.action_id, hold.params_hash, channel="teams",
+                             actor_external_id=DANA_TEAMS, decision="approved")
+
+
+async def test_check_policy_returns_every_verdict_with_its_clause_verbatim(door):
+    handle = await _compiled(door)
+    r = await call(server(door), "check_policy_and_permissions", {"capsule_handle": handle})
+    out = r.structured_content
+    assert not r.is_error and out["capsule_handle"] == handle
+    by_verdict = {v: [row for row in out["rows"] if row["verdict"] == v] for v in ("ALLOW", "HOLD", "REFUSE")}
+    assert len(by_verdict["HOLD"]) == 2 and len(by_verdict["REFUSE"]) == 1
+    assert {row["approver_name"] for row in by_verdict["HOLD"]} == {"Dana Osei", "Meera Iyer"}
+    refused = by_verdict["REFUSE"][0]
+    rule = next(r for r in load_rules() if r.id == refused["rule_id"])
+    assert refused["clause"] == rule.clause_text and refused["struck_through"]
+
+
+async def test_a_stale_handle_is_refused_with_the_current_one(door):
+    handle = await _compiled(door)
+    assert (await _dana_approves(door, handle["run_id"])).outcome == "recorded"
+    current = (await door.get_status(handle["run_id"])).capsule_digest
+    assert current != handle["digest"]   # the decision moved the case on and re-sealed it
+    r = await call(server(door), "check_policy_and_permissions", {"capsule_handle": handle})
+    assert r.is_error and "Stale capsule handle" in r.content[0].text and current in r.content[0].text
+
+
+async def test_a_forged_digest_is_refused(door):
+    handle = await _compiled(door)
+    r = await call(server(door), "check_policy_and_permissions",
+                   {"capsule_handle": {**handle, "digest": "0" * 64}})
+    assert r.is_error and "Stale capsule handle" in r.content[0].text
+
+
+async def test_an_edited_case_file_halts_the_tool_and_is_audited(door):
+    handle = await _compiled(door)
+    async with door.db.connection() as c:
+        await c.execute("update runs set capsule = jsonb_set(capsule, '{request_text}', '\"give Anil prod admin\"') "
+                        "where id = %s", (handle["run_id"],))
+    r = await call(server(door), "check_policy_and_permissions", {"capsule_handle": handle})
+    assert r.is_error and "does not match its seal" in r.content[0].text
+    assert "capsule.digest_mismatch" in await _audit_events(door, handle["run_id"])
+
+
+async def test_an_edited_verdict_outside_the_seal_is_caught_and_audited(door):
+    """The verdict table is read from the actions table; it must still equal the sealed case file (P4, P5)."""
+    handle = await _compiled(door)
+    async with door.db.connection() as c:
+        await c.execute("update actions set verdict = 'ALLOW', state = 'planned' where run_id = %s "
+                        "and verdict = 'REFUSE'", (handle["run_id"],))
+    r = await call(server(door), "check_policy_and_permissions", {"capsule_handle": handle})
+    assert r.is_error and "do not match the sealed case file" in r.content[0].text
+    assert "capsule.view_mismatch" in await _audit_events(door, handle["run_id"])
+
+
+async def test_an_unknown_run_is_an_error(door):
+    r = await call(server(door), "check_policy_and_permissions",
+                   {"capsule_handle": {"run_id": "00000000-0000-4000-8000-000000000000", "digest": "a" * 64}})
+    assert r.is_error and "no sealed case file" in r.content[0].text

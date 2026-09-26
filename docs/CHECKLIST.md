@@ -237,7 +237,7 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 - [x] T181 `P1` FastMCP server mounted at `/mcp` (Streamable HTTP) with bearer auth.
 - [x] T182 `P1` Tool `search_enterprise_knowledge`.
 - [x] T183 `P1` Tool `compile_context_capsule` returning a capsule handle (run_id + digest).
-- [ ] T184 `P1` Tool `check_policy_and_permissions`.
+- [x] T184 `P1` Tool `check_policy_and_permissions`.
 - [ ] T185 `P1` Tool `generate_action_plan`.
 - [ ] T186 `P1` Tool `handoff_to_specialist`.
 - [ ] T187 `P1` Tool `execute_and_verify` (refuses without approvals).
