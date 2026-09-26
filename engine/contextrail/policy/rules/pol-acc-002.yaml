@@ -1,0 +1,12 @@
+id: POL-ACC-002
+title: Mirrored access is filtered by the requester's role, not the peer's
+source: {okf: knowledge/policies/access-control-standard.md, clause: "§5"}
+# Authored for Stage 2; see docs/DECISIONS.md D-011.
+clause_text: "A request to give one person the same access as another is evaluated against the receiving person's own role. Entitlements outside that role's scope are not granted, whatever the peer holds."
+match:
+  kind: grant
+  target.origin: same_as_peer
+conditions:
+  - subject.role in target.role_scope
+verdict: ALLOW
+else_verdict: REFUSE

@@ -1,0 +1,14 @@
+id: POL-ACC-003
+title: Administrator rights only for senior roles, with Security approval
+source: {okf: knowledge/policies/access-control-standard.md, clause: "§4"}
+# Authored for Stage 2, extending the Stage 1 Access Control Standard ("elevated roles require a named
+# business justification"); see docs/DECISIONS.md D-011.
+clause_text: "Administrator rights, including production administrator roles, are granted only to senior engineers and above, and only with approval from the Security on-call."
+match:
+  kind: grant
+  target.resource_class: [admin, production_admin]
+conditions:
+  - subject.seniority in ['senior', 'lead', 'principal']
+verdict: HOLD
+approver: security-oncall
+else_verdict: REFUSE

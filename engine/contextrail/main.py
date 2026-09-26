@@ -6,6 +6,7 @@ from contextrail import __version__
 from contextrail.api import router as v1_router
 from contextrail.errors import install_error_handlers
 from contextrail.logs import configure_logging
+from contextrail.policy.loader import load_rules
 from contextrail.settings import Settings, get_settings
 
 
@@ -18,6 +19,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         description="Business process automation, powered by AI: policy-governed, approval-aware, verified by read-back.",
     )
     app.state.settings = settings
+    # Fail fast: an engine with an invalid or skipped rule would change verdicts silently (T054).
+    app.state.rules = load_rules()
     install_error_handlers(app)
 
     @app.get("/health", tags=["ops"])

@@ -8,10 +8,10 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 <!-- stats:start -->
 | Priority | Tasks | Done |
 |---|---|---|
-| P0 | 148 | 31 |
+| P0 | 148 | 47 |
 | P1 | 92 | 0 |
 | P2 | 10 | 0 |
-| **Total** | **250** | **31** |
+| **Total** | **250** | **47** |
 
 👤 human-owned tasks: 24
 <!-- stats:end -->
@@ -82,24 +82,24 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 
 ## E. Policy engine and the 12 rules (20)
 
-- [ ] T053 `P0` Rule schema (pydantic): id, title, source, clause_text, applies_to, match, conditions, verdict, approver, terminal, expires_after.
-- [ ] T054 `P0` Rule loader for `policy/rules/*.yaml` with schema validation at startup.
-- [ ] T055 `P0` `applies_to` matcher over Subject fields only.
-- [ ] T056 `P0` `match` matcher over action kind and target (dot paths, list membership).
-- [ ] T057 `P0` Safe condition evaluator (`in`, `==`, `contains`, `>`, `<`); no `eval`.
-- [ ] T058 `P0` Precedence: terminal REFUSE > HOLD > explicit ALLOW; default deny for access actions.
-- [ ] T059 `P0` Approver resolution: role/group → named person (fixture first, Freshservice group later).
-- [ ] T060 `P0` Verdict carries `rule_id` and the clause verbatim (clauses ported from `src/lib/contextrail/policy.ts`).
-- [ ] T061 `P0` POL-CTR-001: contractors never get production credentials (REFUSE, terminal).
-- [ ] T062 `P0` POL-ACC-001: role baseline entitlements ALLOW.
-- [ ] T063 `P0` POL-ACC-002: "same as peer" filtered by the requester's role, not the peer's.
-- [ ] T064 `P0` POL-ACC-003: admin rights only for senior roles.
-- [ ] T065 `P0` POL-ACC-004: contractor repos limited to SOW, read-only, Security approval if production-tagged.
-- [ ] T066 `P0` POL-ACC-005: paid SaaS seats need manager approval.
+- [x] T053 `P0` Rule schema (pydantic): id, title, source, clause_text, applies_to, match, conditions, verdict, approver, terminal, expires_after.
+- [x] T054 `P0` Rule loader for `policy/rules/*.yaml` with schema validation at startup.
+- [x] T055 `P0` `applies_to` matcher over Subject fields only.
+- [x] T056 `P0` `match` matcher over action kind and target (dot paths, list membership).
+- [x] T057 `P0` Safe condition evaluator (`in`, `==`, `contains`, `>`, `<`); no `eval`.
+- [x] T058 `P0` Precedence: terminal REFUSE > HOLD > explicit ALLOW; default deny for access actions.
+- [x] T059 `P0` Approver resolution: role/group → named person (fixture first, Freshservice group later).
+- [x] T060 `P0` Verdict carries `rule_id` and the clause verbatim (clauses ported from `src/lib/contextrail/policy.ts`).
+- [x] T061 `P0` POL-CTR-001: contractors never get production credentials (REFUSE, terminal).
+- [x] T062 `P0` POL-ACC-001: role baseline entitlements ALLOW.
+- [x] T063 `P0` POL-ACC-002: "same as peer" filtered by the requester's role, not the peer's.
+- [x] T064 `P0` POL-ACC-003: admin rights only for senior roles.
+- [x] T065 `P0` POL-ACC-004: contractor repos limited to SOW, read-only, Security approval if production-tagged.
+- [x] T066 `P0` POL-ACC-005: paid SaaS seats need manager approval.
 - [ ] T067 `P1` POL-DAT-001: raw customer PII only for analytics; suggest the masked view.
 - [ ] T068 `P1` POL-EMG-001: incident access read-only, 4-hour expiry, incident commander approval.
-- [ ] T069 `P0` POL-OFF-001: revoke old-team access on transfer.
-- [ ] T070 `P0` POL-SOD-001: requester cannot approve their own request (enforced in `door.decide` for every door).
+- [x] T069 `P0` POL-OFF-001: revoke old-team access on transfer.
+- [x] T070 `P0` POL-SOD-001: requester cannot approve their own request (enforced in `door.decide` for every door).
 - [ ] T071 `P2` POL-REF-001 (refund limit) and POL-REF-002 (one outage credit per quarter).
 - [ ] T072 `P1` Policy Studio function: re-evaluate a run with one rule held out and return the diff.
 

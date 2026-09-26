@@ -1,0 +1,9 @@
+id: POL-ACC-001
+title: Role baseline entitlements are granted without further approval
+source: {okf: knowledge/policies/access-control-standard.md, clause: "§2"}
+# Authored for Stage 2 (Stage 1 had no baseline rule); see docs/DECISIONS.md D-011.
+clause_text: "Each role has a catalogue baseline of entitlements. A holder of the role receives its baseline entitlements without further approval."
+match: {kind: grant}
+conditions:
+  - target.entitlement in role.baseline
+verdict: ALLOW

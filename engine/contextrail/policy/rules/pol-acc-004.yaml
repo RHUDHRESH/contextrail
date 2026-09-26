@@ -1,0 +1,21 @@
+id: POL-ACC-004
+title: Repository access is least-privilege; production-tagged repositories need Security approval
+source: {okf: knowledge/policies/access-control-standard.md, clause: "§3"}
+# Combines Stage 1 Contractor Onboarding Policy §3 and the Access Control Standard's production-repository line
+# into one rule for everyone (the brief's approval card shows it for an employee); see D-011.
+clause_text: "Repository access follows least privilege. Contractors receive read-only access to repositories named in their statement of work and nothing else. Any access to a repository tagged 'production' requires approval from the Security on-call before provisioning."
+match:
+  kind: grant
+  target.system: github
+conditions:
+  - any:
+      - subject.employment_type == 'employee'
+      - all:
+          - target.repo in subject.sow_repos
+          - target.permission == 'read'
+verdict: ALLOW
+escalate:
+  when: "target.repo_tags contains 'production'"
+  verdict: HOLD
+  approver: security-oncall
+else_verdict: REFUSE

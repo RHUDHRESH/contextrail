@@ -1,0 +1,10 @@
+id: POL-OFF-001
+title: Access from a previous team is revoked on transfer, within 4 hours
+source: {okf: knowledge/runbooks/offboarding.md, clause: "Transfers"}
+# Adapted from Stage 1 Offboarding Runbook ("Access revocation must complete within 4 hours of the termination
+# timestamp") to team transfers, as the brief requires; see docs/DECISIONS.md D-011.
+clause_text: "When a person changes team, access granted for the previous team is revoked on the day of the move, and revocation must complete within 4 hours of the transfer timestamp."
+match:
+  kind: revoke
+  target.origin: transfer
+verdict: ALLOW
