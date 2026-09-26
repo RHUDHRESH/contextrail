@@ -97,7 +97,8 @@ async def handle_inbound_email(door: Door, email: InboundEmail, *, extractor: In
         log.info("email_approval_reply_ignored", ticket_id=email.ticket_id)
         return InboundOutcome(**base, note=APPROVAL_REPLY_NOTE)
     if intent.kind == "query":
-        answer = await door.answer_query(email.text, channel="email", actor_external_id=email.sender)
+        answer = await door.answer_query(email.text, channel="email", actor_external_id=email.sender,
+                                         thread_ref=email.ticket_id)
         reply = None
         if replier is not None:
             reply = await _reply_safely(replier, send_query_reply(door, replier, answer, ticket_id=email.ticket_id),
