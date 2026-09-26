@@ -23,14 +23,17 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from contextrail.connectors.freshservice_ticket import FreshserviceTicketReader
 from contextrail.connectors.registry import Registry, build_registry
 from contextrail.db import Database
 from contextrail.fixtures import load
 from contextrail.intake import TicketReader
 from contextrail.jobs import Worker, load_handlers
 from contextrail.knowledge.okf import knowledge_dir, load_bundle
+from contextrail.knowledge.rag import PostgresKnowledgeSearch, index_bundle
 from contextrail.llm.adapters import LLMIntentExtractor
 from contextrail.llm.ledger import LLMLedger
+from contextrail.llm.question_agent import ReadOnlyQuestionAgent
 from contextrail.llm.router import Router, RouterConfig, build_clients
 from contextrail.logs import get_logger
 from contextrail.policy.engine import PolicyEngine
@@ -43,6 +46,7 @@ from contextrail.rail.runner import RailDeps, Runner
 from contextrail.seed import approver_directory
 from contextrail.settings import Settings
 from contextrail.surfaces.door import Door
+from contextrail.surfaces.read_tools import PlatformReadTools
 
 if TYPE_CHECKING:
     from contextrail.receipts import TicketNotes
@@ -68,6 +72,7 @@ class Platform:
     slack: SlackDoor | None = None            # outbound cards; HTTP/Socket Mode attach their shared door here
     shutdown_grace_s: float = 8.0            # under Docker's 10 s stop timeout
     worker: Worker | None = field(default=None, init=False)
+    knowledge_search: PostgresKnowledgeSearch | None = field(default=None, init=False)
 
     @property
     def db(self) -> Database:
@@ -93,6 +98,8 @@ class Platform:
     async def lifespan(self, app) -> AsyncIterator[None]:
         """FastAPI lifespan: the pool, plus the in-process job worker unless WORKER_IN_PROCESS=false."""
         async with self.serving(worker=self.settings.worker_in_process):
+            if self.knowledge_search is not None:
+                app.state.knowledge = self.knowledge_search
             if self.slack is not None:
                 app.state.slack = self.slack
             yield
@@ -106,6 +113,10 @@ class Platform:
             await self.db.open()
         task = None
         try:
+            if self.runner.d.knowledge is not None:
+                async with self.db.transaction() as conn:
+                    await index_bundle(conn, self.runner.d.knowledge, self.rules)
+                self.knowledge_search = PostgresKnowledgeSearch(self.db, self.runner.d.knowledge)
             if self.settings.slack_bot_token.get_secret_value() and self.slack is None:
                 # A standalone worker also sends approval cards. Socket Mode has no HTTP signing secret: the
                 # random value satisfies Bolt internally but never enables the HTTP route.
@@ -152,4 +163,11 @@ def build_platform(settings: Settings, *, rules: list[Rule] | None = None, runne
             knowledge=load_bundle(Path(settings.knowledge_dir) if settings.knowledge_dir else knowledge_dir())))
     modes = {name: c.mode for name, c in runner.d.registry.connectors.items()}
     door = Door(runner, people=people_names(), modes=modes)
-    return Platform(settings=settings, runner=runner, door=door, owns_db=owns_db, sse_heartbeat_s=sse_heartbeat_s)
+    door.read_tools = PlatformReadTools(door)
+    question_router = getattr(runner.d.extractor, "router", None)
+    if question_router is not None:
+        door.question_agent = ReadOnlyQuestionAgent(question_router, door.read_tools)
+    platform = Platform(settings=settings, runner=runner, door=door, owns_db=owns_db,
+                        sse_heartbeat_s=sse_heartbeat_s)
+    platform.tickets = FreshserviceTicketReader(runner.d.registry.get("freshservice"))
+    return platform

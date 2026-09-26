@@ -108,6 +108,7 @@ async def test_bad_payloads_fail_permanently(platform, payload):
 
 
 async def test_a_ticket_job_needs_a_ticket_reader(platform):
+    platform.tickets = None  # model a broken composition explicitly
     assert platform.tickets is None
     with pytest.raises(PermanentJobError, match="ticket reader"):
         await rail_run(platform, {"ticket_id": "9"})

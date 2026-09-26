@@ -183,5 +183,7 @@ async def test_different_tickets_each_get_a_job(db):
 
 
 async def test_without_a_database_a_valid_delivery_is_503_not_lost_silently():
-    r = await post(app(), BODY, signed(BODY))  # no app.state.db wired
+    application = app()
+    del application.state.db  # model a startup/composition failure explicitly
+    r = await post(application, BODY, signed(BODY))
     assert r.status_code == 503 and "database" in r.json()["detail"]
