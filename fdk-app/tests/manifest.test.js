@@ -25,6 +25,20 @@ describe('manifest.json', () => {
     expect(manifest.scripts['fdk-unit-test']).toBe('vitest run --coverage');
   });
 
+  test('validates the non-empty iparams at install time through onAppInstall', () => {
+    expect(manifest.modules.common.events.onAppInstall).toEqual({ handler: 'onAppInstallHandler' });
+  });
+
+  test('every event handler named in the manifest is exported by server/server.js', () => {
+    const { loadServer } = require('./helpers/load-server');
+    const server = loadServer({ renderData() {}, $request: {} });
+    const events = Object.values(manifest.modules).flatMap((m) => Object.values(m.events || {}));
+    expect(events.length).toBeGreaterThan(0);
+    for (const { handler } of events) {
+      expect(typeof server[handler], handler).toBe('function');
+    }
+  });
+
   test('the app icon is declared 64x64, the marketplace baseline', () => {
     const svg = fs.readFileSync(path.join(ROOT, 'app', 'styles', 'images', 'icon.svg'), 'utf8');
     expect(svg).toMatch(/width="64"/);

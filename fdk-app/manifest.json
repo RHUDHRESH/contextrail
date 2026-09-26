@@ -2,6 +2,13 @@
   "platform-version": "3.0",
   "app": {},
   "modules": {
+    "common": {
+      "events": {
+        "onAppInstall": {
+          "handler": "onAppInstallHandler"
+        }
+      }
+    },
     "service_ticket": {
       "location": {
         "ticket_sidebar": {
