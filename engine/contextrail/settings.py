@@ -51,6 +51,8 @@ class Settings(BaseSettings):
     haiku_model: str = "claude-haiku-4-5-20251001"
     sonnet_model: str = "claude-sonnet-5"
     llm_replay_mode: Literal["off", "record", "replay"] = "off"
+    bedrock_enabled: bool = False  # T3 only when asked: AWS credentials come from the default chain, not from here
+    llm_replay_dir: str = ""       # recorded T4 responses (default: <fixtures>/llm_replay)
 
     # Email door (SES outbound; inbound arrives via the Freshservice mailbox)
     ses_from_address: str = ""
