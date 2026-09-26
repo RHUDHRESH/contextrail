@@ -25,7 +25,7 @@ def test_manifest_parses_and_names_the_app_within_slack_limits():
 
 def test_bot_scopes_are_exactly_what_the_door_uses():
     scopes = set(_manifest()["oauth_config"]["scopes"]["bot"])
-    assert scopes == {"commands", "chat:write", "im:write", "users:read", "users:read.email", "assistant:write"}
+    assert scopes == {"commands", "chat:write", "im:write", "im:history", "users:read", "users:read.email", "assistant:write"}
 
 
 def test_slash_command_and_interactivity_post_to_the_engine_route():
@@ -37,6 +37,14 @@ def test_slash_command_and_interactivity_post_to_the_engine_route():
     assert interactivity["is_enabled"] is True
     for url in (cmd["url"], interactivity["request_url"]):
         assert url.startswith("https://") and url.endswith("/slack/events")
+
+
+def test_human_dm_events_reach_the_engine_route():
+    m = _manifest()
+    assert m["features"]["app_home"]["messages_tab_read_only_enabled"] is False
+    events = m["settings"]["event_subscriptions"]
+    assert events["request_url"].endswith("/slack/events")
+    assert events["bot_events"] == ["message.im"]
 
 
 def test_socket_mode_is_on_for_development():

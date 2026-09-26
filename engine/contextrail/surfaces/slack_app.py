@@ -56,6 +56,7 @@ class SlackDoor:
                             process_before_response=process_before_response)
         self.http = AsyncSlackRequestHandler(self.app)
         self.app.command(COMMAND)(self.on_command)
+        self.app.event("message")(self.on_message)
         self.app.action("approve")(self.on_decision)
         self.app.action("refuse")(self.on_decision)
         self.app.action(re.compile(r"^pick_candidate:\d+$"))(self.on_pick)
@@ -94,6 +95,46 @@ class SlackDoor:
         else:
             message = f"Freshservice request status: {ticket.status} ({ticket.mode})."
         await self.client.chat_postEphemeral(channel=channel, user=command["user_id"], text=message)
+
+    async def on_message(self, event: dict, body: dict) -> None:
+        """Treat a plain human DM as a request. Slack retries share event_id; the ticket path dedupes that key.
+
+        The inbound message is the source reference, not a bot-owned status message. Reply in its thread after
+        intake, so stage updates never try to edit the person's own message.
+        """
+        if (event.get("channel_type") != "im" or event.get("subtype") or event.get("bot_id") or
+                not event.get("user") or not event.get("channel") or not event.get("ts")):
+            return
+        request_text = str(event.get("text") or "").strip()
+        if not request_text or self.platform is None:
+            return
+        from contextrail.intake import advisory_lock
+        from contextrail.surfaces.ticket_requests import start_ticket_request
+
+        channel, ts = event["channel"], event["ts"]
+        event_key = str(body.get("event_id") or f"{body.get('team_id', '')}:{channel}:{ts}")
+        result = await start_ticket_request(
+            self.platform, request_text=request_text, actor_external_id=event["user"],
+            channel="slack", source="slack", source_ref=f"dm:{channel}:{ts}",
+            ticket_tag="slack", idempotency_key=event_key)
+        # Serialize retries of this event across workers. A failed post leaves no marker and can be retried.
+        async with advisory_lock(self.platform.db, f"slack-dm-reply:{result.run.run_id}") as c:
+            sent = await (await c.execute(
+                "select ref from door_messages where run_id = %s and action_id = 'dm-intake' and channel = 'slack'",
+                (result.run.run_id,))).fetchone()
+            if sent:
+                return
+            ticket = result.ticket
+            ticket_text = (f"Freshservice {ticket.mode} ticket #{ticket.ticket_id}: {ticket.status}."
+                           if ticket.ticket_id is not None else
+                           f"Freshservice request: {ticket.status} ({ticket.mode}).")
+            content = blocks.run_summary(result.run)
+            content["blocks"] = [*content["blocks"],
+                                 {"type": "context", "elements": [{"type": "mrkdwn", "text": ticket_text}]}]
+            posted = await self.client.chat_postMessage(channel=channel, thread_ts=ts, **content)
+            await repo.upsert_door_message(c, result.run.run_id, "slack",
+                                           {"channel": posted["channel"], "ts": posted["ts"],
+                                            "thread_ts": ts, "user": event["user"]}, action_id="dm-intake")
 
     # --- "which Rahul?" -> Door.pick_candidate ----------------------------------------------------------------
 

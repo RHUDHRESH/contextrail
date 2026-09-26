@@ -197,6 +197,56 @@ async def test_signed_slash_command_through_the_http_route(no_slack_env, door):
     assert run["requested_by"] == "p-anil"
 
 
+async def test_plain_dm_starts_one_ticket_request_and_replies_once(door):
+    fake = FakeSlackClient()
+    slack = SlackDoor(door, client=fake, signing_secret=SIGNING_SECRET)
+    slack.platform = SimpleNamespace(door=door, db=door.db, registry=door.runner.d.registry)
+    event = {"type": "message", "channel_type": "im", "channel": "D0ANIL001", "user": ANIL_SLACK,
+             "ts": "1790000000.123456", "text": REQUEST}
+    body = {"event_id": "Ev0DM001", "team_id": "T0NORTH01", "event": event}
+
+    await slack.on_message(event, body)
+    await slack.on_message(event, body)  # Slack event retry
+
+    [run] = await _runs(door)
+    assert (run["source"], run["source_ref"], run["requested_by"]) == (
+        "slack", "dm:D0ANIL001:1790000000.123456", "p-anil")
+    [reply] = fake.called("chat.postMessage")
+    assert reply["channel"] == "D0ANIL001" and reply["thread_ts"] == event["ts"]
+    assert "Freshservice FIXTURE ticket #" in _text(reply)
+    assert len(await _door_messages(door, run["id"])) == 2  # ticket and the one DM reply
+
+
+async def test_plain_dm_ignores_bot_and_non_dm_messages(door):
+    fake = FakeSlackClient()
+    slack = SlackDoor(door, client=fake, signing_secret=SIGNING_SECRET)
+    slack.platform = SimpleNamespace(door=door, db=door.db, registry=door.runner.d.registry)
+    human = {"type": "message", "channel_type": "im", "channel": "D0ANIL001", "user": ANIL_SLACK,
+             "ts": "1790000000.123456", "text": REQUEST}
+    for changed in ({"bot_id": "BBOT00001"}, {"subtype": "bot_message"},
+                    {"channel_type": "channel"}, {"text": "   "}):
+        await slack.on_message({**human, **changed}, {"event_id": "Ev0DM001"})
+    assert await _runs(door) == [] and fake.calls == []
+
+
+async def test_signed_plain_dm_event_reaches_ticket_intake(no_slack_env, door):
+    app = create_app(_configured())
+    fake = FakeSlackClient()
+    slack = SlackDoor(door, client=fake, signing_secret=SIGNING_SECRET, process_before_response=True)
+    slack.platform = SimpleNamespace(door=door, db=door.db, registry=door.runner.d.registry)
+    app.state.slack = slack
+    event = {"type": "message", "channel_type": "im", "channel": "D0ANIL001", "user": ANIL_SLACK,
+             "ts": "1790000000.123456", "text": REQUEST}
+    payload = json.dumps({"type": "event_callback", "event_id": "Ev0DM001", "team_id": "T0NORTH01",
+                          "event": event})
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://engine") as h:
+        response = await h.post("/slack/events", content=payload,
+                                headers=signed_headers(payload, content_type="application/json"))
+    assert response.status_code == 200
+    [run] = await _runs(door)
+    assert run["requested_by"] == "p-anil" and len(fake.called("chat.postMessage")) == 1
+
+
 # --- T142: one status message per run, updated in place per stage --------------------------------------------------
 
 async def _door_messages(door, run_id) -> list[dict]:

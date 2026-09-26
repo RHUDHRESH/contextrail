@@ -17,7 +17,7 @@ features:
   app_home:
     home_tab_enabled: false
     messages_tab_enabled: true
-    messages_tab_read_only_enabled: true   # approval cards arrive here; the door does not read DMs yet
+    messages_tab_read_only_enabled: false   # people can DM a request; approval cards also arrive here
   bot_user:
     display_name: ContextRail
     always_online: true
@@ -42,10 +42,15 @@ oauth_config:
       - commands            # /contextrail
       - chat:write          # status message, approval cards, chat.update after a decision
       - im:write            # conversations.open: approval cards go to the approver's DM
+      - im:history          # receive human message.im events in the app DM
       - users:read          # required alongside users:read.email
       - users:read.email    # users.lookupByEmail: identity_map email -> Slack user
       - assistant:write     # assistant pane status (P1)
 settings:
+  event_subscriptions:
+    request_url: https://contextrail.example.com/slack/events
+    bot_events:
+      - message.im
   interactivity:
     is_enabled: true
     request_url: https://contextrail.example.com/slack/events
