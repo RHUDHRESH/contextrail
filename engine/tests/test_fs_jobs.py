@@ -258,6 +258,47 @@ async def test_live_mirror_posts_a_private_note_to_the_tenant_and_says_live(rail
     assert body["private"] is True and "refused" in body["body"] and "cr-mirror:" in body["body"]
 
 
+async def test_a_tenant_lookup_that_fell_back_is_retried_not_blocked(rail, tmp_path):
+    """The fixture's answer to a LIVE agent lookup (0 matches) is not a fact about the tenant."""
+    runner, deps = rail
+    rid = await _anil_run(runner)
+    tenant = FakeTenant({("GET", "/api/v2/agents"): httpx.Response(503)})
+    hold = await _hold(deps, rid, "p-dana")
+    with pytest.raises(TransientError, match="p-dana"):
+        await handle_fs_approval_request({"run_id": str(rid), "action_id": hold["id"]}, live_ctx(deps, tmp_path, tenant))
+    assert "fs.approval.blocked" not in await _events(deps, rid)
+    assert await _rows(deps, "select * from door_messages where run_id = %s", rid) == []
+
+
+async def test_an_approval_made_in_fixture_mode_is_requested_again_once_live(rail, tmp_path):
+    runner, deps = rail
+    rid = await _anil_run(runner)
+    await request_fs_approvals(deps, rid)  # FIXTURE: the tenant was not configured yet
+    hold = await _hold(deps, rid, "p-dana")
+    dana = {"id": 8123, "email": "dana.osei@northbeam.example"}
+    live_approval = {"id": 99, "approver_id": 8123, "approval_status": {"id": 0, "name": "requested"}}
+    tenant = FakeTenant({("GET", "/api/v2/agents"): ok({"agents": [dana]}),
+                         ("GET", "/api/v2/tickets/4412/approvals"): ok({"approvals": []}),
+                         ("POST", "/api/v2/tickets/4412/approvals"): ok({"approval": live_approval})})
+    out = await handle_fs_approval_request({"run_id": str(rid), "action_id": hold["id"]},
+                                           live_ctx(deps, tmp_path, tenant))
+    assert (out["status"], out["mode"], out["approval_id"]) == ("requested", "LIVE", 99)
+    [row] = await _rows(deps, "select ref from door_messages where run_id = %s and action_id = %s", rid, hold["id"])
+    assert (row["ref"]["mode"], row["ref"]["approval_id"]) == ("LIVE", 99)
+
+
+async def test_a_mirror_never_reads_a_fixture_approval_id_against_the_tenant(rail, tmp_path):
+    runner, deps = rail
+    rid = await _decided_by_meera(runner, deps)  # the approval was requested in FIXTURE mode
+    ticket = LiveTicket()
+    tenant = FakeTenant({("POST", "/api/v2/tickets/4412/notes"): ticket.post,
+                         ("GET", "/api/v2/tickets/4412/conversations"): ticket.get})
+    out = await handle_fs_approval_mirror((await _mirror_payloads(deps))[0], live_ctx(deps, tmp_path, tenant))
+    assert out["mode"] == "LIVE" and out["fs_approval"]["status"] == "unavailable"
+    assert not any("/approvals" in r.url.path for r in tenant.requests)  # no GET of a foreign id
+    assert out["conflict"] is False and "fs.approval.mirrored" in await _events(deps, rid)
+
+
 async def test_a_mirror_note_that_does_not_read_back_fails_the_job_for_a_retry(rail, tmp_path):
     runner, deps = rail
     rid = await _decided_without_fs_approval(runner, deps)

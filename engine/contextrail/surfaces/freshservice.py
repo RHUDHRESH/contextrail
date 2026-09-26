@@ -101,7 +101,9 @@ async def request_fs_approval(ctx: JobContext, run_id: UUID, action_id: str) -> 
         ticket_id = ticket_of(run)
         if ticket_id is None:
             return _skip(run_id, action_id, "the run has no Freshservice ticket")
-        if stored and stored["ref"].get("approval_id"):
+        # Only an approval made in the connector's current mode counts: one made while unconfigured (FIXTURE) does
+        # not exist on the tenant, so once LIVE the approver is asked for real.
+        if stored and stored["ref"].get("approval_id") and stored["ref"].get("mode") == fs.mode:
             return {"status": "exists", "run_id": str(run_id), "action_id": action_id, **stored["ref"]}
         person = await _one(c, "select * from identity_map where person_id = %s", action["approver"])
         waiting = [r for r in (await _rows(ctx, c, run)).values()
@@ -132,7 +134,11 @@ async def _fs_user(fs: FreshserviceConnector, person_id: str, person: dict | Non
         return fs_id(person["fs_agent_id"]), None
     if not person.get("email"):
         return None, f"{person_id} has no email to find their Freshservice agent by"
-    found = (await fs.find_agents_by_email(person["email"])).data
+    lookup = await fs.find_agents_by_email(person["email"])
+    if lookup.mode != fs.mode:  # the tenant did not answer; the fixture's "nobody" is not a fact about the tenant
+        raise TransientError(f"Freshservice agent lookup for {person_id} did not reach the tenant "
+                             f"({lookup.fallback_reason}); retry")
+    found = lookup.data
     if len(found) != 1:
         return None, f"{len(found)} Freshservice agents match {person_id}'s email; map fs_agent_id for {person_id}"
     return found[0]["id"], None
@@ -174,11 +180,14 @@ async def handle_fs_approval_mirror(payload: dict, ctx: JobContext) -> dict:
         who = await _one(c, "select display_name from identity_map where person_id = %s", decision["approver"])
 
     fs_state = None
-    if ref.get("approval_id"):
+    if ref.get("approval_id") and ref.get("mode") != fs.mode:  # never look up a FIXTURE id on the tenant
+        fs_state = {"approval_id": ref["approval_id"], "status": "unavailable",
+                    "error": f"that approval was made in {ref.get('mode')} mode; Freshservice is now {fs.mode}"}
+    elif ref.get("approval_id"):
         try:
             a = await fs.get_approval(ticket_id, ref["approval_id"])
-            fs_state = {"approval_id": a.approval_id, "status": a.status, "mode": a.mode,
-                        "fallback_reason": a.fallback_reason}
+            fs_state = ({"approval_id": a.approval_id, "status": a.status, "mode": a.mode} if a.mode == fs.mode
+                        else {"approval_id": a.approval_id, "status": "unavailable", "error": a.fallback_reason})
         except ConnectorError as e:  # the decision still gets mirrored; the unknown state is said out loud
             fs_state = {"approval_id": ref["approval_id"], "status": "unavailable", "error": str(e)}
     conflict = bool(fs_state and fs_state["status"] in ("approved", "rejected")
