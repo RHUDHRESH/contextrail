@@ -56,6 +56,15 @@ async def test_start_run_returns_the_door_view_and_get_returns_the_same(api):
     assert again.status_code == 200 and again.json() == view
 
 
+async def test_requester_history_is_resolved_and_scoped_to_the_actor(api):
+    client, _ = api
+    own = await _start(client)
+    mine = await client.post("/v1/runs/mine", json={"channel": "slack", "actor_external_id": ANIL_SLACK})
+    other = await client.post("/v1/runs/mine", json={"channel": "email", "actor_external_id": "priya.r@contractor.northbeam.example"})
+    assert mine.status_code == 200 and [run["run_id"] for run in mine.json()["runs"]] == [own["run_id"]]
+    assert other.status_code == 200 and other.json()["runs"] == []
+
+
 async def test_unknown_and_malformed_run_ids(api):
     client, _ = api
     missing = await client.get(f"/v1/runs/{uuid.uuid4()}")

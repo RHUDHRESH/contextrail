@@ -112,6 +112,10 @@ class PendingRuns(BaseModel):
     runs: list[RunView]
 
 
+class MyRuns(PendingRuns):
+    """The latest requester-owned runs, resolved from this door's identity mapping."""
+
+
 class VoiceRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -175,6 +179,20 @@ async def run_by_ticket(ticket_id: Annotated[str, Path(min_length=1, max_length=
 @router.get("/runs/{run_id}", response_model=RunView)
 async def get_run(run_id: UUID, request: Request) -> RunView:
     return await _view_or_404(_platform(request), run_id)
+
+
+@router.post("/runs/mine", response_model=MyRuns)
+async def my_runs(body: PendingApprovals, request: Request) -> MyRuns:
+    """Return at most 20 requests belonging to the resolved actor, never another fixture persona."""
+    p = _platform(request)
+    actor = await p.door.resolve_actor(body.channel, body.actor_external_id)
+    if actor is None:
+        return MyRuns(runs=[])
+    async with p.db.connection() as c:
+        rows = await (await c.execute(
+            "select id from runs where requested_by = %s and intent <> 'query' "
+            "order by created_at desc, id desc limit 20", (actor["person_id"],))).fetchall()
+    return MyRuns(runs=[await p.door.get_status(row["id"]) for row in rows])
 
 
 @router.post("/queries", response_model=Answer)
