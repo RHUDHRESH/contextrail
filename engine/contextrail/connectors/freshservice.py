@@ -56,6 +56,8 @@ SOURCES = {1: "email", 2: "portal", 3: "phone", 4: "chat", 5: "feedback_widget",
 
 
 ACCESS_REQUEST_ITEM = "Access request (ContextRail)"  # the catalog item an admin creates (T134)
+ACCESS_REQUEST_TEXT_FIELD = "request_text"  # that item's "request text" form field, as the API names it
+_EMAIL = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 CATALOG_PAGE_SIZE = 30  # View List of Service Items: "per_page ... (default: 30, max: 30)"
 MAX_PAGES = 50          # a tenant that always answers rel="next" cannot keep us paging forever
 CONVERSATION_PAGE_SIZE = 30  # the documented default page size for a ticket's conversations
@@ -119,6 +121,13 @@ def fs_id(value: object) -> int:
     if not (text.isascii() and text.isdigit()) or int(text) <= 0:
         raise ValueError(f"not a Freshservice id: {value!r}")
     return int(text)
+
+
+def _email(value: str) -> str:
+    value = (value or "").strip()
+    if not _EMAIL.match(value):
+        raise ValueError(f"not an email address: {value!r}")
+    return value
 
 
 def _unwrap(body: Any, key: str, what: str) -> Any:
@@ -305,6 +314,35 @@ class FreshserviceClient:
                 raise ConnectorError(f"{what} named {ACCESS_REQUEST_ITEM!r}; an admin must create exactly one (T134)")
             self._access_item = {k: found[0][k] for k in ("id", "display_id", "name")}
         return dict(self._access_item)
+
+    # --- catalog requests: tickets for requests from Slack, Teams and voice (T131) -----------------------------
+
+    async def place_request(self, display_id: object, *, email: str, requested_for: str | None = None,
+                            quantity: int = 1, custom_fields: dict | None = None) -> dict:
+        """POST /service_catalog/items/{display_id}/place_request -> `service_request` (the new ticket).
+
+        No idempotency key exists and requested items are not searchable by form value, so a timeout is an
+        UnknownOutcome the caller must not retry blindly; callers keep the returned ticket id.
+        """
+        path = f"service_catalog/items/{fs_id(display_id)}/place_request"
+        body: dict[str, Any] = {"email": _email(email), "quantity": quantity}
+        if requested_for is not None:
+            body["requested_for"] = _email(requested_for)
+        if custom_fields:
+            body["custom_fields"] = custom_fields
+        return _unwrap(await self.post(path, body), "service_request", path)
+
+    async def place_access_request(self, email: str, request_text: str, *, requested_for: str | None = None,
+                                   text_field: str = ACCESS_REQUEST_TEXT_FIELD) -> dict:
+        """A ticket on the 'Access request (ContextRail)' item, with the request text in its form field."""
+        item = await self.access_request_item()
+        return await self.place_request(item["display_id"], email=email, requested_for=requested_for,
+                                        custom_fields={text_field: request_text})
+
+    async def get_requested_items(self, ticket_id: object) -> list[dict]:
+        """GET /tickets/{id}/requested_items: the catalog form values (`custom_fields`) of a service request."""
+        path = f"tickets/{fs_id(ticket_id)}/requested_items"
+        return _unwrap(await self.get(path), "requested_items", path)
 
     # --- approvals on a ticket (T126) --------------------------------------------------------------------------
 
@@ -498,6 +536,16 @@ class FreshserviceConnector:
     async def get_solution_article(self, article_id: object) -> FsRead:
         aid = fs_id(article_id)
         return await self._read("get_solution_article", lambda c: c.get_solution_article(aid))
+
+    async def get_requested_items(self, ticket_id: object) -> FsRead:
+        tid = fs_id(ticket_id)
+        return await self._read("get_requested_items", lambda c: c.get_requested_items(tid))
+
+    async def place_access_request(self, email: str, request_text: str, *,
+                                   requested_for: str | None = None) -> FsRead:
+        """A new 'Access request (ContextRail)' ticket; `data` is the service request, labelled with its mode."""
+        return await self._read("place_access_request", lambda c: c.place_access_request(
+            email, request_text, requested_for=requested_for))
 
     async def get_approval(self, ticket_id: object, approval_id: object) -> FsApproval:
         tid, aid = fs_id(ticket_id), fs_id(approval_id)
