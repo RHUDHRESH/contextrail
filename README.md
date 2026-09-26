@@ -89,10 +89,10 @@ Start the temporary engine and local PostgreSQL from the repository root:
 
 ```powershell
 uv sync --project engine --group dev --frozen
-uv run --project engine python scripts/voice-pilot-local.py --freshservice --port 8000
+uv run --project engine python scripts/voice-pilot-local.py --freshservice --slack --port 8000
 ```
 
-`--freshservice` enables the configured Freshservice tenant for ticket creation. Without it, Freshservice remains a fixture. The temporary database is deleted when the engine stops.
+`--freshservice` enables the configured Freshservice tenant for ticket creation; `--slack` starts the Socket Mode door for approval cards and slash-command intake. Both require their credentials in `.env`. Without `--freshservice`, Freshservice remains a fixture. The temporary database is deleted when the engine stops.
 
 In another PowerShell terminal, start the browser app:
 
