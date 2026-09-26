@@ -6,6 +6,7 @@ added to one file cannot silently contradict another. The demo outcomes themselv
 
 import hashlib
 import json
+import re
 from collections import Counter
 from datetime import date
 
@@ -302,6 +303,13 @@ def test_the_corpus_has_team_chatter_a_precedent_thread_it_inventory_and_inciden
     assert "INC-2481" in inc and "ap-south-1" in inc
 
 
+def test_slack_authors_have_a_slack_identity():
+    slack_ids = {p["hris_id"]: p["slack_user_id"] for p in load("identity")["people"]}
+    for m in messages():
+        if m["author_id"] is not None:
+            assert slack_ids[m["author_id"]], f"{m['author']} posted in Slack without a Slack account"
+
+
 def test_the_outage_retrospective_is_ported_verbatim_from_stage1():
     from test_fixtures import _stage1_body
 
@@ -323,3 +331,65 @@ async def test_retrieval_for_the_demo_requests_still_surfaces_both_injections(tm
     onboarding = await corpus.search(search_terms(priya, None, "onboarding"), limit=5)
     assert "slk_payments_admin_override" in [m["id"] for m in same_as]
     assert "slk_prod_access_thread" in [m["id"] for m in onboarding]
+
+
+# --- identity for every door (T080) ------------------------------------------------------------------------
+
+ORIGINAL_ROSTER = {"security-oncall": ["p-dana", "p-omar"], "incident-commander": ["p-omar", "p-dana"],
+                   "data-owner": ["p-ravi"], "finance": ["p-ravi"], "vp-finance": ["p-ravi"]}
+PHONE = re.compile(r"^\+91999000\d{4}$")  # the fictional range reserved for the demo
+
+
+def identities():
+    return load("identity")["people"]
+
+
+def test_every_identity_is_one_hris_person_with_unique_door_ids():
+    ids = by_id()
+    rows = identities()
+    assert [r["display_name"] for r in rows] == [ids[r["hris_id"]]["display_name"] for r in rows]
+    for col in ("person_id", "email", "slack_user_id", "teams_aad_id", "phone", "hris_id"):
+        values = [r[col].lower() if col == "email" else r[col] for r in rows if r[col] is not None]
+        assert len(values) == len(set(values)), f"duplicate {col}"
+    for r in rows:
+        assert r["email"].endswith("northbeam.example"), r["person_id"]
+        assert r["phone"] is None or PHONE.match(r["phone"]), r["person_id"]
+        assert r["preferred_door"] in ("slack", "teams", "email", "voice"), r["person_id"]
+
+
+def test_the_preferred_door_is_one_the_person_can_be_reached_on():
+    column = {"slack": "slack_user_id", "teams": "teams_aad_id", "voice": "phone", "email": "email"}
+    for r in identities():
+        assert r[column[r["preferred_door"]]], f"{r['person_id']} prefers {r['preferred_door']} but has no id there"
+
+
+def test_everyone_already_working_has_a_slack_account():
+    ids = by_id()
+    for r in identities():
+        started = date.fromisoformat(ids[r["hris_id"]]["start_date"]) <= TODAY
+        assert bool(r["slack_user_id"]) == started, r["person_id"]  # starters get Slack from their onboarding run
+
+
+def test_approvers_are_exactly_the_managers_and_the_roster():
+    ident = load("identity")
+    person = {r["hris_id"]: r["person_id"] for r in identities()}
+    managers = {person[p["manager_id"]] for p in people() if p["manager_id"]}
+    rostered = {pid for members in ident["roster"].values() for pid in members}
+    approvers = {r["person_id"] for r in identities() if r["can_approve"]}
+    assert approvers == managers | rostered
+    outsiders = {person[p["source_id"]] for p in people() if p["employment_type"] != "employee"}
+    assert not approvers & outsiders
+
+
+def test_rosters_cover_every_approver_role_and_keep_the_original_order():
+    from contextrail.policy.schema import APPROVER_ROLES
+
+    roster = load("identity")["roster"]
+    assert set(APPROVER_ROLES) - {"manager"} <= set(roster)  # "manager" resolves through the HRIS record
+    for role, original in ORIGINAL_ROSTER.items():
+        assert roster[role][: len(original)] == original, role  # appended backups never displace the primary
+
+
+def test_the_original_ten_identities_are_unchanged():
+    original = [r for r in identities() if r["hris_id"] in ORIGINAL_HRIS_IDS]
+    assert _digest(original) == "fab951d2471b3b377b52f815a5b6cc2575b2ad54438d633ed4bda1fc0e7c4902"
