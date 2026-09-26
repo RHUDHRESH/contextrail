@@ -166,3 +166,52 @@ async def test_signed_slash_command_through_the_http_route(no_slack_env, door):
     assert r.status_code == 200 and r.json()["response_type"] == "ephemeral" and REQUEST in r.json()["text"]
     [run] = await _runs(door)
     assert run["requested_by"] == "p-anil"
+
+
+# --- T142: one status message per run, updated in place per stage --------------------------------------------------
+
+async def _door_messages(door, run_id) -> list[dict]:
+    async with door.db.connection() as c:
+        return await (await c.execute("select action_id, channel, ref from door_messages where run_id = %s",
+                                      (run_id,))).fetchall()
+
+
+def _text(call_args: dict) -> str:
+    return json.dumps(call_args, ensure_ascii=False)
+
+
+async def test_status_message_is_posted_once_then_updated_per_stage(door):
+    fake = FakeSlackClient()
+    slack = SlackDoor(door, client=fake, signing_secret=SIGNING_SECRET)
+    await slack.on_command(ack=Ack(door), command=_command(REQUEST))
+    [run] = await _runs(door)
+    [posted] = fake.called("chat.postMessage")
+    assert posted["channel"] == CHANNEL and REQUEST in _text(posted)
+    ts = "1790000000.000001"
+    assert run["source_ref"] == f"{CHANNEL}:{ts}"            # the run knows which Slack message is its status
+    updates = fake.called("chat.update")
+    events = door.runner.d.events.history(run["id"])
+    assert len(updates) == len(events) == 9                 # discover .. finalize, one edit each, same message
+    assert all((u["channel"], u["ts"]) == (CHANNEL, ts) for u in updates)
+    assert "Found Anil Kumar" in _text(updates[0]) and "Step 1 of 9" in _text(updates[0])
+    final = _text(updates[-1])                                 # the end of the pass renders the whole RunView
+    assert "Waiting for approval" in final and "15 verified" in final and "waiting for Dana Osei" in final
+    assert await _door_messages(door, run["id"]) == [{"action_id": "", "channel": "slack",
+                                                      "ref": {"channel": CHANNEL, "ts": ts}}]
+
+
+async def test_status_goes_to_the_requesters_dm_when_the_bot_is_not_in_the_channel(door):
+    fake = FakeSlackClient(refuse_channels={CHANNEL})
+    slack = SlackDoor(door, client=fake, signing_secret=SIGNING_SECRET)
+    await slack.on_command(ack=Ack(door), command=_command(REQUEST))
+    assert fake.called("conversations.open") == [{"users": ANIL_SLACK}]
+    dm = "D" + ANIL_SLACK
+    assert [p["channel"] for p in fake.called("chat.postMessage")] == [CHANNEL, dm]
+    assert {u["channel"] for u in fake.called("chat.update")} == {dm}
+
+
+async def test_runs_from_other_doors_do_not_touch_slack(door):
+    fake = FakeSlackClient()
+    SlackDoor(door, client=fake, signing_secret=SIGNING_SECRET)
+    view = await door.start_run(REQUEST, channel="teams", actor_external_id="00000000-0000-4000-8000-000000001042")
+    assert view.status == "awaiting_approval" and fake.calls == []

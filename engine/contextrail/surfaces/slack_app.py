@@ -11,12 +11,18 @@ Mode instead (`contextrail.surfaces.slack_socket`). Every request is signature-c
 
 from __future__ import annotations
 
+import re
+from uuid import UUID
+
 from fastapi import APIRouter, FastAPI, HTTPException, Request
 from slack_bolt.adapter.fastapi.async_handler import AsyncSlackRequestHandler
 from slack_bolt.async_app import AsyncApp
 from slack_bolt.authorization import AuthorizeResult
+from slack_sdk.errors import SlackApiError
 from slack_sdk.web.async_client import AsyncWebClient
 
+from contextrail import repo
+from contextrail.models import RunStatus, StageEvent
 from contextrail.surfaces import slack_blocks as blocks
 from contextrail.surfaces.door import Door
 
@@ -46,19 +52,71 @@ class SlackDoor:
                             process_before_response=process_before_response)
         self.http = AsyncSlackRequestHandler(self.app)
         self.app.command(COMMAND)(self.on_command)
+        self._status: dict[UUID, dict | None] = {}  # run id -> its status message {channel, ts, request_text}
+        door.runner.d.events.on_every_run(self.on_stage_event)
 
     # --- /contextrail <request> ---------------------------------------------------------------------------------
 
     async def on_command(self, ack, command: dict) -> None:
-        """Acknowledge at once (Slack's 3 s deadline; ephemeral, so only the requester sees it), then hand the
-        request to the Door. Who asked is the Slack user id; the Door maps it through identity_map."""
+        """Acknowledge at once (Slack's 3 s deadline; ephemeral, so only the requester sees it), post the one
+        status message this run will edit, then hand the request to the Door. Who asked is the Slack user id; the
+        Door maps it through identity_map. The run's source_ref is that message ("<channel>:<ts>", CLAUDE.md §6)."""
         text = (command.get("text") or "").strip()
         if not text:
             await ack(text=blocks.USAGE, response_type="ephemeral")
             return
         await ack(text=blocks.ack_text(text), response_type="ephemeral")
-        await self.door.start_run(text, channel="slack", actor_external_id=command.get("user_id"),
-                                  source_ref=command.get("channel_id"))
+        channel, ts = await self._post_status(command["channel_id"], command["user_id"], text)
+        await self.door.start_run(text, channel="slack", actor_external_id=command["user_id"],
+                                  source_ref=f"{channel}:{ts}")
+
+    async def _post_status(self, channel: str, user: str, text: str) -> tuple[str, str]:
+        """In the channel the command came from; in the requester's DM if the bot is not a member there."""
+        try:
+            resp = await self.client.chat_postMessage(channel=channel, **blocks.starting_message(text))
+        except SlackApiError as e:
+            if e.response.get("error") not in ("not_in_channel", "channel_not_found"):
+                raise
+            dm = (await self.client.conversations_open(users=user))["channel"]["id"]
+            resp = await self.client.chat_postMessage(channel=dm, **blocks.starting_message(text))
+        return resp["channel"], resp["ts"]
+
+    # --- stage events -> the status message, edited in place ---------------------------------------------------
+
+    async def on_stage_event(self, event: StageEvent) -> None:
+        """EventBus callback for every run. Runs that did not start in Slack are ignored. While the rail runs the
+        message shows the step; when it pauses or ends it shows the whole RunView."""
+        msg = await self._status_message(event.run_id)
+        if event.status in _SETTLED:
+            self._status.pop(event.run_id, None)
+        if msg is None:
+            return
+        content = (blocks.stage_message(msg["request_text"], event) if event.status == RunStatus.RUNNING
+                   else blocks.run_summary(await self.door.get_status(event.run_id)))
+        await self.client.chat_update(channel=msg["channel"], ts=msg["ts"], **content)
+
+    async def _status_message(self, run_id: UUID) -> dict | None:
+        if run_id in self._status:
+            return self._status[run_id]
+        async with self.door.db.connection() as c:
+            run = await repo.get_run(c, run_id)
+        msg = _status_ref(run) if run else None
+        if msg is not None:
+            async with self.door.db.transaction() as c:  # where the message lives, so later updates can find it
+                await repo.upsert_door_message(c, run_id, "slack", {"channel": msg["channel"], "ts": msg["ts"]})
+            msg["request_text"] = run["request_text"]
+        self._status[run_id] = msg
+        return msg
+
+
+_SETTLED = {RunStatus.DONE, RunStatus.PARTIAL, RunStatus.FAILED}
+_STATUS_REF = re.compile(r"^(?P<channel>[A-Z0-9]+):(?P<ts>\d+\.\d+)$")
+
+
+def _status_ref(run: dict) -> dict | None:
+    """A Slack-started run's source_ref names its status message."""
+    m = _STATUS_REF.match(run.get("source_ref") or "") if run.get("source") == "slack" else None
+    return {"channel": m["channel"], "ts": m["ts"]} if m else None
 
 
 router = APIRouter()

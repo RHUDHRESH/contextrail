@@ -20,11 +20,13 @@ BOT_TOKEN = "fake-bot-token"
 
 
 class FakeSlackClient(AsyncWebClient):
-    def __init__(self, *, emails: dict[str, str] | None = None, errors: dict[str, str] | None = None) -> None:
+    def __init__(self, *, emails: dict[str, str] | None = None, errors: dict[str, str] | None = None,
+                 refuse_channels: set[str] | None = None) -> None:
         super().__init__(token=BOT_TOKEN)
         self.calls: list[tuple[str, dict]] = []
         self.emails = {k.lower(): v for k, v in (emails or {}).items()}  # users.lookupByEmail directory
         self.errors = dict(errors or {})                                  # api method -> Slack error code
+        self.refuse_channels = set(refuse_channels or ())                 # the bot is not a member of these
         self._n = 0
 
     async def _request(self, *, http_verb, api_url, req_args):  # same signature as AsyncBaseClient._request
@@ -42,6 +44,8 @@ class FakeSlackClient(AsyncWebClient):
             return {"ok": True, "user_id": "UBOT00001", "bot_id": "BBOT00001", "team_id": "T0NORTH01",
                     "user": "contextrail"}
         if method == "chat.postMessage":
+            if args["channel"] in self.refuse_channels:
+                return {"ok": False, "error": "not_in_channel"}
             self._n += 1
             return {"ok": True, "channel": args["channel"], "ts": f"1790000000.{self._n:06d}"}
         if method == "chat.update":
