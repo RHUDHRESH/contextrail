@@ -318,7 +318,7 @@ export function RunConsole({ initialRun, autoStart }: { initialRun?: Run; autoSt
           <Stat label="evidence" value={state.evidence.length} hint="cited sources" />
           <Stat label="actions" value={`${completed}/${state.plan?.actions.length ?? 0}`} hint="executed / planned" />
           <Stat label="blocked by policy" value={blocked} tone={blocked ? "stop" : "text"} hint="violations prevented" />
-          <Stat label="handoffs" value={state.handoffs.length} tone="rail" hint="context preserved" />
+          <Stat label="handoffs" value={state.handoffs.length} tone="rail" hint="context preserved" wideOnMobile />
         </StatStrip>
       </header>
 
