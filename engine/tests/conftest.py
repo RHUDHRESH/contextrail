@@ -95,3 +95,27 @@ async def rail(migrated_db, tmp_path):
                     backoff=lambda n: 0, sleep=no_sleep)
     yield Runner(deps), deps
     await db.close()
+
+
+API_TOKEN = "test-engine-token"  # a test value, not a credential
+
+
+@pytest.fixture
+async def api(rail):
+    """The HTTP API over the `rail` fixture's database and FIXTURE state: (httpx.AsyncClient, Platform).
+
+    httpx's ASGI transport runs the app on the test's own event loop, where the rail's pool lives. The lifespan is
+    not run, because the rail fixture owns the pool. The client sends the bearer token."""
+    import httpx
+
+    from contextrail.app_state import build_platform
+    from contextrail.main import create_app
+    from contextrail.settings import Settings
+
+    runner, _ = rail
+    settings = Settings(_env_file=None, engine_token=API_TOKEN)
+    platform = build_platform(settings, runner=runner, sse_heartbeat_s=0.05)
+    app = create_app(settings, platform=platform)
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://engine.test",
+                                 headers={"Authorization": f"Bearer {API_TOKEN}"}) as client:
+        yield client, platform
