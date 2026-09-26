@@ -32,10 +32,11 @@ from contextrail.models import (
 )
 from contextrail.policy.engine import PolicyEngine
 from contextrail.policy.schema import Rule
-from contextrail.rail import approve, execute, finalize, govern, plan
+from contextrail.rail import approve, execute, finalize, govern, handoff, plan
 from contextrail.rail import compile as compile_
 from contextrail.rail import discover as discover_
 from contextrail.rail import verify as verify_
+from contextrail.rail.constraints import ConstraintExtractor, sow_document
 from contextrail.rail.events import EventBus
 from contextrail.rail.store import load_case, save_case
 
@@ -53,7 +54,10 @@ class RailDeps:
     events: EventBus = field(default_factory=EventBus)
     backoff: Callable[[int], float] = execute.default_backoff
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep
-    knowledge: Bundle | None = None   # OKF bundle: policy text comes from curated pages (T177)
+    # OKF bundle (section L). `Bundle` satisfies compile_.KnowledgeSource, so one object serves both uses:
+    # policy text for rules (gather_inputs, T177) and linked concepts (load_concepts, T090).
+    knowledge: Bundle | None = None
+    constraints: ConstraintExtractor = field(default_factory=ConstraintExtractor)  # no router = record-derived only
 
 
 class Runner:
@@ -141,15 +145,26 @@ class Runner:
                                               knowledge=self.d.knowledge)
         messages = await compile_.retrieve_messages(
             self.d.registry.get("slack_corpus"), compile_.search_terms(found.subject, found.peer, found.intent.intent))
-        evidence, blockers = compile_.mark_stale(inputs.evidence + messages)
-        blockers = [*inputs.blockers, *blockers]
+        concepts = compile_.load_concepts(self.d.knowledge, found.subject, found.intent.intent, self.d.rules)
+        sow = sow_document(found.subject)
+        # Policy pages can arrive both as rule clauses (gather_inputs) and as linked concepts (load_concepts):
+        # keep the first of each evidence id, since a case file rejects duplicates.
+        merged: dict[str, object] = {}
+        for ev in [*inputs.evidence, *concepts.evidence, *([sow] if sow else []), *messages]:
+            merged.setdefault(ev.id, ev)
+        evidence, blockers = compile_.mark_stale(list(merged.values()))
+        blockers = list(dict.fromkeys([*inputs.blockers, *blockers]))
+        extracted = await self.d.constraints.extract(found.subject, sow)
         case = CaseFile(run_id=run_id, request_text=row["request_text"], intent=found.intent.intent,
                         subject=found.subject, peer=found.peer, evidence=evidence,
-                        constraints=compile_.subject_constraints(found.subject), open_blockers=blockers)
+                        constraints=extracted.constraints, open_blockers=blockers)
         async with self.d.db.transaction() as c:
             case = await save_case(c, case, stage=Stage.COMPILE)
-            await self._audit(c, run_id, "stage.compile", {"evidence": len(evidence), "untrusted": len(messages),
-                                                           "blockers": blockers, "digest": case.digest, "ms": _ms(t0)})
+            await self._audit(c, run_id, "stage.compile", {
+                "evidence": len(evidence), "untrusted": len(messages), "blockers": blockers,
+                "okf": {"configured": concepts.configured, "loaded": [e.uri for e in concepts.evidence],
+                        "missing_sources": concepts.missing_sources},
+                "constraints": extracted.audit(), "digest": case.digest, "ms": _ms(t0)})
         await self._emit(run_id, Stage.COMPILE, RunStatus.RUNNING,
                          f"Case file sealed: {len(evidence)} pieces of evidence, {len(messages)} untrusted", case)
 
@@ -193,17 +208,27 @@ class Runner:
         try:
             async with self.d.db.connection() as c:
                 case = await load_case(c, run_id)
+            views = handoff.hand_over(case)  # each team's allow-listed view, by value, verified on receipt (T099)
+        except handoff.ViewMismatch as e:
+            return await self._halt(run_id, "handoff.view_mismatch",
+                                    {"team": e.team, "expected": e.expected, "actual": e.actual},
+                                    f"Halted: the {e.team} view did not match the sealed case file")
         except DigestMismatch as e:
-            async with self.d.db.transaction() as c:
-                await self._audit(c, run_id, "capsule.digest_mismatch", {"expected": e.expected, "actual": e.actual})
-                await self._status(c, run_id, RunStatus.FAILED)
-            await self._emit(run_id, Stage.HANDOFF, RunStatus.FAILED, "Halted: the case file was altered")
-            return None
+            return await self._halt(run_id, "capsule.digest_mismatch", {"expected": e.expected, "actual": e.actual},
+                                    "Halted: the case file was altered")
         async with self.d.db.transaction() as c:
             await repo.set_stage(c, run_id, stage=Stage.HANDOFF)
-            await self._audit(c, run_id, "stage.handoff", {"digest": case.digest, "verified": True})
-        await self._emit(run_id, Stage.HANDOFF, RunStatus.RUNNING, "Handoff: case file seal verified", case)
+            await self._audit(c, run_id, "stage.handoff", {
+                "digest": case.digest, "verified": True, "views": {t: v.view_digest for t, v in views.items()}})
+        await self._emit(run_id, Stage.HANDOFF, RunStatus.RUNNING,
+                         f"Handoff: case file seal verified; views for {', '.join(views)} verified", case)
         return case
+
+    async def _halt(self, run_id: UUID, event: str, payload: dict, message: str) -> None:
+        async with self.d.db.transaction() as c:
+            await self._audit(c, run_id, event, payload)
+            await self._status(c, run_id, RunStatus.FAILED)
+        await self._emit(run_id, Stage.HANDOFF, RunStatus.FAILED, message)
 
     # --- approve -> execute -> verify -> finalize (first pass and every resume) ------------------------------
 

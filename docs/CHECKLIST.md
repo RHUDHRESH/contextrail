@@ -125,8 +125,8 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 - [x] T087 `P0` Discover: ambiguity → `needs_input` with a candidate list.
 - [x] T088 `P0` Discover: peer resolution for "same as X".
 - [x] T089 `P0` Compile: parallel fetch of records, entitlements and policies (`asyncio.gather`).
-- [ ] T090 `P1` Compile: load OKF concepts by tags/rules.
-- [ ] T091 `P1` Compile: extract SOW constraints with cited spans.
+- [x] T090 `P1` Compile: load OKF concepts by tags/rules.
+- [x] T091 `P1` Compile: extract SOW constraints with cited spans.
 - [x] T092 `P0` Compile: mark stale evidence into open blockers.
 - [x] T093 `P0` Compile: include untrusted messages/email bodies as evidence, wrapped as data.
 - [x] T094 `P0` Compile: seal the capsule and store the digest.
@@ -134,7 +134,7 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 - [x] T096 `P0` Govern: evaluate every candidate through the policy engine.
 - [x] T097 `P0` Plan: dependency ordering; add revoke actions for the old team.
 - [ ] T098 `P0` Plan: one-line explanations for HOLD and REFUSE (Sonnet).
-- [ ] T099 `P1` Handoff: per-team views (IT, Security) with digest verification.
+- [x] T099 `P1` Handoff: per-team views (IT, Security) with digest verification.
 - [x] T100 `P0` Approve: create approval records; dispatch to Freshservice and the approver's doors.
 - [ ] T101 `P1` Approve: deadline and chase jobs (chase in the approver's preferred door).
 - [x] T102 `P0` Approve: resume the run when a decision arrives from any door.

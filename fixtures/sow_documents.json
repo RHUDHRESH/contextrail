@@ -1,0 +1,15 @@
+{
+  "_meta": {
+    "mode": "FIXTURE",
+    "system": "contracts",
+    "note": "Demo statements of work, keyed by the contractor's HRIS id. Fictional text, consistent with fixtures/hris.json (dates, repositories, manager). A SOW is a document: it enters the case file as untrusted evidence and is never read by policy."
+  },
+  "documents": {
+    "W-8841": {
+      "id": "SOW-2026-014",
+      "title": "Statement of Work SOW-2026-014: Perception SDK calibration",
+      "countersigned": "2026-09-15",
+      "text": "STATEMENT OF WORK SOW-2026-014\nBetween Northbeam Technologies Pvt. Ltd. (\"Northbeam\") and Priya Raghunathan (\"the Contractor\"), HRIS ID W-8841.\nInternal owner: Marc Liu, Engineering Manager, Perception.\n\n§1 Term. The engagement starts on 2026-09-28 and ends on 2027-03-31. All access granted under this SOW expires on the end date, with no grace period.\n\n§2 Scope. The Contractor will extend the camera calibration module of the perception SDK and its test suite.\n\n§3 Repository access. The Contractor may be given read-only access to the northbeam/perception-sdk repository. Changes are submitted as pull requests from the Contractor's fork and merged by a Northbeam employee. No other repository is in scope.\n\n§4 Production. The Contractor will not be given production credentials, production database access or access to customer data of any kind.\n\n§5 Communication. Slack and email are provided for day-to-day communication with the Perception team.\n\n§6 Data handling. Test datasets are synthetic. The Contractor must not copy Northbeam source code or data to personal devices.\n\n§7 Hours. Working hours are 10:00 to 18:00 IST, Monday to Friday.\n\nCountersigned for Northbeam by Marc Liu on 2026-09-15."
+    }
+  }
+}
