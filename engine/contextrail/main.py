@@ -14,6 +14,7 @@ from contextrail.surfaces.decision_page import router as decision_page_router
 from contextrail.surfaces.receipt_page import router as receipt_page_router
 from contextrail.surfaces.rest import router as runs_router
 from contextrail.surfaces.slack_app import router as slack_router
+from contextrail.surfaces.ses_webhook import router as ses_webhook_router
 
 
 def create_app(settings: Settings | None = None, *, platform: Platform | None = None) -> FastAPI:
@@ -45,6 +46,7 @@ def create_app(settings: Settings | None = None, *, platform: Platform | None = 
         app.include_router(slack_router)
     app.include_router(decision_page_router)  # /a/{token}: email decision links (T232)
     app.include_router(receipt_page_router)
+    app.include_router(ses_webhook_router)  # /v1/webhooks/ses: SES bounces/complaints via SNS (T237)
     return app
 
 

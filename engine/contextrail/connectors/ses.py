@@ -4,11 +4,10 @@
 botocore service model (sesv2 2019-09-27, `SendEmail`: FromEmailAddress, Destination.ToAddresses,
 Content.Simple.{Subject, Body.{Text, Html}, Headers}, EmailTags, ConfigurationSetName -> MessageId).
 
-One email per (run_id, action_id): the send key is `canonical.door_send_key(run_id, action_id, "email")`, and the
-`door_messages` row is the record that it went. The check, the send and the record happen under a transaction-scoped
-advisory lock on that key, so a retried job or two workers racing still send once. SES has no idempotency key of its
-own, so one window remains: if SES accepts the email and the commit then fails, a retry sends a duplicate. For an
-approval email that is harmless (both carry equivalent signed links and the first decision wins).
+One email per (run_id, action_id), via `connectors.once.send_once` with the key
+`canonical.door_send_key(run_id, action_id, "email")` and a `door_messages` row as the record that it went. SES has no
+idempotency key of its own, so one window remains: if SES accepts the email and the commit then fails, a retry sends
+a duplicate. For an approval email that is harmless (both carry equivalent signed links and the first decision wins).
 
 Mode is honest (D-004): LIVE only when a sender address is configured and is not a reserved placeholder domain.
 Otherwise FIXTURE: nothing is sent, the rendered email is written to a local outbox as an .eml file, and the result,
@@ -36,9 +35,8 @@ from botocore.exceptions import (
 )
 from pydantic import BaseModel, ConfigDict
 
-from contextrail import repo
-from contextrail.canonical import door_send_key
 from contextrail.connectors.base import ConnectorError, TransientError, UnknownOutcome
+from contextrail.connectors.once import send_once
 from contextrail.connectors.state import state_dir
 from contextrail.db import Database
 from contextrail.logs import get_logger
@@ -113,23 +111,17 @@ class SesConnector:
         return params
 
     async def send(self, db: Database, *, run_id: UUID, action_id: str, message: OutboundEmail) -> SendOutcome:
-        key = door_send_key(run_id, action_id, CHANNEL)
-        async with db.transaction() as c:
-            await c.execute("select pg_advisory_xact_lock(%s)", (int(key[:15], 16),))
-            sent = [r for r in await repo.list_door_messages(c, run_id, action_id) if r["channel"] == CHANNEL]
-            if sent:
-                ref = sent[0]["ref"]
-                return SendOutcome(mode=ref["mode"], message_id=ref["message_id"], idempotency_key=key,
-                                   replayed=True, outbox_path=ref.get("outbox"))
+        async def deliver(key: str) -> dict:
             if self.mode == "LIVE":
                 message_id, outbox = await self._send_live(message, run_id=run_id, action_id=action_id, key=key), None
             else:
                 message_id, outbox = f"fixture-{key[:24]}", str(self._write_outbox(message, key))
                 log.info("email_not_sent_fixture_mode", run_id=str(run_id), action_id=action_id, outbox=outbox)
-            await repo.upsert_door_message(c, run_id, CHANNEL, {
-                "mode": self.mode, "message_id": message_id, "to": message.to, "idempotency_key": key,
-                "outbox": outbox}, action_id=action_id)
-        return SendOutcome(mode=self.mode, message_id=message_id, idempotency_key=key, outbox_path=outbox)
+            return {"mode": self.mode, "message_id": message_id, "to": message.to, "outbox": outbox}
+
+        ref, replayed = await send_once(db, run_id=run_id, action_id=action_id, channel=CHANNEL, send=deliver)
+        return SendOutcome(mode=ref["mode"], message_id=ref["message_id"], idempotency_key=ref["idempotency_key"],
+                           replayed=replayed, outbox_path=ref.get("outbox"))
 
     async def _send_live(self, message: OutboundEmail, *, run_id: UUID, action_id: str, key: str) -> str:
         params = self.request(message, run_id=run_id, action_id=action_id, key=key)
