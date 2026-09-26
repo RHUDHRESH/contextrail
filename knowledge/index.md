@@ -16,3 +16,4 @@ then the page you need. How pages are written and checked is in the schema.
 ## About this bundle
 - [Schema](SCHEMA.md) - frontmatter, clause headings, links, freshness and the ingest, query and lint rules
 - [Read me](README.md) - where to start
+- [Change log](log.md) - what changed and when, newest first
