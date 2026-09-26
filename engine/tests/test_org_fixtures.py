@@ -257,3 +257,69 @@ def test_contractors_only_read_the_repositories_in_their_sow():
 def test_the_demo_subjects_can_be_granted_repository_access():
     # Execute writes GitHub grants by login; a missing login would fail the demo runs' GitHub rows.
     assert {"E-1042", "E-0641", "E-0698", "E-0462", "W-8841"} <= set(github()["logins"])
+
+
+# --- Slack corpus (T076) -----------------------------------------------------------------------------------
+
+ORIGINAL_MESSAGES = ("slk_prod_access_thread", "slk_payments_admin_override", "slk_sec_thread_1", "slk_it_thread_1",
+                     "slk_payments_welcome")
+
+
+def messages():
+    return load("slack_corpus")["messages"]
+
+
+def test_about_thirty_messages_with_unique_ids_and_timestamps():
+    assert 28 <= len(messages()) <= 35, len(messages())
+    assert len({m["id"] for m in messages()}) == len(messages())
+    assert len({(m["channel_id"], m["ts"]) for m in messages()}) == len(messages())
+    channels = {}
+    for m in messages():
+        assert channels.setdefault(m["channel"], m["channel_id"]) == m["channel_id"], m["id"]
+
+
+def test_authors_are_people_in_the_hris_or_explicitly_unattributed():
+    ids = by_id()
+    for m in messages():
+        if m["author_id"] is not None:
+            assert ids[m["author_id"]]["display_name"] == m["author"], m["id"]
+    guests = {m["author"] for m in messages() if m["author_id"] is None}
+    assert guests == {"Unknown (guest)", "Priyanka Rao"}  # a guest account and the vendor-side IT coordinator
+
+
+def test_the_five_original_messages_are_unchanged():
+    original = [m for m in messages() if m["id"] in ORIGINAL_MESSAGES]
+    assert [m["id"] for m in original] == list(ORIGINAL_MESSAGES)
+    assert _digest(original) == "279446c7d2d98c1191f4f58094ad21760ff5e390ed5c2831f47c90df16ddd4c9"
+
+
+def test_the_corpus_has_team_chatter_a_precedent_thread_it_inventory_and_incident_channels():
+    by_channel = Counter(m["channel"] for m in messages())
+    assert by_channel["#security"] >= 3 and by_channel["#it-helpdesk"] >= 3
+    assert by_channel["#incident-2481"] >= 3 and by_channel["#incident-4412"] >= 2
+    assert len(by_channel) >= 10
+    inc = " ".join(m["text"] for m in messages() if m["channel"] == "#incident-2481")
+    assert "INC-2481" in inc and "ap-south-1" in inc
+
+
+def test_the_outage_retrospective_is_ported_verbatim_from_stage1():
+    from test_fixtures import _stage1_body
+
+    msg = next(m for m in messages() if m["id"] == "slk_status_outage")
+    assert msg["text"] == _stage1_body("slk_status_outage")
+
+
+async def test_retrieval_for_the_demo_requests_still_surfaces_both_injections(tmp_path):
+    from contextrail.connectors.fixture import FixtureSlackCorpus
+    from contextrail.connectors.state import FixtureState
+    from contextrail.fixtures import subject_from_record
+    from contextrail.rail.compile import search_terms
+
+    state = FixtureState("slack_corpus", directory=tmp_path)
+    state.reset()
+    corpus, ids = FixtureSlackCorpus(state), by_id()
+    anil, rahul, priya = (subject_from_record(ids[i]) for i in ("E-1042", "E-0007", "W-8841"))
+    same_as = await corpus.search(search_terms(anil, rahul, "access.same_as_peer"), limit=5)
+    onboarding = await corpus.search(search_terms(priya, None, "onboarding"), limit=5)
+    assert "slk_payments_admin_override" in [m["id"] for m in same_as]
+    assert "slk_prod_access_thread" in [m["id"] for m in onboarding]
