@@ -8,10 +8,10 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 <!-- stats:start -->
 | Priority | Tasks | Done |
 |---|---|---|
-| P0 | 148 | 21 |
+| P0 | 148 | 31 |
 | P1 | 92 | 0 |
 | P2 | 10 | 0 |
-| **Total** | **250** | **21** |
+| **Total** | **250** | **31** |
 
 👤 human-owned tasks: 24
 <!-- stats:end -->
@@ -69,16 +69,16 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 
 ## D. Domain models and the sealed case file (10)
 
-- [ ] T043 `P0` `Subject` model (source, required source_id, employment_type, role, team, manager, dates, sow_repos).
-- [ ] T044 `P0` `Evidence` model with `trust`: record / curated / untrusted.
-- [ ] T045 `P0` `Action` model and state enum.
-- [ ] T046 `P0` `Verdict` model (ALLOW / HOLD / REFUSE, rule_id, clause_text, approver).
-- [ ] T047 `P0` `CaseFile` model.
-- [ ] T048 `P0` Canonical JSON serializer (sorted keys, no whitespace, UTC) + `params_hash(action)`.
-- [ ] T049 `P0` Capsule seal: compute and store the digest.
-- [ ] T050 `P0` Capsule verify at every handoff; raise `DigestMismatch`.
-- [ ] T051 `P0` Idempotency key = sha256(run_id + action_id + params_hash).
-- [ ] T052 `P0` Run status and stage enums with an allowed-transitions table + `StageEvent` model for SSE and doors.
+- [x] T043 `P0` `Subject` model (source, required source_id, employment_type, role, team, manager, dates, sow_repos).
+- [x] T044 `P0` `Evidence` model with `trust`: record / curated / untrusted.
+- [x] T045 `P0` `Action` model and state enum.
+- [x] T046 `P0` `Verdict` model (ALLOW / HOLD / REFUSE, rule_id, clause_text, approver).
+- [x] T047 `P0` `CaseFile` model.
+- [x] T048 `P0` Canonical JSON serializer (sorted keys, no whitespace, UTC) + `params_hash(action)`.
+- [x] T049 `P0` Capsule seal: compute and store the digest.
+- [x] T050 `P0` Capsule verify at every handoff; raise `DigestMismatch`.
+- [x] T051 `P0` Idempotency key = sha256(run_id + action_id + params_hash).
+- [x] T052 `P0` Run status and stage enums with an allowed-transitions table + `StageEvent` model for SSE and doors.
 
 ## E. Policy engine and the 12 rules (20)
 
