@@ -18,6 +18,7 @@ def test_create_app_builds_one_platform_every_part_shares(tmp_path):
     app = create_app(Settings(_env_file=None, state_dir=str(tmp_path)))
     p: Platform = app.state.platform
     assert p.door.runner is p.runner and p.door.db is p.db and p.events is p.runner.d.events
+    assert app.state.door is p.door  # email decision links use the same Door as every other surface
     assert app.state.registry is p.registry and app.state.rules is p.rules
     assert isinstance(p.runner.d.extractor, HeuristicExtractor) and isinstance(p.runner.d.explainer, TemplateExplainer)
     assert {r.id for r in p.rules} >= {"POL-CTR-001", "POL-SOD-001"}

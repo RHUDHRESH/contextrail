@@ -52,9 +52,12 @@ async def door(rail):
 def test_slack_route_exists_only_when_slack_is_configured(no_slack_env):
     off = TestClient(create_app(_settings()))
     assert off.post("/slack/events", content="x").status_code == 404   # no credentials: the door is not LIVE
-    on = TestClient(create_app(_configured()))
+    app = create_app(_configured())
+    assert app.state.slack.door is app.state.platform.door
+    assert app.state.platform.slack is app.state.slack
+    on = TestClient(app)
     r = on.post("/slack/events", content="x")
-    assert r.status_code == 503 and "not attached" in r.json()["detail"]  # configured, but no rail wired yet
+    assert r.status_code == 401  # Bolt rejects an unsigned request at the configured route
 
 
 async def test_signed_requests_reach_bolt_and_forged_ones_are_refused(no_slack_env, door):
