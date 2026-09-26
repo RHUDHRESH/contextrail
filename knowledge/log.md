@@ -3,8 +3,9 @@
 Newest first. Each entry says what changed. The day a person last confirmed a page is its `last_verified`.
 
 ## 2026-09-26
-- **Repair** Aligned [Emergency access](runbooks/emergency-access.md) with the shipped POL-EMG-001 clause and listed the rule in its frontmatter.
-- **Repair** Added the authored POL-DAT-001 clause to [Access Control Standard §8](policies/access-control-standard.md) and listed the rule in its frontmatter. The deliberate contractor write-access contradiction remains open.
+- **Update** Aligned [Emergency access](runbooks/emergency-access.md) with the shipped POL-EMG-001 clause and listed the rule in its frontmatter.
+- **Update** Added the authored POL-DAT-001 clause to [Access Control Standard §8](policies/access-control-standard.md) and listed the rule in its frontmatter. The deliberate contractor write-access contradiction remains open.
+- **Update** Aligned the Payments Engineer role, GitHub repository inventory, and incident commander roster with the expanded demo fixtures.
 - **Review** Open contradiction, left for the policy owner to settle: the [Contractor Onboarding Policy §3](policies/contractor-onboarding.md) says contractor write access needs Security review, while the [Access Control Standard §3](policies/access-control-standard.md) says contractors get read-only access to their SOW repositories and nothing else. ContextRail enforces the Standard (POL-ACC-004 refuses write access). Both texts stay as written; the lint reports the disagreement until a person resolves it.
 - **Creation** [Access Control and Least Privilege Standard](policies/access-control-standard.md) and [Contractor Onboarding Policy](policies/contractor-onboarding.md), ported from the Stage 1 policy documents. Every shipped rule's clause text is verbatim under its clause heading.
 - **Creation** [Payments Engineer](roles/payments-engineer.md), matching the role catalogue in fixtures/roles.json.
