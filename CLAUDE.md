@@ -128,7 +128,7 @@ contextrail/
 ├─ src/ mcp/ public/             # Stage 1 Next.js glass box (read-only view of the engine)
 ├─ engine/                       # Python 3.12 service  (port 8000)
 │  ├─ pyproject.toml
-│  ├─ migrations/0001_core.sql 0002_audit_jobs_llm.sql 0003_doors.sql
+│  ├─ contextrail/migrations/0001_core.sql 0002_audit_jobs_llm.sql 0003_doors.sql  # shipped inside the package
 │  ├─ contextrail/
 │  │  ├─ main.py  settings.py  models.py  db.py  jobs.py  telemetry.py
 │  │  ├─ rail/        runner discover compile govern plan handoff approve execute verify capsule

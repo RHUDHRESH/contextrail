@@ -1,0 +1,153 @@
+"""Schema-level guarantees. These hold even if Python code has a bug."""
+
+import uuid
+
+import psycopg
+import pytest
+
+H = "a" * 64  # a valid-looking sha256 hex
+
+
+def _run(c, source="slack"):
+    rid = uuid.uuid4()
+    c.execute("insert into runs (id, source, request_text) values (%s, %s, %s)", (rid, source, "same as Rahul"))
+    return rid
+
+
+def _action(c, rid, aid="A1", verdict="ALLOW", state="planned", approver=None, idem=None):
+    c.execute(
+        """insert into actions (id, run_id, kind, target, params_hash, verdict, rule_id, clause, approver, state,
+                                idempotency_key)
+           values (%s, %s, 'grant', '{"system":"github"}', %s, %s, 'POL-X', 'clause text', %s, %s, %s)""",
+        (aid, rid, H, verdict, approver, state, idem),
+    )
+
+
+# --- 0001_core ---------------------------------------------------------------------------------------------
+
+def test_refuse_can_never_move_forward(migrated_db):
+    with psycopg.connect(migrated_db) as c:
+        rid = _run(c)
+        _action(c, rid, verdict="REFUSE")
+        c.execute("update actions set state = 'refused' where run_id = %s", (rid,))
+        for forbidden in ("approved", "executed", "verified", "awaiting"):
+            with pytest.raises(psycopg.errors.CheckViolation), c.transaction():
+                c.execute("update actions set state = %s, verified_at = now() where run_id = %s", (forbidden, rid))
+
+
+def test_hold_must_name_an_approver(migrated_db):
+    with psycopg.connect(migrated_db) as c:
+        rid = _run(c)
+        with pytest.raises(psycopg.errors.CheckViolation):
+            _action(c, rid, verdict="HOLD", approver=None)
+
+
+def test_verified_requires_read_back_timestamp(migrated_db):
+    with psycopg.connect(migrated_db) as c:
+        rid = _run(c)
+        _action(c, rid)
+        with pytest.raises(psycopg.errors.CheckViolation):
+            c.execute("update actions set state = 'verified' where run_id = %s", (rid,))
+
+
+def test_idempotency_key_is_unique(migrated_db):
+    with psycopg.connect(migrated_db) as c:
+        rid = _run(c)
+        _action(c, rid, aid="A1", idem="k1")
+        with pytest.raises(psycopg.errors.UniqueViolation):
+            _action(c, rid, aid="A2", idem="k1")
+
+
+def test_first_decision_wins_across_doors(migrated_db):
+    with psycopg.connect(migrated_db) as c:
+        rid = _run(c)
+        _action(c, rid, verdict="HOLD", approver="security-oncall")
+        c.execute("""insert into approvals (run_id, action_id, params_hash, approver, decision, channel)
+                     values (%s, 'A1', %s, 'p-anil', 'approved', 'email')""", (rid, H))
+        with pytest.raises(psycopg.errors.UniqueViolation):
+            c.execute("""insert into approvals (run_id, action_id, params_hash, approver, decision, channel)
+                         values (%s, 'A1', %s, 'p-anil', 'refused', 'teams')""", (rid, H))
+
+
+def test_unknown_source_and_status_rejected(migrated_db):
+    with psycopg.connect(migrated_db) as c:
+        with pytest.raises(psycopg.errors.CheckViolation), c.transaction():
+            _run(c, source="whatsapp")
+        rid = _run(c)
+        with pytest.raises(psycopg.errors.CheckViolation):
+            c.execute("update runs set status = 'approved' where id = %s", (rid,))
+
+
+# --- 0002_audit_jobs_llm -----------------------------------------------------------------------------------
+
+def _audit(c, rid, n):
+    c.execute("insert into audit (run_id, event, prev_hash, hash) values (%s, 'stage', 'GENESIS', %s)",
+              (rid, f"{n:064x}"))
+
+
+def test_audit_rejects_update_delete_truncate(migrated_db):
+    with psycopg.connect(migrated_db) as c:
+        rid = _run(c)
+        _audit(c, rid, 1)
+        for sql in ("update audit set event = 'forged'", "delete from audit", "truncate audit"):
+            with pytest.raises(psycopg.errors.InsufficientPrivilege), c.transaction():
+                c.execute(sql)
+        assert c.execute("select event from audit").fetchone()[0] == "stage"
+
+
+def test_audit_hash_must_be_sha256_hex_and_unique(migrated_db):
+    with psycopg.connect(migrated_db) as c:
+        rid = _run(c)
+        with pytest.raises(psycopg.errors.CheckViolation), c.transaction():
+            c.execute("insert into audit (run_id, event, prev_hash, hash) values (%s, 'e', 'GENESIS', 'nope')",
+                      (rid,))
+        _audit(c, rid, 7)
+        with pytest.raises(psycopg.errors.UniqueViolation):
+            _audit(c, rid, 7)
+
+
+def test_llm_call_tier_is_constrained(migrated_db):
+    with psycopg.connect(migrated_db) as c:
+        c.execute("insert into llm_calls (model, tier, replay) values ('claude-haiku-4-5-20251001', 'T4', true)")
+        with pytest.raises(psycopg.errors.CheckViolation):
+            c.execute("insert into llm_calls (model, tier) values ('x', 'T9')")
+
+
+def test_job_dedupe_key(migrated_db):
+    with psycopg.connect(migrated_db) as c:
+        c.execute("insert into jobs (kind, dedupe_key) values ('rail.run', 'fs:ticket:42')")
+        with pytest.raises(psycopg.errors.UniqueViolation):
+            c.execute("insert into jobs (kind, dedupe_key) values ('rail.run', 'fs:ticket:42')")
+
+
+# --- 0003_doors --------------------------------------------------------------------------------------------
+
+def test_webhook_first_delivery_wins(migrated_db):
+    with psycopg.connect(migrated_db) as c:
+        sql = """insert into webhook_dedupe (source, external_id) values ('freshservice', '4412')
+                 on conflict do nothing returning external_id"""
+        assert c.execute(sql).fetchone() == ("4412",)
+        assert c.execute(sql).fetchone() is None  # retry is a no-op
+
+
+def test_identity_map_is_unique_per_door_and_e164(migrated_db):
+    with psycopg.connect(migrated_db) as c:
+        c.execute("""insert into identity_map (person_id, display_name, email, slack_user_id, phone)
+                     values ('p-anil', 'Anil Kumar', 'Anil@Acme.example', 'U01', '+919876543210')""")
+        with pytest.raises(psycopg.errors.UniqueViolation), c.transaction():
+            c.execute("insert into identity_map (person_id, display_name, email) "
+                      "values ('p-x', 'X', 'anil@acme.example')")  # case-insensitive duplicate
+        with pytest.raises(psycopg.errors.UniqueViolation), c.transaction():
+            c.execute("insert into identity_map (person_id, display_name, slack_user_id) values ('p-y', 'Y', 'U01')")
+        with pytest.raises(psycopg.errors.CheckViolation):
+            c.execute("insert into identity_map (person_id, display_name, phone) values ('p-z', 'Z', '98765 43210')")
+
+
+def test_one_door_message_per_action_and_channel(migrated_db):
+    with psycopg.connect(migrated_db) as c:
+        rid = _run(c)
+        ins = "insert into door_messages (run_id, action_id, channel, ref) values (%s, 'A1', %s, '{}')"
+        c.execute(ins, (rid, "slack"))
+        c.execute(ins, (rid, "teams"))
+        with pytest.raises(psycopg.errors.UniqueViolation):
+            c.execute(ins, (rid, "slack"))
