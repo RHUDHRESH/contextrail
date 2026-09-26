@@ -1,0 +1,33 @@
+{
+  "platform-version": "3.0",
+  "app": {},
+  "modules": {
+    "common": {
+      "requests": {
+        "getRunByTicket": {},
+        "startRun": {},
+        "getReceipt": {}
+      },
+      "events": {
+        "onAppInstall": {
+          "handler": "onAppInstallHandler"
+        }
+      }
+    },
+    "service_ticket": {
+      "location": {
+        "ticket_sidebar": {
+          "url": "index.html",
+          "icon": "styles/images/icon.svg"
+        }
+      }
+    }
+  },
+  "engines": {
+    "node": "24.11.1",
+    "fdk": "10.1.9"
+  },
+  "scripts": {
+    "fdk-unit-test": "vitest run --coverage"
+  }
+}

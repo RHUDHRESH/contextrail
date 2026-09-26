@@ -204,14 +204,14 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 
 ## K. Freshworks FDK app (ticket sidebar) (13)
 
-- [ ] T157 `P1` Scaffold with `/fw-app-dev`: Platform 3.0, `service_ticket`, `ticket_sidebar`.
-- [ ] T158 `P1` `manifest.json`: modules, location, engines (Node 24, FDK 10), request templates registered.
-- [ ] T159 `P1` `iparams.json`: engine_url, engine_token (secure).
-- [ ] T160 `P1` `config/requests.json`: getRunByTicket, startRun, getReceipt.
-- [ ] T161 `P1` `app.js` client init (`client.data.get('ticket')`) + Crayons layout: header, run status pill, LIVE/FIXTURE badge.
-- [ ] T162 `P1` Rows: ALLOW (verified tick), HOLD (approver + deadline), REFUSE (struck through + clause).
-- [ ] T163 `P1` Empty state with "Run ContextRail on this ticket" button.
-- [ ] T164 `P1` Poll every 3 s while running; stop on final state.
+- [x] T157 `P1` Scaffold with `/fw-app-dev`: Platform 3.0, `service_ticket`, `ticket_sidebar`.
+- [x] T158 `P1` `manifest.json`: modules, location, engines (Node 24, FDK 10), request templates registered.
+- [x] T159 `P1` `iparams.json`: engine_url, engine_token (secure).
+- [x] T160 `P1` `config/requests.json`: getRunByTicket, startRun, getReceipt.
+- [x] T161 `P1` `app.js` client init (`client.data.get('ticket')`) + Crayons layout: header, run status pill, LIVE/FIXTURE badge.
+- [x] T162 `P1` Rows: ALLOW (verified tick), HOLD (approver + deadline), REFUSE (struck through + clause).
+- [x] T163 `P1` Empty state with "Run ContextRail on this ticket" button.
+- [x] T164 `P1` Poll every 3 s while running; stop on final state.
 - [ ] T165 `P1` Receipt modal via interface method + error and timeout states.
 - [ ] T166 `P1` `server/server.js`: `onTicketCreate` backup trigger calling startRun.
 - [ ] T167 `P1` `fdk validate` clean (`/fdk-fix`) + `/fw-review` blocking findings fixed.

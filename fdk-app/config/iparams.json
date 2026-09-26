@@ -1,0 +1,23 @@
+{
+  "engine_url": {
+    "display_name": "ContextRail engine host",
+    "description": "Host name of your ContextRail engine only: no https://, no path, no port. The app always calls it over HTTPS.",
+    "type": "text",
+    "required": true,
+    "regex": {
+      "engine-host": "^([A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?\\.)+[A-Za-z]{2,63}$",
+      "engine-host-error": "Enter the engine host only, e.g. contextrail.example.com (no https://, path or port)."
+    }
+  },
+  "engine_token": {
+    "display_name": "ContextRail engine token",
+    "description": "The engine's ENGINE_TOKEN. Stored encrypted by Freshworks and sent only in the Authorization header of the app's request templates; the app's code never reads it.",
+    "type": "text",
+    "required": true,
+    "secure": true,
+    "regex": {
+      "engine-token": "^\\S{16,}$",
+      "engine-token-error": "The engine token must be at least 16 characters with no spaces."
+    }
+  }
+}
