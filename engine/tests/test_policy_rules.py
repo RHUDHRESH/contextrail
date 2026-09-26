@@ -1,10 +1,12 @@
 """The shipped rules, one behaviour at a time (CLAUDE.md §18 test_policy_rules.py). Every verdict quotes its clause."""
 
+from datetime import UTC, datetime, timedelta
+
 import pytest
 
 from contextrail.models import Action, Subject
 from contextrail.policy.approvers import StaticDirectory
-from contextrail.policy.engine import PolicyEngine, check_decision
+from contextrail.policy.engine import PolicyEngine, apply_decision, check_decision
 from contextrail.policy.loader import load_rules
 
 DIRECTORY = StaticDirectory(roster={"security-oncall": ["p-dana"], "incident-commander": ["p-omar"]},
@@ -225,3 +227,102 @@ def test_sod_001_requester_or_beneficiary_cannot_approve(engine, approver, reque
 
 def test_sod_001_unattributable_request_is_refused(engine):
     assert sod(engine, "p-dana", requested_by=None).verdict == "REFUSE"
+
+
+# --- POL-DAT-001 (T067) ------------------------------------------------------------------------------------
+
+ANALYST = person(source_id="E-0612", display_name="Aisha Bello", role="data-analyst", team="data-analytics",
+                 seniority="senior")
+RAW = {"system": "snowflake", "entitlement": "warehouse-customers-raw", "permission": "read", "data_class": "raw_pii"}
+
+
+def raw_pii(**extra):
+    return grant(**RAW, masked_view="warehouse-customers-masked", **extra)
+
+
+def test_dat_001_analytics_team_may_read_raw_customer_pii(engine):
+    d = engine.decide(raw_pii(), ANALYST)
+    assert (d.verdict.verdict, d.verdict.rule_id) == ("ALLOW", "POL-DAT-001")
+    assert d.alternative is None  # nothing to offer instead of an allowed grant
+
+
+@pytest.mark.parametrize("who", [ANIL, PRIYA, person(team=None)])
+def test_dat_001_everyone_else_is_refused_and_offered_the_masked_view(engine, who):
+    d = engine.decide(raw_pii(), who)
+    assert (d.verdict.verdict, d.verdict.rule_id) == ("REFUSE", "POL-DAT-001")
+    assert "masked view" in d.verdict.clause_text
+    assert d.alternative == "warehouse-customers-masked"
+
+
+def test_dat_001_the_alternative_is_recorded_alongside_and_never_changes_the_verdict(engine):
+    offered = engine.decide(raw_pii(), ANIL)
+    bare = engine.decide(grant(**RAW), ANIL)  # the catalogue names no masked view
+    assert bare.alternative is None
+    assert offered.verdict == bare.verdict
+    # The same rule with its `alternative` removed decides byte-for-byte the same.
+    stripped = [r.model_copy(update={"alternative": None}) if r.id == "POL-DAT-001" else r for r in engine.rules]
+    assert PolicyEngine(stripped, DIRECTORY).decide(raw_pii(), ANIL).verdict == offered.verdict
+
+
+def test_dat_001_masked_data_is_left_to_the_ordinary_access_rules(engine):
+    masked = grant(system="snowflake", entitlement="warehouse-customers-masked", permission="read", data_class="masked")
+    d = engine.decide(masked, ANIL, role={"baseline": ["warehouse-customers-masked"]})
+    assert (d.verdict.verdict, d.verdict.rule_id) == ("ALLOW", "POL-ACC-001")
+    assert engine.decide(masked, ANIL).verdict.rule_id == "DEFAULT-DENY"  # not on the baseline: still default deny
+
+
+def test_dat_001_offers_nothing_when_another_rule_decides(engine):
+    # Mirrored from a peer but outside Anil's role: POL-ACC-002 is quoted, so its (absent) alternative is used.
+    d = engine.decide(raw_pii(origin="same_as_peer", role_scope=["data-analyst"]), ANIL)
+    assert (d.verdict.verdict, d.verdict.rule_id, d.alternative) == ("REFUSE", "POL-ACC-002", None)
+
+
+# --- POL-EMG-001 (T068) ------------------------------------------------------------------------------------
+
+FOUR_HOURS = timedelta(hours=4)
+
+
+def incident(**target):
+    return grant(**({"origin": "incident", "incident_id": "INC-4412", "system": "datadog", "permission": "read"}
+                    | target))
+
+
+@pytest.mark.parametrize("permission", ["read", "viewer"])
+def test_emg_001_read_only_incident_access_is_held_for_the_incident_commander_for_4_hours(engine, permission):
+    d = engine.decide(incident(permission=permission), ANIL, run={"requested_by": "p-anil"})
+    assert (d.verdict.verdict, d.verdict.rule_id, d.verdict.approver) == ("HOLD", "POL-EMG-001", "p-omar")
+    assert "4 hours" in d.verdict.clause_text
+    assert d.expires_after == FOUR_HOURS
+
+
+@pytest.mark.parametrize(("target", "who"), [
+    ({"permission": "write"}, ANIL),                  # never write
+    ({"permission": "admin"}, ANIL),                  # never admin
+    ({"incident_id": None}, ANIL),                    # no named incident
+    ({}, PRIYA),                                      # never for contractors
+    ({}, VENDOR),                                     # or vendors
+])
+def test_emg_001_anything_else_under_an_incident_is_refused_and_not_time_boxed(engine, target, who):
+    d = engine.decide(incident(**target), who)
+    assert (d.verdict.verdict, d.verdict.rule_id) == ("REFUSE", "POL-EMG-001")
+    assert d.expires_after is None  # a refusal grants nothing, so nothing expires
+
+
+def test_emg_001_outranks_the_security_hold_on_a_production_repo_and_keeps_its_time_box(engine):
+    d = engine.decide(incident(system="github", repo="northbeam/payments-core", repo_tags=["production"]), ANIL)
+    assert (d.verdict.rule_id, d.verdict.approver) == ("POL-EMG-001", "p-omar")
+    assert {o.rule.id for o in d.fired} >= {"POL-EMG-001", "POL-ACC-004"}
+    assert d.expires_after == FOUR_HOURS
+
+
+def test_emg_001_an_incident_commander_never_approves_their_own_access():
+    engine = PolicyEngine(load_rules(), StaticDirectory(roster={"incident-commander": ["p-omar", "p-dana"]}))
+    omar = person(source_id="E-0051", display_name="Omar Haddad", role="security-engineer", team="security")
+    v = engine.decide(incident(), omar, run={"requested_by": "p-omar"}).verdict
+    assert (v.verdict, v.approver) == ("HOLD", "p-dana")
+
+
+def test_emg_001_the_time_box_lands_on_the_action_when_the_verdict_is_stamped(engine):
+    now = datetime(2026, 9, 26, 10, 0, tzinfo=UTC)
+    a = apply_decision(incident(), engine.decide(incident(), ANIL), now=now)
+    assert (a.verdict, a.state, a.expires_at) == ("HOLD", "awaiting", now + FOUR_HOURS)

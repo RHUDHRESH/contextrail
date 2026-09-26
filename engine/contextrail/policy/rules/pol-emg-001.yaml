@@ -1,0 +1,19 @@
+id: POL-EMG-001
+title: Incident access is read-only, time-boxed to 4 hours, and approved by the incident commander
+source: {okf: knowledge/runbooks/emergency-access.md, clause: "What is granted"}
+# Authored for Stage 2 (the Stage 1 corpus has no emergency-access text; ntn_incident_matrix only defines
+# severities); see docs/DECISIONS.md D-011.
+# Target convention: target.origin 'incident' and target.incident_id naming the declared incident. The 4-hour box
+# starts when policy decides (Govern stamps Action.expires_at); a late approval shortens the grant, never extends it.
+clause_text: "During a declared incident, an employee may be given read-only access to the affected system with the incident commander's approval. The access expires 4 hours after it is requested and is never extended; write or administrator access, and access for contractors or vendors, is not granted this way."
+match:
+  kind: grant
+  target.origin: incident
+conditions:
+  - subject.employment_type == 'employee'
+  - target.permission in ['read', 'viewer']
+  - target.incident_id != ''
+verdict: HOLD
+approver: incident-commander
+else_verdict: REFUSE
+expires_after: 4h

@@ -8,9 +8,10 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from datetime import UTC, datetime
 
-from contextrail.models import Action, Subject, Verdict, apply_verdict
-from contextrail.policy.engine import PolicyEngine, RuleOutcome
+from contextrail.models import Action, Subject, Verdict
+from contextrail.policy.engine import PolicyEngine, RuleOutcome, apply_decision
 from contextrail.rail.compile import CompileInputs
 
 _EVERYTHING = re.compile(r"\beverything\b", re.IGNORECASE)
@@ -49,10 +50,12 @@ class Governed:
 
 
 def evaluate(actions: list[Action], subject: Subject, engine: PolicyEngine, *, role: dict,
-             requested_by: str | None) -> list[Governed]:
-    """T096: every candidate through the policy engine; the verdict is stamped on the action once."""
+             requested_by: str | None, now: datetime | None = None) -> list[Governed]:
+    """T096: every candidate through the policy engine; the verdict is stamped on the action once, with the
+    rule's time box as expires_at (T068)."""
+    now = now or datetime.now(UTC)
     out = []
     for a in actions:
         decision = engine.decide(a, subject, role=role, run={"requested_by": requested_by})
-        out.append(Governed(apply_verdict(a, decision.verdict), decision.verdict, decision.fired))
+        out.append(Governed(apply_decision(a, decision, now=now), decision.verdict, decision.fired))
     return out

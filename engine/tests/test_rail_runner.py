@@ -1,12 +1,16 @@
 """The whole rail against real Postgres and FIXTURE connectors: P0-3, P0-6, P0-8 end to end."""
 
 from collections import Counter
+from datetime import UTC, datetime, timedelta
 
 import psycopg
 
 from contextrail import repo
 from contextrail.audit.chain import verify_db
-from contextrail.models import RunStatus
+from contextrail.fixtures import load, subject_from_record
+from contextrail.models import Action, CaseFile, RunStatus
+from contextrail.policy.engine import apply_decision
+from contextrail.rail.store import load_case, save_case
 
 STAGES = ["discover", "compile", "govern", "plan", "handoff", "approve", "execute", "verify", "finalize"]
 
@@ -123,3 +127,24 @@ async def test_questions_are_routed_not_run(rail):
     runner, _ = rail
     _, status = await _start(runner, "What happened to my access request?")
     assert status is RunStatus.DONE
+
+
+async def test_a_time_boxed_action_is_stored_with_its_expiry(rail):
+    """T068: the expiry a rule puts on an action (POL-EMG-001, 4 h) reaches the actions table, not only the capsule."""
+    runner, deps = rail
+    rid = await runner.start(source="slack", request_text="incident access to payments dashboards",
+                             requested_by="p-anil")
+    anil = subject_from_record(next(p for p in load("hris")["people"] if p["source_id"] == "E-1042"))
+    now = datetime(2026, 9, 26, 10, 0, tzinfo=UTC)
+    action = Action.create("A01", "grant", {"origin": "incident", "incident_id": "INC-4412", "system": "datadog",
+                                            "permission": "viewer"})
+    apply_decision(action, deps.engine.decide(action, anil), now=now)
+    case = CaseFile(run_id=rid, request_text="incident access", intent="access.incident", subject=anil,
+                    actions=[action])
+    async with deps.db.transaction() as c:
+        await save_case(c, case)
+        await runner._sync_actions(c, case)
+    stored = (await _actions(deps, rid))["A01"]
+    assert (stored["verdict"], stored["expires_at"]) == ("HOLD", now + timedelta(hours=4))
+    async with deps.db.connection() as c:  # and the sealed capsule round-trips it with its digest intact (P5)
+        assert (await load_case(c, rid)).action("A01").expires_at == now + timedelta(hours=4)

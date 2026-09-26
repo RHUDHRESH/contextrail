@@ -29,6 +29,9 @@ CASES = [
     (Action.create("A6", "grant", {"seat_cost_usd": 49}), ANIL, {}),
     (Action.create("A7", "revoke", {"origin": "transfer"}), ANIL, {}),
     (Action.create("A8", "grant", {"system": "unknown-tool"}), ANIL, {}),
+    (Action.create("A9", "grant", {"data_class": "raw_pii", "masked_view": "warehouse-customers-masked"}), ANIL, {}),
+    (Action.create("A10", "grant", {"origin": "incident", "incident_id": "INC-4412", "permission": "read"}), ANIL,
+     {}),
 ]
 
 

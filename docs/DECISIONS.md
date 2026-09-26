@@ -137,7 +137,24 @@ scopes from the 12 rules the brief requires (CLAUDE.md §9).
 
 **Authored clauses.** ACC-001, ACC-002, ACC-003, ACC-004 (combined), ACC-005, OFF-001 (transfer) and
 SOD-001 carry clause text written for Stage 2, marked in each YAML file. When the OKF bundle lands (T173), each
-clause must appear verbatim in its `source.okf` page, and a test will enforce it.
+clause must appear verbatim in its `source.okf` page, and a test will enforce it. Added later: DAT-001 (T067),
+EMG-001 (T068).
+
+**Data classes and alternatives (T067).** A dataset grant carries `target.data_class`: `raw_pii` or `masked`.
+POL-DAT-001 allows `raw_pii` only to the `data-analytics` team and refuses everyone else, including a subject whose
+team is unknown. A `raw_pii` catalogue entry names its masked counterpart in `target.masked_view`; the rule's
+`alternative: target.masked_view` makes the engine return that id as `Decision.alternative`, next to the verdict
+and not inside it. It is computed after the verdict is final, only from the rule the verdict quotes, and a test
+shows the verdict is identical with the alternative removed. Masked data is not special: the ordinary access rules
+(baseline, mirrored access, default deny) decide it.
+
+**Time boxes (T068).** A rule's `expires_after` time-boxes what it grants. The engine returns the shortest box among
+the rules that allowed or held the action (`Decision.expires_after`), not only the deciding rule's, so a more senior
+approver cannot lift an incident's limit; a refusal has none. Govern stamps `Action.expires_at = decided_at + box`
+through `policy.engine.apply_decision`, and the runner stores it on the actions row. The clock starts when policy
+decides, not when access is written: a late approval shortens the grant and never extends it. POL-EMG-001's clause
+says "4 hours after it is requested" for that reason. Not built yet: Execute does not skip an approved action whose
+box has already closed, and nothing revokes access when `expires_at` passes (a rail follow-up).
 
 ## D-013 — Haiku 4.5 only; $20 Bedrock backup
 **Context.** The team has one Anthropic API key and $57 of AWS credit in total.

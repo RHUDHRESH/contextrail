@@ -17,14 +17,20 @@ A rule, in YAML:
     else_verdict: REFUSE                                  # outcome when a condition fails; omitted = rule silent
     terminal: true                                        # a terminal REFUSE: no approval path, no exception
     expires_after: 4h                                     # granted access expires (HOLD/ALLOW)
+    alternative: target.masked_view                       # what to offer instead when this rule holds or refuses
 
 Paths may start only with: subject, target, action, role, run, decision. Retrieved evidence is not addressable,
 so no rule can be influenced by it (P6). This is checked when rules load, not when they run.
+
+`alternative` names a path whose value is offered to the requester alongside a HOLD or REFUSE this rule decides
+(POL-DAT-001 offers the masked view named by the catalogue). It is read after the verdict is final and never
+changes it.
 """
 
 from __future__ import annotations
 
 import re
+from datetime import timedelta
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -43,6 +49,13 @@ _DURATION_RE = re.compile(r"^\d+[mhd]$")
 
 def path_root(path: str) -> str:
     return path.split(".", 1)[0]
+
+
+def duration(text: str) -> timedelta:
+    """'30m' / '4h' / '90d' -> timedelta (the `expires_after` format)."""
+    if not _DURATION_RE.match(text):
+        raise ValueError(f"not a duration: {text!r}; expected like '30m', '4h', '90d'")
+    return timedelta(**{{"m": "minutes", "h": "hours", "d": "days"}[text[-1]]: int(text[:-1])})
 
 
 def check_path(path: str, where: str) -> str:
@@ -108,6 +121,7 @@ class Rule(BaseModel):
     else_verdict: VerdictKind | None = None
     terminal: bool = False
     expires_after: str | None = None
+    alternative: str | None = None
 
     @field_validator("applies_to")
     @classmethod
@@ -149,4 +163,11 @@ class Rule(BaseModel):
             raise ValueError(f"{where}: only a rule that can REFUSE may be terminal")
         if self.else_verdict and not self.conditions:
             raise ValueError(f"{where}: else_verdict needs conditions to fail")
+        if self.alternative is not None:
+            check_path(self.alternative, where)
+            if not _right_is_path(self.alternative):
+                raise ValueError(f"{where}: alternative must be a dotted path such as 'target.masked_view'")
+            outcomes = {self.verdict, self.else_verdict, *((self.escalate.verdict,) if self.escalate else ())}
+            if not outcomes & {"HOLD", "REFUSE"}:
+                raise ValueError(f"{where}: an alternative is offered on HOLD or REFUSE, and this rule can do neither")
         return self
