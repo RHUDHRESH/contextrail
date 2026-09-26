@@ -9,8 +9,9 @@ def test_connectors_endpoint_is_honest_about_every_mode(monkeypatch):
         monkeypatch.delenv(k, raising=False)
     body = TestClient(create_app(Settings(_env_file=None))).get("/v1/connectors").json()
     built = {c["name"]: c for c in body["connectors"]}
-    assert set(built) == {"hris", "entitlements", "github", "slack_corpus"}
+    assert set(built) == {"hris", "entitlements", "github", "slack_corpus", "dodo"}
     assert all(c["mode"] == "FIXTURE" for c in built.values())
+    assert built["dodo"]["environment"] == "fixture"   # never "test_mode" without a key (T206)
     planned = {p["name"]: p for p in body["planned"]}
     assert planned["freshservice"] == {"name": "freshservice", "kind": "base", "mode": None,
                                        "status": "planned (T122)", "credentials_configured": False}

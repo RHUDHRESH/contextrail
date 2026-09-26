@@ -1,0 +1,10 @@
+{
+  "_meta": {
+    "mode": "FIXTURE",
+    "system": "dodo",
+    "note": "Stand-in for Dodo Payments when no DODO_API_KEY is configured. Shapes follow the official SDK types (dodopayments 1.118.0): usage events, checkout sessions. Amounts are in the currency's smallest unit, as in Dodo. Ids use a 'fx' infix so they can never be mistaken for real Dodo ids."
+  },
+  "pilot": {"customer_id": "cus_fx_northbeam", "product_id": "pdt_fx_governed_run"},
+  "events": {},
+  "checkouts": {}
+}

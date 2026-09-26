@@ -15,7 +15,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from uuid import UUID
 
-from contextrail import repo
+from contextrail import billing, repo
 from contextrail.audit import chain
 from contextrail.canonical import idempotency_key
 from contextrail.capsule import DigestMismatch
@@ -259,6 +259,7 @@ class Runner:
             case = await save_case(c, case, stage=Stage.FINALIZE)
             await self._status(c, run_id, status)
             await finalize.request_receipt(c, case, status)
+            await billing.request_usage_event(c, case, status)  # one Dodo usage event per completed run (T206)
             await self._audit(c, run_id, "stage.finalize", {"status": status, "tally": finalize.tally(case),
                                                             "digest": case.digest})
         t = finalize.tally(case)

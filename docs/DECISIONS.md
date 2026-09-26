@@ -19,6 +19,7 @@ Append-only. Each entry records what we chose, why, and what would change our mi
 | D-012 | — | Teams SDK: Microsoft 365 Agents SDK vs Bot Framework SDK | Open (T240) |
 | D-013 | 2026-09-26 | Claude Haiku 4.5 is the only model; Bedrock backup capped at $20 | Accepted |
 | D-014 | 2026-09-26 | Agentic core (memory, RAG, tools, capabilities) pulled forward as section T | Accepted |
+| D-016 | 2026-09-26 | Dodo Payments: official Python SDK, pinned to test mode, SDK retries off | Accepted |
 
 ---
 
@@ -156,3 +157,28 @@ output sets a verdict, an approval or `verified`.
 **Why lexical RAG, not a vector DB.** The corpus is small (policies, roles, systems, precedents, runbooks,
 receipts), and Anthropic offers no embedding model on our budget. Postgres full-text search (already our only
 store) plus rule/tag links gives precise, explainable retrieval with citations and no extra service.
+
+## D-016 — Dodo Payments: official Python SDK, pinned to test mode, SDK retries off
+**Found** (read 2026-09-26): PyPI `dodopayments` 1.118.0 (uploaded 2026-09-25) is the official Python SDK
+(github.com/dodopayments/dodopayments-python); its `webhooks` extra adds `standardwebhooks`. The installed package
+and the TypeScript SDK clone (`refs/dodopayments__dodopayments-typescript/src/resources`, 66b232c) agree on the
+calls we use: `POST /events/ingest` and `GET /events/{event_id}` (usage events; `event_id` is Dodo's idempotency
+key, and an id already ingested is ignored) and `POST /checkouts` (checkout sessions). Environments: `test_mode` =
+`https://test.dodopayments.com`, `live_mode` = `https://live.dodopayments.com`. The SDK defaults to live mode and
+honours a `DODO_PAYMENTS_BASE_URL` environment override. It sends **no idempotency header**
+(`_idempotency_header = None`), and by default it retries a POST twice on timeouts, 408/409/429 and 5xx.
+
+**Decision.**
+- `dodopayments[webhooks]==1.118.0`, through `AsyncDodoPayments`. The brief's package name is right.
+- `connectors/dodo.py` pins `environment="test_mode", base_url=None`, so neither a setting nor the SDK's
+  environment override can select live mode. With a `DODO_API_KEY` the connector's mode is LIVE and its label is
+  always "LIVE · test mode"; `/v1/connectors` shows `environment: test_mode`. Without a key it is FIXTURE.
+- `max_retries=0`: the rail owns retries and reconciles before it retries a write (§8 Execute). An SDK-level retry
+  of a POST that Dodo cannot deduplicate could write twice.
+- Usage billing: one `dodo.usage` job per completed run (done or partial, deduplicated by run id) sends one usage
+  event `contextrail.governed_run` with `event_id` = run id, and reads it back with `GET /events/{run_id}` before it
+  counts as verified. The event timestamp is the send time, because Dodo rejects events older than one hour; the
+  finalize time goes in metadata. The pilot checkout link is a checkout session for `DODO_PRODUCT_ID`.
+
+**Revisit if.** Dodo adds an idempotency header, or the pilot moves to live mode (a deliberate code change, never
+a setting).
