@@ -20,6 +20,7 @@ from contextrail.audit import chain
 from contextrail.canonical import idempotency_key
 from contextrail.capsule import DigestMismatch
 from contextrail.db import Database
+from contextrail.knowledge.okf import Bundle
 from contextrail.logs import bind_run, get_logger
 from contextrail.models import (
     ActionState,
@@ -52,6 +53,7 @@ class RailDeps:
     events: EventBus = field(default_factory=EventBus)
     backoff: Callable[[int], float] = execute.default_backoff
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep
+    knowledge: Bundle | None = None   # OKF bundle: policy text comes from curated pages (T177)
 
 
 class Runner:
@@ -135,10 +137,12 @@ class Runner:
         prev = check_stage_order(prev, Stage.COMPILE)
         t0 = time.perf_counter()
         inputs = await compile_.gather_inputs(found.subject_record, found.peer_record,
-                                              entitlements=self.d.registry.get("entitlements"), rules=self.d.rules)
+                                              entitlements=self.d.registry.get("entitlements"), rules=self.d.rules,
+                                              knowledge=self.d.knowledge)
         messages = await compile_.retrieve_messages(
             self.d.registry.get("slack_corpus"), compile_.search_terms(found.subject, found.peer, found.intent.intent))
         evidence, blockers = compile_.mark_stale(inputs.evidence + messages)
+        blockers = [*inputs.blockers, *blockers]
         case = CaseFile(run_id=run_id, request_text=row["request_text"], intent=found.intent.intent,
                         subject=found.subject, peer=found.peer, evidence=evidence,
                         constraints=compile_.subject_constraints(found.subject), open_blockers=blockers)
