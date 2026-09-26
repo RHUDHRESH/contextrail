@@ -226,7 +226,7 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 - [ ] T173 `P1` `policies/contractor-onboarding.md` + `policies/access-control-standard.md`, linked to their rules.
 - [ ] T174 `P1` `roles/payments-engineer.md` + `systems/github.md` + `systems/freshservice.md`.
 - [ ] T175 `P1` `precedents/github-readonly-contractors.md` + `runbooks/emergency-access.md`.
-- [ ] T176 `P1` OKF loader: frontmatter parser + link graph.
+- [x] T176 `P1` OKF loader: frontmatter parser + link graph.
 - [ ] T177 `P1` Query by tags/rules for Compile and `door.answer_query`.
 - [ ] T178 `P2` Ingest: Solutions article → `raw/` copy → drafted page update in `drafts/`.
 - [ ] T179 `P1` Lint: contradictions, stale pages, broken links, orphans; report without overwriting.
