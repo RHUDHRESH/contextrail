@@ -52,6 +52,7 @@ class RailDeps:
     events: EventBus = field(default_factory=EventBus)
     backoff: Callable[[int], float] = execute.default_backoff
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep
+    knowledge: compile_.KnowledgeSource | None = None  # the OKF bundle (section L); None = not configured
 
 
 class Runner:
@@ -138,14 +139,18 @@ class Runner:
                                               entitlements=self.d.registry.get("entitlements"), rules=self.d.rules)
         messages = await compile_.retrieve_messages(
             self.d.registry.get("slack_corpus"), compile_.search_terms(found.subject, found.peer, found.intent.intent))
-        evidence, blockers = compile_.mark_stale(inputs.evidence + messages)
+        concepts = compile_.load_concepts(self.d.knowledge, found.subject, found.intent.intent, self.d.rules)
+        evidence, blockers = compile_.mark_stale(inputs.evidence + concepts.evidence + messages)
         case = CaseFile(run_id=run_id, request_text=row["request_text"], intent=found.intent.intent,
                         subject=found.subject, peer=found.peer, evidence=evidence,
                         constraints=compile_.subject_constraints(found.subject), open_blockers=blockers)
         async with self.d.db.transaction() as c:
             case = await save_case(c, case, stage=Stage.COMPILE)
-            await self._audit(c, run_id, "stage.compile", {"evidence": len(evidence), "untrusted": len(messages),
-                                                           "blockers": blockers, "digest": case.digest, "ms": _ms(t0)})
+            await self._audit(c, run_id, "stage.compile", {
+                "evidence": len(evidence), "untrusted": len(messages), "blockers": blockers,
+                "okf": {"configured": concepts.configured, "loaded": [e.uri for e in concepts.evidence],
+                        "missing_sources": concepts.missing_sources},
+                "digest": case.digest, "ms": _ms(t0)})
         await self._emit(run_id, Stage.COMPILE, RunStatus.RUNNING,
                          f"Case file sealed: {len(evidence)} pieces of evidence, {len(messages)} untrusted", case)
 

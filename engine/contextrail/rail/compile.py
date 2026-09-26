@@ -1,8 +1,8 @@
 """Compile (CLAUDE.md §8): Subject (+ peer) -> one case file, sealed.
 
 Code fetches, in parallel, everything the case needs: the people's records, what they hold now, the entitlement
-catalogue, the role catalogue entry, the written policy clauses, and (as untrusted evidence) retrieved messages.
-Nothing here decides anything; Govern does, from records only.
+catalogue, the role catalogue entry, the written policy clauses, the curated OKF pages linked to the case, and (as
+untrusted evidence) retrieved messages. Nothing here decides anything; Govern does, from records only.
 """
 
 from __future__ import annotations
@@ -10,9 +10,11 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
+from typing import Protocol
 
 from contextrail.fixtures import load
 from contextrail.models import Evidence, Subject
+from contextrail.policy.matchers import applies_to
 from contextrail.policy.schema import Rule
 
 
@@ -75,6 +77,64 @@ def subject_constraints(subject: Subject) -> list[str]:
         if subject.end_date:
             out.append(f"All access expires on the SOW end date {subject.end_date.isoformat()}.")
     return out
+
+
+# --- OKF concepts: curated knowledge, linked by rules and tags (T090) -----------------------------------------
+
+class KnowledgeSource(Protocol):
+    """What Compile needs from the OKF bundle (knowledge/okf.py `Bundle`, section L, satisfies it).
+
+    `concepts()` returns the curated pages only (never raw/ or drafts/). Each page has a bundle-relative `path` and a
+    frontmatter `meta` with `type`, `title`, `description`, `tags`, `rules` and `last_verified`."""
+
+    def concepts(self) -> list: ...
+
+
+@dataclass
+class ConceptLoad:
+    configured: bool
+    evidence: list[Evidence] = field(default_factory=list)
+    missing_sources: list[str] = field(default_factory=list)  # rule source pages the bundle does not have
+
+
+_EMPLOYMENT_TAG = {"contractor": "contractors", "vendor": "vendors", "employee": "employees",
+                   "customer": "customers"}
+_INTENT_TAGS = {"onboarding": ["onboarding"], "refund.outage": ["refunds", "credits"]}
+
+
+def _bundle_path(okf: str) -> str:
+    return okf.removeprefix("knowledge/")
+
+
+def load_concepts(source: KnowledgeSource | None, subject: Subject, intent: str, rules: list[Rule],
+                  now: datetime | None = None) -> ConceptLoad:
+    """Pages linked to this case: by `rules:` (a rule that applies to this subject) or by `tags:` (the intent, the
+    employment type, the role, the team). A Role page describes one role, so it is linked only by the subject's own
+    role or team, never through rules it shares with every other role. Attached as policy/precedent evidence,
+    trust=curated. Knowledge explains; the engine never reads it. A rule whose source page is missing is reported for
+    the audit and the lint (T179): the verdict still quotes the rule's own clause text, so nothing is assumed."""
+    if source is None:
+        return ConceptLoad(configured=False)
+    now = now or datetime.now(UTC)
+    applying = [r for r in rules if applies_to(r, subject)]
+    rule_ids = {r.id for r in applying}
+    tags = {*_INTENT_TAGS.get(intent, []), _EMPLOYMENT_TAG[subject.employment_type],
+            *(t for t in (subject.role, subject.team) if t)}
+    pages = source.concepts()
+    evidence = []
+    for p in sorted(pages, key=lambda p: p.path):
+        m = p.meta
+        page_type = (m.type or "").lower()
+        by_rule = page_type != "role" and bool(rule_ids & set(m.rules))
+        if not (by_rule or tags & set(m.tags) or p.path == f"roles/{subject.role}.md"):
+            continue
+        evidence.append(Evidence(
+            id=f"EV-okf-{p.path}", kind="precedent" if page_type == "precedent" else "policy",
+            source="okf", uri=f"okf:{p.path}", excerpt=": ".join(x for x in (m.title or p.path, m.description) if x),
+            retrieved_at=now, last_verified=m.last_verified, trust="curated"))
+    have = {p.path for p in pages}
+    missing = sorted({_bundle_path(r.source.okf) for r in applying} - have)
+    return ConceptLoad(configured=True, evidence=evidence, missing_sources=missing)
 
 
 # --- retrieved messages: evidence, never instructions (T093) ------------------------------------------------

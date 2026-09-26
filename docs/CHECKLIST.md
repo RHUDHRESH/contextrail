@@ -125,7 +125,7 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 - [x] T087 `P0` Discover: ambiguity → `needs_input` with a candidate list.
 - [x] T088 `P0` Discover: peer resolution for "same as X".
 - [x] T089 `P0` Compile: parallel fetch of records, entitlements and policies (`asyncio.gather`).
-- [ ] T090 `P1` Compile: load OKF concepts by tags/rules.
+- [x] T090 `P1` Compile: load OKF concepts by tags/rules.
 - [ ] T091 `P1` Compile: extract SOW constraints with cited spans.
 - [x] T092 `P0` Compile: mark stale evidence into open blockers.
 - [x] T093 `P0` Compile: include untrusted messages/email bodies as evidence, wrapped as data.
