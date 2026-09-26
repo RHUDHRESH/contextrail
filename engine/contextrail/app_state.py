@@ -9,13 +9,14 @@ StageEvents to the same EventBus that SSE reads.
 Tests inject a Runner built over their own database and FIXTURE state (conftest `rail`). The Platform then does not
 own the pool: whoever opened it closes it.
 
-The extractor and explainer are the offline ones (heuristic intent, template explanations), labelled as such
-wherever they show. The LLM router (section H) replaces them here, and nowhere else.
+The LLM intent extractor is used when a model tier is configured; it falls back to the heuristic on model failure.
+The explainer remains the labelled deterministic template. Curated OKF pages are loaded once for each rail.
 """
 
 from __future__ import annotations
 
 import asyncio
+import secrets
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
@@ -27,6 +28,10 @@ from contextrail.db import Database
 from contextrail.fixtures import load
 from contextrail.intake import TicketReader
 from contextrail.jobs import Worker, load_handlers
+from contextrail.knowledge.okf import knowledge_dir, load_bundle
+from contextrail.llm.adapters import LLMIntentExtractor
+from contextrail.llm.ledger import LLMLedger
+from contextrail.llm.router import Router, RouterConfig, build_clients
 from contextrail.logs import get_logger
 from contextrail.policy.engine import PolicyEngine
 from contextrail.policy.loader import load_rules
@@ -41,6 +46,7 @@ from contextrail.surfaces.door import Door
 
 if TYPE_CHECKING:
     from contextrail.receipts import TicketNotes
+    from contextrail.surfaces.slack_app import SlackDoor
 
 log = get_logger("contextrail.app")
 
@@ -59,6 +65,7 @@ class Platform:
     sse_heartbeat_s: float = 15.0
     tickets: TicketReader | None = None      # Freshservice ticket reads for 'rail.run' {ticket_id} (section I)
     notes: TicketNotes | None = None         # the receipt as a private note on the ticket (T211, section I)
+    slack: SlackDoor | None = None            # outbound cards; HTTP/Socket Mode attach their shared door here
     shutdown_grace_s: float = 8.0            # under Docker's 10 s stop timeout
     worker: Worker | None = field(default=None, init=False)
 
@@ -82,9 +89,13 @@ class Platform:
     def modes(self) -> dict[str, str]:
         return self.door.modes
 
-    def lifespan(self, _app):
+    @asynccontextmanager
+    async def lifespan(self, app) -> AsyncIterator[None]:
         """FastAPI lifespan: the pool, plus the in-process job worker unless WORKER_IN_PROCESS=false."""
-        return self.serving(worker=self.settings.worker_in_process)
+        async with self.serving(worker=self.settings.worker_in_process):
+            if self.slack is not None:
+                app.state.slack = self.slack
+            yield
 
     @asynccontextmanager
     async def serving(self, *, worker: bool) -> AsyncIterator[None]:
@@ -94,11 +105,21 @@ class Platform:
         if self.owns_db:
             await self.db.open()
         task = None
-        if worker:
-            load_handlers()
-            self.worker = Worker(self.db, self)
-            task = asyncio.create_task(self.worker.run(), name="contextrail-worker")
         try:
+            if self.settings.slack_bot_token.get_secret_value() and self.slack is None:
+                # A standalone worker also sends approval cards. Socket Mode has no HTTP signing secret: the
+                # random value satisfies Bolt internally but never enables the HTTP route.
+                from slack_sdk.web.async_client import AsyncWebClient
+
+                from contextrail.surfaces.slack_app import SlackDoor
+
+                self.slack = SlackDoor(
+                    self.door, client=AsyncWebClient(token=self.settings.slack_bot_token.get_secret_value()),
+                    signing_secret=self.settings.slack_signing_secret.get_secret_value() or secrets.token_urlsafe(32))
+            if worker:
+                load_handlers()
+                self.worker = Worker(self.db, self)
+                task = asyncio.create_task(self.worker.run(), name="contextrail-worker")
             yield
         finally:
             if task is not None:
@@ -118,10 +139,17 @@ def build_platform(settings: Settings, *, rules: list[Rule] | None = None, runne
     if runner is None:
         rules = load_rules() if rules is None else rules
         registry = build_registry(Path(settings.state_dir) if settings.state_dir else None, settings=settings)
+        db = Database(settings.database_url)
+        router_config = RouterConfig.from_settings(settings)
+        extractor = HeuristicExtractor()
+        if router_config.chain():
+            router = Router(router_config, build_clients(settings, router_config), ledger=LLMLedger(db))
+            extractor = LLMIntentExtractor(router)
         runner = Runner(RailDeps(
-            db=Database(settings.database_url), registry=registry,
+            db=db, registry=registry,
             engine=PolicyEngine(rules, approver_directory()), rules=rules,
-            extractor=HeuristicExtractor(), explainer=TemplateExplainer(people_names())))
+            extractor=extractor, explainer=TemplateExplainer(people_names()),
+            knowledge=load_bundle(Path(settings.knowledge_dir) if settings.knowledge_dir else knowledge_dir())))
     modes = {name: c.mode for name, c in runner.d.registry.connectors.items()}
     door = Door(runner, people=people_names(), modes=modes)
     return Platform(settings=settings, runner=runner, door=door, owns_db=owns_db, sse_heartbeat_s=sse_heartbeat_s)
