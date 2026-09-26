@@ -19,6 +19,16 @@ describe('sidebar init', () => {
     expect(document.querySelector('#cr-status fw-label.cr-mode').getAttribute('value')).toBe('FIXTURE');
   });
 
+  test('renders the run\'s verdict rows in the body', async () => {
+    const rows = [
+      { action_id: 'a1', label: 'Jira', verdict: 'ALLOW', state: 'verified', verified: true, rule_id: 'POL-ACC-001' },
+      { action_id: 'a2', label: 'Prod admin', verdict: 'REFUSE', state: 'refused', verified: false, clause: 'No.' }
+    ];
+    await boot(fakeClient({ engine: { getRunByTicket: () => ok(runView({ rows })) } }));
+    const items = document.querySelectorAll('#cr-body li.cr-row');
+    expect([...items].map((li) => li.dataset.verdict)).toEqual(['ALLOW', 'REFUSE']);
+  });
+
   test('shows an error when the FDK client fails to start', async () => {
     await boot(null, () => Promise.reject(new Error('no parent')));
     expect(bodyMessage()).toEqual({ type: 'error', text: expect.stringMatching(/could not start/i) });

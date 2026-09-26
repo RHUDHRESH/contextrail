@@ -54,7 +54,7 @@
 
   function render(view) {
     document.getElementById('cr-status').replaceChildren(V.renderHeader(document, view));
-    document.getElementById('cr-body').replaceChildren();
+    document.getElementById('cr-body').replaceChildren(V.renderRows(document, view));
   }
 
   function ticketIdOf(data) {

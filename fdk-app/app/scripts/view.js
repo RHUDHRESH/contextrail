@@ -10,6 +10,22 @@
     ['failed', { label: 'Failed', color: 'red' }]
   ]);
   const MODE_COLOR = new Map([['LIVE', 'green'], ['FIXTURE', 'yellow'], ['UNVERIFIED', 'grey']]);
+  const VERDICT = new Map([
+    ['ALLOW', { tone: 'allow', lamp: '✅' }],
+    ['HOLD', { tone: 'hold', lamp: '🟠' }],
+    ['REFUSE', { tone: 'refuse', lamp: '⛔' }]
+  ]);
+  const UNKNOWN_VERDICT = { tone: 'unknown', lamp: '❔' };
+  const STATE_TEXT = new Map([
+    ['planned', 'Planned'],
+    ['awaiting', 'Awaiting approval'],
+    ['approved', 'Approved, not executed yet'],
+    ['refused', 'Refused'],
+    ['executed', 'Executed, not verified yet'],
+    ['verified', 'Not verified'],
+    ['failed', 'Failed'],
+    ['unknown', 'Outcome unknown: reconciling before any retry']
+  ]);
 
   function el(doc, tag, attrs, text) {
     const node = doc.createElement(tag);
@@ -68,10 +84,101 @@
     return box;
   }
 
+  function formatDeadline(iso) {
+    const at = new Date(iso);
+    if (Number.isNaN(at.getTime())) {
+      return String(iso);
+    }
+    return at.toLocaleString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+  }
+
+  function holdLines(row, fmt) {
+    const approver = row.approver_name || row.approver_id || 'no approver named';
+    return ['Approver: ' + approver, row.deadline ? 'Deadline: ' + fmt(row.deadline) : 'No deadline set'];
+  }
+
+  function refuseLines(row) {
+    return [row.clause ? '“' + row.clause + '”' : 'No clause recorded'];
+  }
+
+  function linesFor(tone, row, fmt) {
+    if (tone === 'hold') {
+      return holdLines(row, fmt);
+    }
+    return tone === 'refuse' ? refuseLines(row) : [];
+  }
+
+  // Verified is the engine's read-back flag and nothing else (P3): an executed row is not a verified row.
+  function stateTextOf(row) {
+    if (row.verified === true) {
+      return 'Verified';
+    }
+    return STATE_TEXT.get(row.state) || String(row.state);
+  }
+
+  function rowModel(row, fmt) {
+    const verdict = VERDICT.get(row.verdict) || UNKNOWN_VERDICT;
+    return {
+      id: String(row.action_id),
+      verdict: String(row.verdict),
+      tone: verdict.tone,
+      lamp: verdict.lamp,
+      label: String(row.label),
+      struck: verdict.tone === 'refuse' || row.struck_through === true,
+      verified: row.verified === true,
+      stateText: stateTextOf(row),
+      rule: row.rule_id || '',
+      lines: linesFor(verdict.tone, row, fmt || formatDeadline),
+      mode: row.connector_mode || 'unknown'
+    };
+  }
+
+  function renderRow(doc, model) {
+    const item = el(doc, 'li', { class: 'cr-row cr-row--' + model.tone, 'data-verdict': model.verdict });
+    item.dataset.actionId = model.id;
+    const main = el(doc, 'div', { class: 'cr-row-main' });
+    main.append(el(doc, model.struck ? 's' : 'span', { class: 'cr-row-label' }, model.label));
+    model.lines.forEach(function (line) {
+      main.append(el(doc, 'span', { class: 'cr-row-line' }, line));
+    });
+    const meta = el(doc, 'span', { class: 'cr-row-meta' });
+    meta.append(el(doc, 'span', { class: model.verified ? 'cr-verified' : 'cr-state' }, (model.verified ? '✓ ' : '') + model.stateText));
+    meta.append(el(doc, 'span', { class: 'cr-row-rule' }, model.rule));
+    meta.append(el(doc, 'span', { class: 'cr-row-mode' }, model.mode));
+    main.append(meta);
+    item.append(el(doc, 'span', { class: 'cr-lamp', 'aria-hidden': 'true' }, model.lamp), main);
+    return item;
+  }
+
+  function countsText(counts) {
+    const c = counts || {};
+    return [
+      (c.allow || 0) + ' allowed', (c.hold || 0) + ' held', (c.refuse || 0) + ' refused', (c.verified || 0) + ' verified'
+    ].join(' · ');
+  }
+
+  function renderRows(doc, view, fmt) {
+    const box = el(doc, 'div', { class: 'cr-rows-box' });
+    const rows = view.rows || [];
+    if (rows.length === 0) {
+      box.append(el(doc, 'p', { class: 'cr-rows-empty' }, 'No actions planned yet.'));
+      return box;
+    }
+    const list = el(doc, 'ul', { class: 'cr-rows', 'aria-label': 'Actions and verdicts' });
+    rows.forEach(function (r) {
+      list.append(renderRow(doc, rowModel(r, fmt)));
+    });
+    box.append(el(doc, 'p', { class: 'cr-counts' }, countsText(view.counts)), list);
+    return box;
+  }
+
   window.CRView = {
     el: el,
     statusModel: statusModel,
     modeModel: modeModel,
-    renderHeader: renderHeader
+    renderHeader: renderHeader,
+    formatDeadline: formatDeadline,
+    rowModel: rowModel,
+    renderRows: renderRows
   };
 })();
