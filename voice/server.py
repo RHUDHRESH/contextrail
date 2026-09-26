@@ -85,7 +85,8 @@ def create_app(*, public_url: str, vobiz_auth_token: str, engine: EngineClient, 
         if call.dialogue is None:
             person = await resolve(call.caller)
             call.dialogue = Dialogue(languages=languages, llm=llm, caller=person,
-                                     caller_phone=call.caller if person else None)
+                                     caller_phone=call.caller if person else None, engine=engine,
+                                     call_ref=call.call_uuid)
         session = agent.CallSession(websocket, dialogue=call.dialogue, sarvam_transport=sarvam_transport)
         try:
             async for message in websocket.iter_text():

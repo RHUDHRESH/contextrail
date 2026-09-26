@@ -39,18 +39,45 @@ _KEYWORDS: tuple[tuple[str, tuple[str, ...], tuple[str, ...]], ...] = (
       "கிடைக்குமா", "ನೀತಿ", "ನಿಯಮ", "ಅನುಮತಿ", "ಸಿಗುತ್ತದೆಯೇ", "ಸಿಗುತ್ತಾ")),
     ("request",
      (r"\bgive\b", r"\bgrant\b", r"\baccess\b", r"\bonboard(ing)?\b", r"\bstarts\b", r"\bjoining\b", r"\bneed\b",
-      r"\bsame as\b", r"\bprovision\b", r"\brefund\b", r"\bcredit\b"),
-     ("एक्सेस", "दे दो", "दीजिए", "चाहिए", "जैसा", "ऑनबोर्ड", "அணுகல", "கொடு", "வேண்டும", "ಪ್ರವೇಶ", "ಕೊಡಿ",
-      "ಕೊಡು", "ಬೇಕು")),
+      r"\bsame as\b", r"\bprovision\b", r"\brefund\b", r"\bcredit\b", r"\bnew request\b", r"\bmake a request\b"),
+     ("एक्सेस", "दे दो", "दीजिए", "चाहिए", "जैसा", "ऑनबोर्ड", "नया अनुरोध", "नई रिक्वेस्ट", "அணுகல", "கொடு",
+      "வேண்டும", "புதிய கோரிக்கை", "ಪ್ರವೇಶ", "ಕೊಡಿ", "ಕೊಡು", "ಬೇಕು", "ಹೊಸ ವಿನಂತಿ")),
 )
+
+# Asking to make a request without saying what it is ("I want to make a new request").
+_ASKS_TO_REQUEST = (r"\b(new|make a|raise a) request\b", "नया अनुरोध", "नई रिक्वेस्ट", "புதிய கோரிக்கை",
+                    "ಹೊಸ ವಿನಂತಿ")
+_ASK_MAX_WORDS = 7
+
+# Yes / no after a read-back. A "no" anywhere wins: cancelling is the safe side of a misheard answer.
+_NO = ((r"\b(no|nope|not|cancel|don'?t|do not|wrong|stop)\b",),
+       ("नहीं", "नही", "रद्द", "कैंसल", "இல்லை", "வேண்டாம", "ரத்து", "ಇಲ್ಲ", "ಬೇಡ", "ರದ್ದು"))
+_YES = ((r"\b(yes|yeah|yep|yup|sure|correct|right|ok|okay|go ahead|confirm|please do)\b",),
+        ("हाँ", "हां", "ठीक है", "बिल्कुल", "सही है", "ஆம", "சரி", "ஓகே", "ಹೌದು", "ಸರಿ", "ಓಕೆ"))
+
+
+def _any(said: str, patterns: tuple[str, ...], stems: tuple[str, ...]) -> bool:
+    return any(re.search(p, said) for p in patterns) or any(s in said for s in stems)
 
 
 def match_keywords(text: str) -> Intent | None:
     said = text.casefold()
     for intent, patterns, stems in _KEYWORDS:
-        if any(re.search(p, said) for p in patterns) or any(s in said for s in stems):
+        if _any(said, patterns, stems):
             return intent  # type: ignore[return-value]
     return None
+
+
+def asks_to_request(text: str) -> bool:
+    said = text.casefold()
+    return len(said.split()) <= _ASK_MAX_WORDS and _any(said, _ASKS_TO_REQUEST[:1], _ASKS_TO_REQUEST[1:])
+
+
+def match_yes_no(text: str) -> bool | None:
+    said = text.casefold()
+    if _any(said, *_NO):
+        return False
+    return True if _any(said, *_YES) else None
 
 
 async def route(text: str, llm: Conversation) -> Intent:

@@ -13,7 +13,8 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 
-from engine_client import Caller
+import flows as door_flows
+from engine_client import Caller, EngineClient
 from intents import route
 from languages import Language, LanguageTable, detect_switch
 from llm import Conversation
@@ -44,18 +45,22 @@ async def _conversation_flow(dialogue: Dialogue, text: str) -> list[str]:
 
 FLOW_NAMES = ("request", "status", "policy", "approve", "human")
 REGISTERED_ONLY = frozenset({"request", "status", "approve"})  # unknown callers: policy questions (and a person)
+DOOR_FLOWS: dict[str, Flow] = {"request": door_flows.request_flow}
 
 
 class Dialogue:
     def __init__(self, *, languages: LanguageTable, llm: Conversation, flows: dict[str, Flow] | None = None,
-                 lang: Language | None = None, caller: Caller | None = None,
-                 caller_phone: str | None = None) -> None:
-        self.languages, self.llm = languages, llm
+                 lang: Language | None = None, caller: Caller | None = None, caller_phone: str | None = None,
+                 engine: EngineClient | None = None, call_ref: str | None = None) -> None:
+        self.languages, self.llm, self.engine = languages, llm, engine
         self.lang = lang or languages.default
         # Who is calling, as identity_map.phone resolved it; both None for an unknown or unverified number.
         self.caller, self.caller_phone = caller, caller_phone if caller else None
+        self.call_ref = call_ref  # the Vobiz CallUUID: the run's source_ref
         self.history: list[dict] = []  # the model's turns only; flows' turns never enter a prompt
-        self.flows: dict[str, Flow] = {name: _conversation_flow for name in FLOW_NAMES} | (flows or {})
+        self.flows: dict[str, Flow] = ({name: _conversation_flow for name in FLOW_NAMES} | DOOR_FLOWS
+                                       | (flows or {}))
+        self.expect: Flow | None = None  # a flow waiting for the caller's next answer (e.g. yes/no)
 
     @property
     def registered(self) -> bool:
@@ -76,12 +81,18 @@ class Dialogue:
         if switch:
             self.lang = self.languages[switch]
             return Turn([self.disclosed("switched")])
+        if self.expect is not None:
+            handler, self.expect = self.expect, None
+            return self._turn(await handler(self, text))
         intent = await route(text, self.llm)
         if intent == "unclear":
             return Turn([await self.converse(text)])
         if intent in REGISTERED_ONLY and not self.registered:
             return Turn([self.line("unregistered")])
-        result = await self.flows[intent](self, text)
+        return self._turn(await self.flows[intent](self, text))
+
+    @staticmethod
+    def _turn(result: Turn | list[str]) -> Turn:
         return result if isinstance(result, Turn) else Turn(list(result))
 
     async def converse(self, text: str) -> str:
