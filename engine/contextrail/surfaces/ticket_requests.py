@@ -12,8 +12,8 @@ from contextrail import repo
 from contextrail.connectors.base import ConnectorError, UnknownOutcome
 from contextrail.connectors.freshservice import ACCESS_REQUEST_TEXT_FIELD, FreshserviceHTTPError, fs_id
 from contextrail.intake import advisory_lock
-from contextrail.surfaces.presenter import RunView
 from contextrail.settings import get_settings
+from contextrail.surfaces.presenter import RunView
 
 
 class VoiceTicket(BaseModel):
@@ -119,11 +119,20 @@ async def start_ticket_request(platform, *, request_text: str, actor_external_id
                                            {"run_id": str(view.run_id), "action_id": action["id"]},
                                            dedupe_key=f"approval.dispatch:ticket:{view.run_id}:{action['id']}")
     if ticket.status == "verified" and ticket.mode == "LIVE" and ticket.ticket_id is not None:
-        article_id = get_settings().fs_onboarding_sop_article_id
-        if article_id:
-            async with platform.db.connection() as c:
-                run = await repo.get_run(c, view.run_id)
-            if run and run.get("intent") == "onboarding":
+        async with platform.db.connection() as c:
+            run = await repo.get_run(c, view.run_id)
+        if run and run.get("intent") == "onboarding":
+            try:
+                tasks = await fs.ensure_onboarding_tasks(ticket.ticket_id)
+                task_ref = {"status": "verified", "task_ids": [fs_id(task["id"]) for task in tasks],
+                            "mode": "LIVE"}
+            except (ConnectorError, KeyError, TypeError, ValueError):
+                task_ref = {"status": "blocked", "mode": "LIVE"}
+            async with platform.db.transaction() as c:
+                await repo.upsert_door_message(c, view.run_id, "freshservice", task_ref,
+                                               action_id="onboarding-tasks")
+            article_id = get_settings().fs_onboarding_sop_article_id
+            if article_id:
                 marker = f"cr-onboarding-sop-{view.run_id.hex}"
                 try:
                     article = await fs.get_solution_article(article_id)
