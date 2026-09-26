@@ -77,6 +77,9 @@ class Settings(BaseSettings):
     # Payments (P2)
     dodo_api_key: SecretStr = SecretStr("")
 
+    # Job worker: run it inside the API process (one box), or set false and run `python -m contextrail.worker`
+    worker_in_process: bool = True
+
     @field_validator("public_url")
     @classmethod
     def _strip_trailing_slash(cls, v: str) -> str:
