@@ -178,6 +178,29 @@ def _describe(exc: BaseException) -> str:
     return f"{type(exc).__name__}{f' {status}' if status else ''}"
 
 
+# --- per-tier circuit breaker (T114) -------------------------------------------------------------------------
+
+class CircuitBreaker:
+    """A tier that failed over is skipped for `cooldown_s` (180 s, §11), then tried again; a success closes it,
+    another failure re-opens it. Only failover-class failures trip it: a bad request is not the tier's fault.
+    Process-local on purpose: one engine process, and a restart simply retries every tier."""
+
+    def __init__(self, cooldown_s: float = 180.0, *, clock: Callable[[], float] = time.monotonic) -> None:
+        self.cooldown_s = cooldown_s
+        self.clock = clock
+        self._opened_at: dict[str, float] = {}
+
+    def is_open(self, tier: str) -> bool:
+        opened = self._opened_at.get(tier)
+        return opened is not None and self.clock() - opened < self.cooldown_s
+
+    def trip(self, tier: str) -> None:
+        self._opened_at[tier] = self.clock()
+
+    def reset(self, tier: str) -> None:
+        self._opened_at.pop(tier, None)
+
+
 # --- responses -----------------------------------------------------------------------------------------------
 
 class LLMResponse(BaseModel):
@@ -236,11 +259,12 @@ class Router:
     a worker thread to keep the event loop free."""
 
     def __init__(self, config: RouterConfig, clients: Mapping[str, Any], *,
-                 replay_store: ReplayStore | None = None,
+                 replay_store: ReplayStore | None = None, breaker: CircuitBreaker | None = None,
                  sleep: Callable[[float], Awaitable[None]] = asyncio.sleep) -> None:
         self.config = config
         self.clients = dict(clients)
         self.replay_store = replay_store or ReplayStore(config.replay_dir)
+        self.breaker = breaker or CircuitBreaker(config.breaker_cooldown_s)
         self.sleep = sleep
 
     async def call(self, *, system: str, messages: list[MessageParam], max_tokens: int, model: str | None = None,
@@ -269,15 +293,20 @@ class Router:
         for tier in chain:
             if tier.provider == "replay":
                 return self._replay(keyed)
+            if self.breaker.is_open(tier.tier):
+                failures.append(f"{tier.tier}: breaker open")
+                continue
             try:
                 response = await self._attempt(tier, {"model": tier.model, **base})
             except _TierFailed as f:
+                self.breaker.trip(tier.tier)
                 failures.append(f"{tier.tier}: {f}")
                 continue
+            self.breaker.reset(tier.tier)
             if self.config.replay_mode == "record":
                 self._record(keyed, response)
             return response
-        raise NoTierAvailable("every tier failed: " + "; ".join(failures))
+        raise NoTierAvailable("no tier answered: " + "; ".join(failures))
 
     async def _attempt(self, tier: TierConfig, request: dict[str, Any]) -> LLMResponse:
         """One tier: a 429 gets exactly one retry-after wait; failover-class errors raise _TierFailed; anything else

@@ -152,7 +152,7 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 - [x] T111 `P0` Tier 3 `AnthropicBedrock` client (ap-south-1, global inference IDs).
 - [x] T112 `P0` Tier 4 replay store: record and replay modes keyed by prompt hash; responses flagged `replay=true`.
 - [x] T113 `P0` Failover classifier: 429, 529, 5xx, timeout, credit-exhausted (no failover on other 400s).
-- [ ] T114 `P0` Per-tier circuit breaker (180 s).
+- [x] T114 `P0` Per-tier circuit breaker (180 s).
 - [ ] T115 `P0` Cost calculator per model; write every call to `llm_calls`.
 - [ ] T116 `P0` Per-run budget enforcement.
 - [ ] T117 `P0` Structured-output helper: pydantic model → tool schema → validated object.
