@@ -90,6 +90,37 @@ def test_bad_signatures_are_refused_with_a_reason(signature, timestamp, now, rea
         verify_signature(SECRET, BODY, signature, timestamp, now=now)
 
 
+@pytest.mark.parametrize("timestamp", ["9" * 400, "9" * 5000])
+def test_an_absurd_timestamp_is_a_signature_error_not_a_crash(timestamp):
+    with pytest.raises(SignatureError, match="timestamp"):  # used to raise OverflowError / ValueError -> 500
+        verify_signature(SECRET, BODY, sign(SECRET, BODY, 1000), timestamp, now=1000)
+
+
+async def test_an_absurd_timestamp_header_is_401():
+    headers = {**signed(BODY), "X-ContextRail-Timestamp": "9" * 400}
+    assert (await post(app(), BODY, headers)).status_code == 401
+
+
+async def test_a_declared_oversized_body_is_refused_from_its_content_length():
+    headers = {**signed(BODY), "Content-Length": str(10 * 1024 * 1024)}
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app()), base_url="http://test") as c:
+        r = await c.send(c.build_request("POST", URL, content=BODY, headers=headers))
+    assert r.status_code == 413
+
+
+async def test_a_streamed_oversized_body_is_cut_off_without_reading_it_all():
+    sent = []
+
+    async def chunks():
+        for _ in range(200):          # 200 KB offered in 1 KB chunks, no Content-Length
+            sent.append(1)
+            yield b"x" * 1024
+
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app()), base_url="http://test") as c:
+        r = await c.post(URL, content=chunks(), headers=signed(BODY))
+    assert r.status_code == 413 and len(sent) <= 20  # stopped just past the 16 KB cap
+
+
 def test_the_comparison_is_constant_time(monkeypatch):
     calls = []
     real = hmac.compare_digest

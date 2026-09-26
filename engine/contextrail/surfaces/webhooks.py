@@ -54,7 +54,7 @@ def verify_signature(secret: str, body: bytes, signature: str | None, timestamp:
     """Raise SignatureError unless `signature` is sign(secret, body, timestamp) and the timestamp is fresh."""
     if not signature or not timestamp:
         raise SignatureError("missing X-ContextRail-Signature or X-ContextRail-Timestamp")
-    if not (timestamp.isascii() and timestamp.isdigit()):
+    if not (timestamp.isascii() and timestamp.isdigit()) or len(timestamp) > 12:  # int() of 400 digits overflows
         raise SignatureError("timestamp must be unix seconds")
     if abs(now - int(timestamp)) > TOLERANCE_SECONDS:
         raise SignatureError(f"timestamp is outside the {TOLERANCE_SECONDS} s window")
@@ -81,13 +81,26 @@ class FreshserviceDelivery(BaseModel):
             raise ValueError(f"ticket_id must be a positive integer ({{{{ticket.id_numeric}}}}): {e}") from e
 
 
+async def _read_capped(request: Request) -> bytes:
+    """The body, refused (413) as soon as it is known to exceed the cap: by its Content-Length, or while streaming.
+    Nothing past the cap is held in memory, and this runs before authentication."""
+    too_big = HTTPException(413, f"body larger than {MAX_BODY_BYTES} bytes")
+    declared = request.headers.get("content-length")
+    if declared is not None and (not declared.isdigit() or int(declared[:12]) > MAX_BODY_BYTES):
+        raise too_big
+    body = bytearray()
+    async for chunk in request.stream():
+        body += chunk
+        if len(body) > MAX_BODY_BYTES:
+            raise too_big
+    return bytes(body)
+
+
 async def _signed_body(request: Request) -> bytes:
     secret = request.app.state.settings.fs_webhook_secret.get_secret_value()
     if not secret:
         raise HTTPException(503, "FS_WEBHOOK_SECRET is not configured; unsigned webhooks are refused")
-    body = await request.body()
-    if len(body) > MAX_BODY_BYTES:
-        raise HTTPException(413, f"body larger than {MAX_BODY_BYTES} bytes")
+    body = await _read_capped(request)
     try:
         verify_signature(secret, body, request.headers.get("x-contextrail-signature"),
                          request.headers.get("x-contextrail-timestamp"), now=time.time())
