@@ -79,7 +79,12 @@ async def test_the_engine_app_serves_search_from_its_loaded_rules(migrated_db):
     app = app_with(database_url=migrated_db)
     async with running(app), mcp_over_http(app) as c:
         r = await c.call_tool("search_enterprise_knowledge", {"query": "POL-ACC-004", "limit": 1})
-    assert [h["id"] for h in r.structured_content["hits"]] == ["POL-ACC-004"]
+    assert r.structured_content["index"] == "postgres-okf"
+    hits = r.structured_content["hits"]
+    assert len(hits) == 1
+    assert hits[0]["id"].startswith("okf:")
+    assert "POL-ACC-004" in hits[0]["rule_ids"]
+    assert hits[0]["trust"] == "curated"
 
 
 async def test_read_only_agent_tools_share_cited_providers_and_scope_runs(door):
