@@ -73,8 +73,8 @@ async def test_untrusted_hits_come_back_fenced_as_data():
     assert "&lt;/untrusted&gt;" in excerpt   # the planted text cannot close the fence
 
 
-async def test_the_engine_app_serves_search_from_its_loaded_rules():
-    app = app_with()
+async def test_the_engine_app_serves_search_from_its_loaded_rules(migrated_db):
+    app = app_with(database_url=migrated_db)
     async with running(app), mcp_over_http(app) as c:
         r = await c.call_tool("search_enterprise_knowledge", {"query": "POL-ACC-004", "limit": 1})
     assert [h["id"] for h in r.structured_content["hits"]] == ["POL-ACC-004"]

@@ -12,6 +12,7 @@ import pytest
 
 from contextrail import repo
 from contextrail.fixtures import load, subject_from_record
+from contextrail.knowledge.okf import load_bundle
 from contextrail.policy.loader import load_rules
 from contextrail.rail.compile import load_concepts, mark_stale
 
@@ -123,7 +124,7 @@ def test_real_okf_bundle_satisfies_the_knowledge_source_contract():
 
 async def test_rail_attaches_concepts_to_the_case_file_and_verdicts_do_not_move(rail):
     runner, deps = rail
-    deps.knowledge = BUNDLE
+    deps.knowledge = load_bundle()
     rid = await runner.start(source="slack", request_text="Give Anil the same access as Rahul Mehta",
                              requested_by="p-anil")
     await runner.run(rid)
@@ -135,6 +136,8 @@ async def test_rail_attaches_concepts_to_the_case_file_and_verdicts_do_not_move(
     okf = [e for e in run["capsule"]["evidence"] if e["source"] == "okf"]
     assert {e["uri"] for e in okf} >= {"okf:roles/payments-engineer.md", "okf:policies/access-control-standard.md"}
     assert all(e["trust"] == "curated" for e in okf)
-    assert compile_audit["okf"]["configured"] is True and len(compile_audit["okf"]["loaded"]) == len(okf)
+    assert compile_audit["okf"]["configured"] is True
+    assert {"okf:roles/payments-engineer.md", "okf:policies/access-control-standard.md"} <= set(
+        compile_audit["okf"]["loaded"])
     grants = [a for a in actions if a["kind"] == "grant"]
     assert Counter(a["verdict"] for a in grants) == {"ALLOW": 13, "HOLD": 2, "REFUSE": 1}

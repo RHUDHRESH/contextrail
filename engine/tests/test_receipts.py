@@ -52,7 +52,8 @@ async def test_receipt_carries_every_action_decision_evidence_digest_audit_range
                                                     "'receipt.%%' order by seq", view.run_id)]
     assert (b["audit"]["from_seq"], b["audit"]["to_seq"], b["audit"]["events"]) == (seqs[0], seqs[-1], len(seqs))
     assert b["chain"]["ok"] is True
-    assert b["connectors"] == {"entitlements": "FIXTURE", "github": "FIXTURE", "hris": "FIXTURE",
+    assert b["connectors"] == {"entitlements": "FIXTURE", "freshservice": "FIXTURE",
+                               "github": "FIXTURE", "hris": "FIXTURE",
                                "slack_corpus": "FIXTURE"}
     assert b["digest"] == r.digest and (r.audit_from, r.audit_to) == (seqs[0], seqs[-1])
 
