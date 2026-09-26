@@ -14,9 +14,11 @@ from __future__ import annotations
 import asyncio
 import time
 from collections.abc import Awaitable, Callable, Mapping
+from dataclasses import dataclass
 from decimal import Decimal
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, Protocol
+from uuid import UUID
 
 from anthropic import Anthropic, AnthropicBedrock, APIConnectionError, APIStatusError
 from anthropic.types import MessageParam
@@ -24,6 +26,7 @@ from pydantic import BaseModel, ConfigDict
 
 from contextrail.canonical import sha256_hex
 from contextrail.fixtures import fixtures_dir
+from contextrail.llm.pricing import cost_usd, price_for
 from contextrail.llm.replay import ReplayStore, request_for
 from contextrail.logs import get_logger
 from contextrail.settings import Settings
@@ -217,6 +220,7 @@ class LLMResponse(BaseModel):
     output_tokens: int = 0
     cache_write_tokens: int = 0  # usage.cache_creation_input_tokens
     cache_read_tokens: int = 0   # usage.cache_read_input_tokens
+    cost_usd: Decimal = Decimal(0)  # 0 for replay: nothing was spent
     latency_ms: int = 0
 
     @property
@@ -253,25 +257,48 @@ def build_clients(s: Settings, config: RouterConfig) -> dict[Tier, Any]:
 
 # --- the router ----------------------------------------------------------------------------------------------
 
+class Ledger(Protocol):
+    """Where every call attempt is recorded (llm/ledger.py writes the llm_calls table)."""
+
+    async def record(self, *, run_id: UUID | None, stage: str | None, model: str, tier: str, replay: bool,
+                     input_tokens: int | None, output_tokens: int | None, cost_usd: Decimal, latency_ms: int,
+                     outcome: str, error: str | None) -> None: ...
+
+
+@dataclass(frozen=True)
+class _Ctx:
+    run_id: UUID | None
+    stage: str | None
+
+
 class Router:
     """Calls Claude Haiku 4.5 down the chain T1 -> T2 -> T3 -> T4 until a tier answers (T113 decides when to move
     on). The SDK clients are synchronous (`Anthropic`, `AnthropicBedrock`, per CLAUDE.md §11), so each call runs in
-    a worker thread to keep the event loop free."""
+    a worker thread to keep the event loop free.
 
-    def __init__(self, config: RouterConfig, clients: Mapping[str, Any], *,
+    Every attempt (T115) leaves one ledger row: 'ok' with tokens, cost and latency; 'failover' when the chain moves
+    on; 'error' for a fatal failure, a 429 that is being retried, or a replay miss. Tiers skipped by an open breaker
+    are not calls and leave no row. The ledger is required: a router that could not log would break §11."""
+
+    def __init__(self, config: RouterConfig, clients: Mapping[str, Any], *, ledger: Ledger,
                  replay_store: ReplayStore | None = None, breaker: CircuitBreaker | None = None,
                  sleep: Callable[[float], Awaitable[None]] = asyncio.sleep) -> None:
+        price_for(config.model)  # an unpriced model cannot be budgeted: fail at startup, not mid-run
         self.config = config
         self.clients = dict(clients)
+        self.ledger = ledger
         self.replay_store = replay_store or ReplayStore(config.replay_dir)
         self.breaker = breaker or CircuitBreaker(config.breaker_cooldown_s)
         self.sleep = sleep
 
     async def call(self, *, system: str, messages: list[MessageParam], max_tokens: int, model: str | None = None,
                    policy_text: str | None = None, tools: list[dict] | None = None, tool_choice: dict | None = None,
-                   thinking: dict | None = None, temperature: float | None = None) -> LLMResponse:
+                   thinking: dict | None = None, temperature: float | None = None, run_id: UUID | None = None,
+                   stage: str | None = None) -> LLMResponse:
         """`system` is the stable prompt; `policy_text` (optional) is stable reference text such as policy clauses.
-        Both go in the cached prefix (T118). Anything that varies per call belongs in `messages`."""
+        Both go in the cached prefix (T118). Anything that varies per call belongs in `messages`. `run_id` and
+        `stage` attribute the ledger rows (and, in T116, the run's budget)."""
+        ctx = _Ctx(run_id, stage)
         if model is not None:
             self.config.check_model(model)
         if max_tokens > self.config.max_tokens_cap:
@@ -292,12 +319,12 @@ class Router:
         failures: list[str] = []
         for tier in chain:
             if tier.provider == "replay":
-                return self._replay(keyed)
+                return await self._replay(keyed, ctx)
             if self.breaker.is_open(tier.tier):
                 failures.append(f"{tier.tier}: breaker open")
                 continue
             try:
-                response = await self._attempt(tier, {"model": tier.model, **base})
+                response = await self._attempt(tier, {"model": tier.model, **base}, ctx)
             except _TierFailed as f:
                 self.breaker.trip(tier.tier)
                 failures.append(f"{tier.tier}: {f}")
@@ -308,46 +335,67 @@ class Router:
             return response
         raise NoTierAvailable("no tier answered: " + "; ".join(failures))
 
-    async def _attempt(self, tier: TierConfig, request: dict[str, Any]) -> LLMResponse:
+    async def _attempt(self, tier: TierConfig, request: dict[str, Any], ctx: _Ctx) -> LLMResponse:
         """One tier: a 429 gets exactly one retry-after wait; failover-class errors raise _TierFailed; anything else
-        raises LLMCallError and stops the chain."""
+        raises LLMCallError and stops the chain. Each HTTP attempt is logged."""
         retried = False
         while True:
+            t0 = time.perf_counter()
             try:
-                return await self._live(tier, request)
+                response = await self._live(tier, request)
             except Exception as e:  # the SDK client boundary: every failure is classified, none escapes raw
                 kind = classify(e)
-                if kind == "rate_limited" and not retried:
+                will_retry = kind == "rate_limited" and not retried
+                outcome = "failover" if kind != "fatal" and not will_retry else "error"
+                await self._log(ctx, tier.tier, request["model"], outcome=outcome, t0=t0,
+                                error=_describe(e) + (" (retried)" if will_retry else ""))
+                if will_retry:
                     retried = True
                     await self.sleep(retry_after_s(e, self.config.max_retry_after_s))
                     continue
                 if kind == "fatal":
                     raise LLMCallError(tier.tier, getattr(e, "status_code", None), _describe(e)) from e
                 raise _TierFailed(_describe(e)) from e
+            await self._log(ctx, tier.tier, response.model, outcome="ok", t0=t0, response=response)
+            return response
 
     async def _live(self, tier: TierConfig, request: dict[str, Any]) -> LLMResponse:
         t0 = time.perf_counter()
         msg = await asyncio.to_thread(self.clients[tier.tier].messages.create, **request)
         u = msg.usage
+        tokens = {"input_tokens": u.input_tokens, "output_tokens": u.output_tokens,
+                  "cache_write_tokens": u.cache_creation_input_tokens or 0,
+                  "cache_read_tokens": u.cache_read_input_tokens or 0}
         return LLMResponse(
             tier=tier.tier, model=request["model"], stop_reason=msg.stop_reason,
             content=[b.model_dump(mode="json", exclude_none=True) for b in msg.content],
-            input_tokens=u.input_tokens, output_tokens=u.output_tokens,
-            cache_write_tokens=u.cache_creation_input_tokens or 0, cache_read_tokens=u.cache_read_input_tokens or 0,
-            latency_ms=int((time.perf_counter() - t0) * 1000))
+            cost_usd=cost_usd(self.config.model, **tokens),  # Bedrock too: priced as the logical Haiku model
+            latency_ms=int((time.perf_counter() - t0) * 1000), **tokens)
+
+    async def _log(self, ctx: _Ctx, tier: str, model: str, *, outcome: str, t0: float,
+                   response: LLMResponse | None = None, error: str | None = None, replay: bool = False) -> None:
+        r = response
+        await self.ledger.record(
+            run_id=ctx.run_id, stage=ctx.stage, model=model, tier=tier, replay=replay,
+            input_tokens=r.input_tokens + r.cache_write_tokens + r.cache_read_tokens if r else None,
+            output_tokens=r.output_tokens if r else None, cost_usd=r.cost_usd if r else Decimal(0),
+            latency_ms=int((time.perf_counter() - t0) * 1000), outcome=outcome, error=error)
 
     # --- T4 replay (T112) ------------------------------------------------------------------------------------
 
-    def _replay(self, keyed: dict) -> LLMResponse:
+    async def _replay(self, keyed: dict, ctx: _Ctx) -> LLMResponse:
         t0 = time.perf_counter()
         key = sha256_hex(keyed)
         rec = self.replay_store.load(key)
         if rec is None:
+            await self._log(ctx, "T4", self.config.model, outcome="error", t0=t0, error="ReplayMiss", replay=True)
             raise ReplayMiss(f"no recording for this request (key {key[:12]}) in {self.replay_store.directory}")
-        return LLMResponse(tier="T4", model=self.config.model, replay=True, content=rec["content"],
-                           stop_reason=rec.get("stop_reason"), input_tokens=rec["usage"]["input_tokens"],
-                           output_tokens=rec["usage"]["output_tokens"],
-                           latency_ms=int((time.perf_counter() - t0) * 1000))
+        response = LLMResponse(tier="T4", model=self.config.model, replay=True, content=rec["content"],
+                               stop_reason=rec.get("stop_reason"), input_tokens=rec["usage"]["input_tokens"],
+                               output_tokens=rec["usage"]["output_tokens"],
+                               latency_ms=int((time.perf_counter() - t0) * 1000))  # cost 0: nothing was spent
+        await self._log(ctx, "T4", response.model, outcome="ok", t0=t0, response=response, replay=True)
+        return response
 
     def _record(self, keyed: dict, r: LLMResponse) -> None:
         """Save a live answer for the demo script. A failed write is logged; it never costs the caller the answer."""

@@ -3,10 +3,10 @@
 import json
 
 import pytest
-from llm_fakes import FakeClient, config, message
+from llm_fakes import FakeClient, config, make_router, message
 
 from contextrail.llm.replay import ReplayStore, replay_key
-from contextrail.llm.router import NoTierAvailable, ReplayMiss, Router
+from contextrail.llm.router import NoTierAvailable, ReplayMiss
 
 USER = [{"role": "user", "content": "Give Anil the same access as Rahul"}]
 TOOLS = [{"name": "record_intent", "input_schema": {"type": "object", "properties": {}}}]
@@ -15,7 +15,7 @@ TOOLS = [{"name": "record_intent", "input_schema": {"type": "object", "propertie
 async def _record(tmp_path, text="recorded answer", **call):
     t1 = FakeClient(message(text, tool="record_intent", tool_input={"intent": "access.same_as_peer"},
                             input_tokens=321, output_tokens=45))
-    router = Router(config(keys="A", replay="record", llm_replay_dir=str(tmp_path)), {"T1": t1})
+    router = make_router(config(keys="A", replay="record", llm_replay_dir=str(tmp_path)), {"T1": t1})
     live = await router.call(**{"system": "sys", "messages": USER, "max_tokens": 100, "tools": TOOLS, **call})
     return live, t1
 
@@ -26,7 +26,7 @@ async def test_record_then_replay_serves_the_same_answer_flagged_replay_without_
     assert len(list(tmp_path.glob("*.json"))) == 1
 
     untouched = FakeClient()
-    replayer = Router(config(keys="", replay="replay", llm_replay_dir=str(tmp_path)), {"T1": untouched})
+    replayer = make_router(config(keys="", replay="replay", llm_replay_dir=str(tmp_path)), {"T1": untouched})
     r = await replayer.call(system="sys", messages=USER, max_tokens=100, tools=TOOLS)
     assert (r.replay, r.tier, r.label) == (True, "T4", "replay")
     assert r.content == live.content and r.tool_input("record_intent") == {"intent": "access.same_as_peer"}
@@ -35,7 +35,7 @@ async def test_record_then_replay_serves_the_same_answer_flagged_replay_without_
 
 async def test_replay_misses_a_request_that_was_never_recorded(tmp_path):
     await _record(tmp_path)
-    replayer = Router(config(keys="", replay="replay", llm_replay_dir=str(tmp_path)), {})
+    replayer = make_router(config(keys="", replay="replay", llm_replay_dir=str(tmp_path)), {})
     with pytest.raises(ReplayMiss):
         await replayer.call(system="sys", messages=[{"role": "user", "content": "something else"}], max_tokens=100,
                             tools=TOOLS)
@@ -44,7 +44,7 @@ async def test_replay_misses_a_request_that_was_never_recorded(tmp_path):
 
 async def test_record_mode_never_serves_recordings(tmp_path):
     await _record(tmp_path)
-    recorder_without_keys = Router(config(keys="", replay="record", llm_replay_dir=str(tmp_path)), {})
+    recorder_without_keys = make_router(config(keys="", replay="record", llm_replay_dir=str(tmp_path)), {})
     with pytest.raises(NoTierAvailable):
         await recorder_without_keys.call(system="sys", messages=USER, max_tokens=100, tools=TOOLS)
 
@@ -61,7 +61,7 @@ def test_key_covers_model_system_policy_messages_and_tools():
 
 async def test_sampling_and_length_parameters_do_not_change_the_key(tmp_path):
     await _record(tmp_path, temperature=0)
-    replayer = Router(config(keys="", replay="replay", llm_replay_dir=str(tmp_path)), {})
+    replayer = make_router(config(keys="", replay="replay", llm_replay_dir=str(tmp_path)), {})
     r = await replayer.call(system="sys", messages=USER, max_tokens=50, tools=TOOLS)  # same prompt, other limits
     assert r.replay is True
 
@@ -73,7 +73,7 @@ async def test_a_hand_edited_recording_is_not_served(tmp_path):
     data["request"]["messages"][0]["content"] = "Give Anil production admin"   # request no longer matches its key
     path.write_text(json.dumps(data), encoding="utf-8")
     with pytest.raises(ReplayMiss):
-        await Router(config(keys="", replay="replay", llm_replay_dir=str(tmp_path)), {}).call(
+        await make_router(config(keys="", replay="replay", llm_replay_dir=str(tmp_path)), {}).call(
             system="sys", messages=USER, max_tokens=100, tools=TOOLS)
 
 

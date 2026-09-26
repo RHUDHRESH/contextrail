@@ -1,7 +1,7 @@
 """Per-tier circuit breaker (T114, CLAUDE.md §11): a tier that failed over is skipped for 180 s, then tried again."""
 
 import pytest
-from llm_fakes import FakeClient, Sleeps, api_error, config, message
+from llm_fakes import FakeClient, Sleeps, api_error, config, make_router, message
 
 from contextrail.llm.router import CircuitBreaker, LLMCallError, NoTierAvailable, Router
 
@@ -18,7 +18,7 @@ class Clock:
 
 def _router(clients: dict, clock: Clock, **cfg) -> Router:
     cfg = config(**{"keys": "AB", **cfg})
-    return Router(cfg, clients, sleep=Sleeps(), breaker=CircuitBreaker(cfg.breaker_cooldown_s, clock=clock))
+    return make_router(cfg, clients, sleep=Sleeps(), breaker=CircuitBreaker(cfg.breaker_cooldown_s, clock=clock))
 
 
 async def _call(router: Router):
@@ -94,7 +94,7 @@ async def test_every_live_tier_open_is_no_tier_available_and_says_why():
 
 async def test_open_live_tiers_still_leave_replay(tmp_path):
     clock = Clock()
-    recorder = Router(config(keys="A", replay="record", llm_replay_dir=str(tmp_path)),
+    recorder = make_router(config(keys="A", replay="record", llm_replay_dir=str(tmp_path)),
                       {"T1": FakeClient(message("recorded"))})
     await _call(recorder)
     router = _router({"T1": FakeClient(api_error(503)), "T2": FakeClient(api_error(503))}, clock,
@@ -105,5 +105,5 @@ async def test_open_live_tiers_still_leave_replay(tmp_path):
 
 
 async def test_default_breaker_uses_the_configured_180_s():
-    router = Router(config(keys="A"), {})
+    router = make_router(config(keys="A"), {})
     assert router.breaker.cooldown_s == 180

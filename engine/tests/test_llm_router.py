@@ -6,13 +6,12 @@ import json
 import anthropic
 import httpx2
 import pytest
-from llm_fakes import FakeClient, api_error, config, message, settings
+from llm_fakes import FakeClient, api_error, config, make_router, message, settings
 
 from contextrail.llm.router import (
     HAIKU_BEDROCK_ID,
     ModelNotAllowed,
     NoTierAvailable,
-    Router,
     RouterConfig,
     build_clients,
 )
@@ -53,7 +52,7 @@ def test_no_key_no_client():
 
 async def test_first_tier_serves_haiku_and_is_reported():
     t1, t2 = FakeClient(message("Hello", input_tokens=12, output_tokens=3)), FakeClient()
-    r = await Router(config(keys="AB"), {"T1": t1, "T2": t2}).call(
+    r = await make_router(config(keys="AB"), {"T1": t1, "T2": t2}).call(
         system="You are terse.", messages=USER, max_tokens=50)
     assert (r.tier, r.model, r.text, r.input_tokens, r.output_tokens) == (
         "T1", "claude-haiku-4-5-20251001", "Hello", 12, 3)
@@ -66,7 +65,7 @@ async def test_first_tier_serves_haiku_and_is_reported():
 async def test_optional_request_fields_are_sent_only_when_given():
     t1 = FakeClient(message(None, tool="t", tool_input={"x": 1}))
     tools = [{"name": "t", "input_schema": {"type": "object", "properties": {}}}]
-    r = await Router(config(keys="A"), {"T1": t1}).call(
+    r = await make_router(config(keys="A"), {"T1": t1}).call(
         system="s", messages=USER, max_tokens=10, tools=tools, tool_choice={"type": "tool", "name": "t"},
         thinking={"type": "disabled"}, temperature=0)
     sent = t1.calls[0]
@@ -81,13 +80,13 @@ async def test_optional_request_fields_are_sent_only_when_given():
 async def test_any_model_but_haiku_is_refused_before_any_client_is_called(other):
     t1 = FakeClient()
     with pytest.raises(ModelNotAllowed, match=other):
-        await Router(config(keys="A"), {"T1": t1}).call(model=other, system="s", messages=USER, max_tokens=10)
+        await make_router(config(keys="A"), {"T1": t1}).call(model=other, system="s", messages=USER, max_tokens=10)
     assert t1.calls == []
 
 
 async def test_naming_haiku_explicitly_is_allowed():
     t1 = FakeClient(message("ok"))
-    r = await Router(config(keys="A"), {"T1": t1}).call(model="claude-haiku-4-5-20251001", system="s",
+    r = await make_router(config(keys="A"), {"T1": t1}).call(model="claude-haiku-4-5-20251001", system="s",
                                                          messages=USER, max_tokens=10)
     assert r.text == "ok"
 
@@ -95,13 +94,13 @@ async def test_naming_haiku_explicitly_is_allowed():
 async def test_max_tokens_above_the_cap_is_refused():
     t1 = FakeClient()
     with pytest.raises(ValueError, match="max_tokens"):
-        await Router(config(keys="A"), {"T1": t1}).call(system="s", messages=USER, max_tokens=801)
+        await make_router(config(keys="A"), {"T1": t1}).call(system="s", messages=USER, max_tokens=801)
     assert t1.calls == []
 
 
 async def test_no_enabled_tier_is_an_explicit_error():
     with pytest.raises(NoTierAvailable, match="claude-haiku-4-5-20251001"):
-        await Router(config(keys=""), {}).call(system="s", messages=USER, max_tokens=10)
+        await make_router(config(keys=""), {}).call(system="s", messages=USER, max_tokens=10)
 
 
 async def test_real_direct_client_request_shape():
@@ -114,7 +113,7 @@ async def test_real_direct_client_request_shape():
     s = settings(anthropic_key_a="test-key-a")
     cfg = RouterConfig.from_settings(s)
     t1 = _mocked(build_clients(s, cfg)["T1"], handler)
-    r = await Router(cfg, {"T1": t1}).call(system="sys", messages=USER, max_tokens=40, temperature=0)
+    r = await make_router(cfg, {"T1": t1}).call(system="sys", messages=USER, max_tokens=40, temperature=0)
     assert r.text == "Hello" and r.tier == "T1"
     (req,) = seen
     assert req.url.host == "api.anthropic.com" and req.url.path == "/v1/messages"
@@ -171,7 +170,7 @@ def test_bedrock_is_off_unless_enabled():
 
 async def test_bedrock_tier_sends_the_global_haiku_profile():
     t3 = FakeClient(message("ok"))
-    r = await Router(config(keys="", bedrock=True), {"T3": t3}).call(system="s", messages=USER, max_tokens=10)
+    r = await make_router(config(keys="", bedrock=True), {"T3": t3}).call(system="s", messages=USER, max_tokens=10)
     assert (r.tier, r.model, r.label) == ("T3", HAIKU_BEDROCK_ID, "llm:T3")
     assert t3.calls[0]["model"] == "global.anthropic.claude-haiku-4-5-20251001-v1:0"
 
@@ -186,7 +185,7 @@ async def test_real_bedrock_client_signs_and_invokes_the_haiku_profile(fake_aws_
     s = settings(bedrock_enabled=True)
     cfg = RouterConfig.from_settings(s)
     t3 = _mocked(build_clients(s, cfg)["T3"], handler)
-    r = await Router(cfg, {"T3": t3}).call(system="sys", messages=USER, max_tokens=40, temperature=0)
+    r = await make_router(cfg, {"T3": t3}).call(system="sys", messages=USER, max_tokens=40, temperature=0)
     assert (r.text, r.tier) == ("Namaste", "T3")
     (req,) = seen
     assert req.url.host == "bedrock-runtime.ap-south-1.amazonaws.com"
