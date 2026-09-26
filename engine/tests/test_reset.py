@@ -27,6 +27,6 @@ def test_cli_prints_every_connector(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("STATE_DIR", str(tmp_path))
     assert main(["reset"]) == 0
     out = capsys.readouterr().out
-    for name in ("hris", "entitlements", "github", "slack_corpus"):
+    for name in ("hris", "entitlements", "github", "slack_corpus", "freshservice"):
         assert name in out
-    assert out.count("FIXTURE") == 4
+    assert out.count("FIXTURE") == 5

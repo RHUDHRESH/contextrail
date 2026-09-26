@@ -22,7 +22,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.settings = settings
     # Fail fast: an engine with an invalid or skipped rule would change verdicts silently (T054).
     app.state.rules = load_rules()
-    app.state.registry = build_registry()
+    app.state.registry = build_registry(settings=settings)
     install_error_handlers(app)
 
     @app.get("/health", tags=["ops"])

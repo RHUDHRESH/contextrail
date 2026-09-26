@@ -163,12 +163,12 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 
 ## I. Freshservice (the base) and Workflow Automator (17)
 
-- [ ] T122 `P0` REST client: basic auth, base URL, timeouts, keep-alive.
-- [ ] T123 `P0` Token-bucket rate limiter (default 80 calls/min).
-- [ ] T124 `P0` GET ticket (incl. `source`), GET requester by ID, GET agent by ID and by email.
-- [ ] T125 `P0` List service catalog items; store the Access Request item ID.
-- [ ] T126 `P0` POST approval on a ticket + read approval state (approvals list or activities).
-- [ ] T127 `P0` POST private note (receipt).
+- [x] T122 `P0` REST client: basic auth, base URL, timeouts, keep-alive.
+- [x] T123 `P0` Token-bucket rate limiter (default 80 calls/min).
+- [x] T124 `P0` GET ticket (incl. `source`), GET requester by ID, GET agent by ID and by email.
+- [x] T125 `P0` List service catalog items; store the Access Request item ID.
+- [x] T126 `P0` POST approval on a ticket + read approval state (approvals list or activities).
+- [x] T127 `P0` POST private note (receipt).
 - [ ] T128 `P1` Receipts custom object in admin; POST receipt records.
 - [ ] T129 `P1` GET Solutions article (policy source for OKF ingest).
 - [ ] T130 `P2` GET/PUT asset (laptop assignment for onboarding).
@@ -179,7 +179,7 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 - [ ] T135 `P0` 👤 Workflow Automator: ticket raised → item is Access request → Web Request to the engine.
 - [ ] T136 `P0` Check Workflow Automator execution logs; fix the `{{ticket.id_numeric}}` payload.
 - [ ] T137 `P1` Freshservice MCP client for exploratory reads, wrapped as a read-only tool.
-- [ ] T138 `P0` LIVE flag per call path; labelled fixture fallback if a tenant call fails.
+- [x] T138 `P0` LIVE flag per call path; labelled fixture fallback if a tenant call fails.
 
 ## J. Slack door (18)
 

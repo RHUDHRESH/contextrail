@@ -19,6 +19,7 @@ Append-only. Each entry records what we chose, why, and what would change our mi
 | D-012 | — | Teams SDK: Microsoft 365 Agents SDK vs Bot Framework SDK | Open (T240) |
 | D-013 | 2026-09-26 | Claude Haiku 4.5 is the only model; Bedrock backup capped at $20 | Accepted |
 | D-014 | 2026-09-26 | Agentic core (memory, RAG, tools, capabilities) pulled forward as section T | Accepted |
+| D-015 | 2026-09-26 | Freshservice approvals: the API cannot approve or reject, so decisions are mirrored as ticket notes | Accepted |
 
 ---
 
@@ -156,3 +157,30 @@ output sets a verdict, an approval or `verified`.
 **Why lexical RAG, not a vector DB.** The corpus is small (policies, roles, systems, precedents, runbooks,
 receipts), and Anthropic offers no embedding model on our budget. Postgres full-text search (already our only
 store) plus rule/tag links gives precise, explainable retrieval with citations and no extra service.
+## D-015 — Freshservice approvals: what the API allows, and how decisions are mirrored
+**Found** (api.freshservice.com, Tickets > Approvals, read 2026-09-26):
+- `POST /api/v2/tickets/[ticket_id]/approvals` takes `approver_id`, `approval_type` (1 everyone, 2 anyone,
+  3 majority, 4 first responder) and an optional `email_content`. It is "planned for deprecation" for accounts
+  with Parallel Approvals, which should use approval groups instead.
+- The approval status (0 requested, 1 approved, 2 rejected, 3 cancelled) can be set through the API **only to
+  cancelled**: "Any other status change will be done based on the approver's action."
+- No endpoint takes an idempotency key.
+- `GET /api/v2/service_catalog/items` allows at most 30 per page (the reference MCP client sends 100).
+
+**Conflict with the brief.** CLAUDE.md §13.0 step 5 says `decide()` "mirrors the decision to the Freshservice
+approval". An approval decided in Slack, email, Teams or voice cannot be written onto the Freshservice approval
+as approved or rejected.
+
+**Decision.**
+- One Freshservice approval per held action's approver (`approval_type` everyone), created by
+  reading the ticket's approvals first. A retried job reuses a live approval for the same approver instead of
+  asking twice.
+- The mirror of a decision made in another door is a **private note** on the ticket (who, what, where, when,
+  params hash, connector mode). The note is found by a marker before posting and re-fetched after, and the
+  Freshservice approval's own state is read back and reported alongside it.
+- We do **not** cancel the superseded Freshservice approval automatically. Cancelling is the only write the
+  API allows, but it would show "cancelled" for an item that was approved, and it changes the ticket's approval
+  state on a live tenant. Left open for the lead or product.
+
+**Revisit if.** The trial tenant has Parallel Approvals enabled (switch to approval groups), or we decide that
+cancelling superseded approvals is the clearer signal for Freshservice agents.
