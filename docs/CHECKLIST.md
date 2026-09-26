@@ -164,7 +164,7 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 ## I. Freshservice (the base) and Workflow Automator (17)
 
 - [x] T122 `P0` REST client: basic auth, base URL, timeouts, keep-alive.
-- [ ] T123 `P0` Token-bucket rate limiter (default 80 calls/min).
+- [x] T123 `P0` Token-bucket rate limiter (default 80 calls/min).
 - [ ] T124 `P0` GET ticket (incl. `source`), GET requester by ID, GET agent by ID and by email.
 - [ ] T125 `P0` List service catalog items; store the Access Request item ID.
 - [ ] T126 `P0` POST approval on a ticket + read approval state (approvals list or activities).

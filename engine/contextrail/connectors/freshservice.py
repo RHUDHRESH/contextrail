@@ -23,6 +23,7 @@ from typing import Any, Self
 import httpx
 
 from contextrail.connectors.base import ConnectorError, TransientError, UnknownOutcome
+from contextrail.connectors.ratelimit import TokenBucket
 
 TIMEOUT = httpx.Timeout(15.0, connect=5.0)
 # One pooled client per process; idle connections are kept alive between the calls of a run.
@@ -80,8 +81,10 @@ def _retry_after(r: httpx.Response) -> float | None:
 class FreshserviceClient:
     """Async REST v2 client: auth, base URL, timeouts, keep-alive and error mapping. No retries of its own."""
 
-    def __init__(self, domain: str, api_key: str, *, transport: httpx.AsyncBaseTransport | None = None) -> None:
+    def __init__(self, domain: str, api_key: str, *, transport: httpx.AsyncBaseTransport | None = None,
+                 limiter: TokenBucket | None = None) -> None:
         self.base_url = base_url(domain)
+        self.limiter = limiter
         self.http = httpx.AsyncClient(
             base_url=self.base_url + "/",
             auth=httpx.BasicAuth(api_key, "X"),
@@ -106,6 +109,8 @@ class FreshserviceClient:
 
     async def request(self, method: str, path: str, *, params: dict | None = None, json: Any = None) -> Any:
         what = f"freshservice {method} /{path}"
+        if self.limiter is not None:
+            await self.limiter.acquire()
         try:
             r = await self.http.request(method, path, params=params, json=json)
         except _NOT_SENT as e:
