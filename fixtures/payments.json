@@ -1,0 +1,30 @@
+{
+  "_meta": {
+    "mode": "FIXTURE",
+    "system": "payments",
+    "note": "Fictional customer accounts, plans and service-credit history for the outage-credit scenario (CLAUDE.md §1 use case 3, §14). DATA ONLY: the refund rail is not built yet (POL-REF-001/002 are checklist T071; the Dodo refund with read-back is T207), so nothing here is issued, approved or verified by ContextRail. Customer companies are invented; their domains use the reserved .example TLD. Plans and approval limits follow the Stage 1 Refund & Service Credit Policy."
+  },
+  "plans": {
+    "enterprise": {"sla": "99.9%", "credit_pct_mrr_per_24h": 10, "credit_cap_pct_mrr": 50},
+    "growth":     {"sla": "99.5%", "credit_pct_mrr_per_24h": 5,  "credit_cap_pct_mrr": 25},
+    "starter":    {"sla": "best effort", "goodwill_cap_usd": 500}
+  },
+  "approval_limits_usd": {"support": 2000, "finance": 10000, "above_finance": "vp-finance"},
+  "customers": [
+    {"account_id": "ACC-1042", "name": "Meridian Freight",         "domain": "meridian-freight.example", "plan": "enterprise", "mrr_usd": 48000, "region": "ap-south-1",   "csm_id": "E-0902", "contract_refund_clause": false, "renewal_date": "2027-02-01"},
+    {"account_id": "ACC-2210", "name": "Quillbarrow Agritech",     "domain": "quillbarrow.example",      "plan": "growth",     "mrr_usd": 6200,  "region": "ap-south-1",   "csm_id": "E-0902", "contract_refund_clause": false, "renewal_date": "2026-12-01"},
+    {"account_id": "ACC-3318", "name": "Tallowmere Cold Chain",    "domain": "tallowmere.example",       "plan": "growth",     "mrr_usd": 9400,  "region": "ap-south-1",   "csm_id": "E-0902", "contract_refund_clause": false, "renewal_date": "2027-05-15"},
+    {"account_id": "ACC-4051", "name": "Orrindale Port Services",  "domain": "orrindale.example",        "plan": "enterprise", "mrr_usd": 31000, "region": "eu-central-1", "csm_id": "E-0902", "contract_refund_clause": true,  "renewal_date": "2027-01-10"},
+    {"account_id": "ACC-5127", "name": "Brackenfold Mining Co",    "domain": "brackenfold.example",      "plan": "starter",    "mrr_usd": 900,   "region": "us-east-1",    "csm_id": null,     "contract_refund_clause": false, "renewal_date": "2026-11-20"}
+  ],
+  "credits": [
+    {"id": "CR-2026-0311", "account_id": "ACC-1042", "incident_id": "INC-2140", "amount_usd": 4800, "issued_at": "2026-03-11", "quarter": "2026-Q1", "approved_by": "E-0804", "status": "issued", "basis": "1 x 24h x 10% of $48,000 MRR"},
+    {"id": "CR-2026-0612", "account_id": "ACC-4051", "incident_id": "INC-2307", "amount_usd": 3100, "issued_at": "2026-06-12", "quarter": "2026-Q2", "approved_by": "E-0804", "status": "issued", "basis": "1 x 24h x 10% of $31,000 MRR"},
+    {"id": "CR-2026-0822", "account_id": "ACC-3318", "incident_id": "INC-2481", "amount_usd": 940,  "issued_at": "2026-08-25", "quarter": "2026-Q3", "approved_by": "E-0915", "status": "issued", "basis": "2 x 24h x 5% of $9,400 MRR"}
+  ],
+  "credit_requests": [
+    {"ticket": "FD-58112", "account_id": "ACC-1042", "incident_id": "INC-2481", "opened_at": "2026-08-24T05:02:00Z", "channel": "email"},
+    {"ticket": "FD-58140", "account_id": "ACC-2210", "incident_id": "INC-2481", "opened_at": "2026-08-24T11:37:00Z", "channel": "portal"},
+    {"ticket": "FD-58231", "account_id": "ACC-3318", "incident_id": "INC-2481", "opened_at": "2026-09-02T08:15:00Z", "channel": "email", "note": "second request; CR-2026-0822 already credited this account for INC-2481 in 2026-Q3"}
+  ]
+}

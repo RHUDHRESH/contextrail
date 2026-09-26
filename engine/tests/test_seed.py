@@ -40,7 +40,7 @@ def test_main_migrates_seeds_and_resets_state(empty_db, tmp_path, monkeypatch, c
     monkeypatch.setenv("STATE_DIR", str(tmp_path))
     assert main(["seed", empty_db]) == 0
     out = capsys.readouterr().out
-    assert "identity rows: 10" in out and "slack_corpus" in out
+    assert f"identity rows: {len(load('identity')['people'])}" in out and "slack_corpus" in out
     assert sorted(p.name for p in tmp_path.glob("*.json")) == [
         "entitlements.json", "freshservice.json", "github.json", "hris.json", "slack_corpus.json"]
 

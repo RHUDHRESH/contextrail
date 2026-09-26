@@ -49,6 +49,249 @@
       "tags": ["payments", "anil", "transfer", "welcome", "onboarding"],
       "planted": false,
       "text": "Welcome Anil to payments from risk-analytics! Anil, ask for the same access as Rahul and we'll get you set up this week."
+    },
+    {
+      "id": "slk_payments_standup",
+      "channel": "#payments", "channel_id": "C05PAY", "ts": "1790051400.000700",
+      "author": "Rahul Mehta", "author_id": "E-0007",
+      "posted_at": "2026-09-22T04:30:00Z",
+      "tags": ["payments", "ledger", "standup"],
+      "planted": false,
+      "text": "@rahul.mehta: ledger reconciliation is green again after the retry fix. Chloe is pairing with me on the payouts retry path this week."
+    },
+    {
+      "id": "slk_payments_design_handoff",
+      "channel": "#payments", "channel_id": "C05PAY", "ts": "1790154900.000701",
+      "author": "Jonas Weber", "author_id": "E-0279",
+      "posted_at": "2026-09-23T09:15:00Z",
+      "tags": ["payments", "design", "figma", "seat", "leela"],
+      "planted": false,
+      "text": "@jonas.weber: checkout redesign handoff: Leela takes the refunds screens. She needs a Figma Professional seat to edit components; the viewer seat can only comment."
+    },
+    {
+      "id": "slk_platform_oncall",
+      "channel": "#platform", "channel_id": "C06PLAT", "ts": "1790143200.000702",
+      "author": "Grace Okafor", "author_id": "E-0140",
+      "posted_at": "2026-09-23T06:00:00Z",
+      "tags": ["platform", "oncall", "kiran", "aws", "production", "admin"],
+      "planted": false,
+      "text": "@grace.okafor: Kiran joins the platform prod on-call rotation on 1 October. He'll need platform-prod admin, which goes to the Security on-call as usual; Mariam has been shadowing him."
+    },
+    {
+      "id": "slk_platform_terraform",
+      "channel": "#platform", "channel_id": "C06PLAT", "ts": "1789468800.000703",
+      "author": "Mariam Qureshi", "author_id": "E-0195",
+      "posted_at": "2026-09-15T10:40:00Z",
+      "tags": ["platform", "terraform", "ingest"],
+      "planted": false,
+      "text": "@mariam.qureshi: the infra-terraform plan for the ap-south-1 ingest cluster resize is up; it needs a second reviewer before Thursday."
+    },
+    {
+      "id": "slk_platform_welcome_arjun",
+      "channel": "#platform", "channel_id": "C06PLAT", "ts": "1788843600.000704",
+      "author": "Grace Okafor", "author_id": "E-0140",
+      "posted_at": "2026-09-08T05:00:00Z",
+      "tags": ["platform", "transfer", "arjun", "welcome"],
+      "planted": false,
+      "text": "@grace.okafor: welcome Arjun to platform from IT ops! Arjun, your Freshservice agent seat and MDM helpdesk access go back to IT now that you've moved."
+    },
+    {
+      "id": "slk_platform_contractor_patch",
+      "channel": "#platform", "channel_id": "C06PLAT", "ts": "1789042800.000705",
+      "author": "Dmitri Volkov", "author_id": "W-8862",
+      "posted_at": "2026-09-10T12:20:00Z",
+      "tags": ["platform", "contractor", "github", "platform-tooling"],
+      "planted": false,
+      "text": "@dmitri.v: the runner-image cache patch is attached to PLAT-1182. I only have read on platform-tooling, so someone on the team needs to open the PR."
+    },
+    {
+      "id": "slk_sec_precedent_oskar",
+      "channel": "#security", "channel_id": "C01SEC", "ts": "1775464200.000706",
+      "author": "Omar Haddad", "author_id": "E-0051",
+      "posted_at": "2026-04-06T08:30:00Z",
+      "tags": ["security", "github", "contractor", "approval", "precedent"],
+      "planted": false,
+      "text": "@omar.haddad: approved read-only on northbeam/perception-sdk for Oskar Nilsson (W-8790). SOW-2026-012 names the repo; expiry set to 2026-12-31."
+    },
+    {
+      "id": "slk_sec_precedent_prod_admin",
+      "channel": "#security", "channel_id": "C01SEC", "ts": "1782978300.000707",
+      "author": "Dana Osei", "author_id": "E-0050",
+      "posted_at": "2026-07-02T07:45:00Z",
+      "tags": ["security", "aws", "production", "admin", "precedent"],
+      "planted": false,
+      "text": "@dana.osei: approved platform-prod admin for Mariam after she finished the on-call shadowing. Mid-level engineers asking for prod admin are refused under the Access Control Standard, and that is working as intended."
+    },
+    {
+      "id": "slk_sec_precedent_write",
+      "channel": "#security", "channel_id": "C01SEC", "ts": "1779181800.000708",
+      "author": "Dana Osei", "author_id": "E-0050",
+      "posted_at": "2026-05-19T09:10:00Z",
+      "tags": ["security", "github", "contractor", "precedent", "pci"],
+      "planted": false,
+      "text": "@dana.osei: declined write on northbeam/payments-core for a contractor again. Contractors get read-only on the repos their SOW names, nothing else."
+    },
+    {
+      "id": "slk_sec_raw_pii",
+      "channel": "#security", "channel_id": "C01SEC", "ts": "1789729200.000709",
+      "author": "Ines Carvalho", "author_id": "E-0063",
+      "posted_at": "2026-09-18T11:00:00Z",
+      "tags": ["security", "snowflake", "pii", "masked", "data"],
+      "planted": false,
+      "text": "@ines.carvalho: reminder: raw customer PII in Snowflake is for the data-analytics team only, with the data owner signing off. Everyone else uses the masked views."
+    },
+    {
+      "id": "slk_it_inventory_monday",
+      "channel": "#it-helpdesk", "channel_id": "C01IT", "ts": "1790245800.000710",
+      "author": "Mei Lin", "author_id": "E-0718",
+      "posted_at": "2026-09-24T10:30:00Z",
+      "tags": ["laptop", "inventory", "asset", "it"],
+      "planted": false,
+      "text": "@mei.lin: Monday starts: NB-ENG-0231 (standard M4 Pro) imaged for Neha in data-analytics; NB-CTR-0114 from the contractor pool reserved for the perception contractor. Both enrolled in MDM."
+    },
+    {
+      "id": "slk_it_vendor_pickup",
+      "channel": "#it-helpdesk", "channel_id": "C01IT", "ts": "1789824600.000711",
+      "author": "Tobias Keller", "author_id": "V-3107",
+      "posted_at": "2026-09-19T13:30:00Z",
+      "tags": ["laptop", "asset", "vendor", "it", "retirement"],
+      "planted": false,
+      "text": "@tobias.keller: Quayside pickup on Thursday for the four M1 units being retired. Wipe certificates will be attached to the Freshservice asset records."
+    },
+    {
+      "id": "slk_it_starts_checklist",
+      "channel": "#it-helpdesk", "channel_id": "C01IT", "ts": "1790337600.000712",
+      "author": "Rafael Souza", "author_id": "E-0705",
+      "posted_at": "2026-09-25T12:00:00Z",
+      "tags": ["it", "onboarding", "laptop"],
+      "planted": false,
+      "text": "@rafael.souza: two starts on Monday 2026-09-28. People Ops raised both onboarding tickets; accounts go through ContextRail and the laptops are ready."
+    },
+    {
+      "id": "slk_status_outage",
+      "channel": "#incident-2481", "channel_id": "C01INC", "ts": "1755800000.000600",
+      "author": "Zoe Chen", "author_id": "E-0237",
+      "posted_at": "2026-08-21T06:00:00Z",
+      "tags": ["incident", "outage", "sev2", "ingest", "retrospective", "meridian"],
+      "planted": false,
+      "text": "@ops: INC-2481 confirmed Sev-2. Telemetry ingest unavailable for affected fleet customers from 2026-08-17 09:12Z to 2026-08-20 07:40Z. Total confirmed duration 70h28m. Root cause: partition rebalance deadlock. Meridian Freight was the largest affected account."
+    },
+    {
+      "id": "slk_inc2481_region",
+      "channel": "#incident-2481", "channel_id": "C01INC", "ts": "1786959060.000714",
+      "author": "Zoe Chen", "author_id": "E-0237",
+      "posted_at": "2026-08-17T09:31:00Z",
+      "tags": ["incident", "outage", "ingest", "region", "sev2"],
+      "planted": false,
+      "text": "@zoe.chen: ingest partitions in ap-south-1 are stuck in a rebalance loop. eu-central-1 and us-east-1 are healthy. Paging platform on-call; Grace is IC."
+    },
+    {
+      "id": "slk_inc2481_resolved",
+      "channel": "#incident-2481", "channel_id": "C01INC", "ts": "1787212320.000715",
+      "author": "Grace Okafor", "author_id": "E-0140",
+      "posted_at": "2026-08-20T07:52:00Z",
+      "tags": ["incident", "outage", "resolved", "customers", "credit"],
+      "planted": false,
+      "text": "@grace.okafor: INC-2481 resolved at 07:40Z. Affected accounts: ACC-1042, ACC-2210 and ACC-3318, all ingesting through ap-south-1. Customer comms and any SLA credits go through Support."
+    },
+    {
+      "id": "slk_support_credit_meridian",
+      "channel": "#support", "channel_id": "C0ASUP", "ts": "1787548800.000716",
+      "author": "Alicia Fenn", "author_id": "E-0902",
+      "posted_at": "2026-08-24T05:20:00Z",
+      "tags": ["support", "credit", "outage", "meridian", "sla"],
+      "planted": false,
+      "text": "@alicia.fenn: Meridian Freight asked about SLA credits for INC-2481. Their contract has no cash refund clause, so it's a service credit, and it will be above Support's limit."
+    },
+    {
+      "id": "slk_support_duplicate_credit",
+      "channel": "#support", "channel_id": "C0ASUP", "ts": "1787737200.000717",
+      "author": "Hana Suzuki", "author_id": "E-0915",
+      "posted_at": "2026-08-26T09:40:00Z",
+      "tags": ["support", "credit", "outage", "duplicate"],
+      "planted": false,
+      "text": "@hana.suzuki: heads up: Tallowmere Cold Chain already received their INC-2481 credit on 25 Aug (CR-2026-0822). Their second ticket about the same outage should not be credited again."
+    },
+    {
+      "id": "slk_support_queue",
+      "channel": "#support", "channel_id": "C0ASUP", "ts": "1790048700.000718",
+      "author": "Joel Mensah", "author_id": "E-0901",
+      "posted_at": "2026-09-22T03:45:00Z",
+      "tags": ["support", "queue"],
+      "planted": false,
+      "text": "@joel.mensah: the queue is back under SLA. Diego is shadowing Fatima on escalations this week."
+    },
+    {
+      "id": "slk_finance_close",
+      "channel": "#finance", "channel_id": "C0BFIN", "ts": "1790323800.000719",
+      "author": "Yusuf Karim", "author_id": "E-0804",
+      "posted_at": "2026-09-25T08:10:00Z",
+      "tags": ["finance", "close", "contractor"],
+      "planted": false,
+      "text": "@yusuf.karim: Q3 close starts Tuesday. Marta's SOW runs to the end of October, so she covers the accruals."
+    },
+    {
+      "id": "slk_finance_credit_limits",
+      "channel": "#finance", "channel_id": "C0BFIN", "ts": "1787812200.000720",
+      "author": "Helen Brandt", "author_id": "E-0003",
+      "posted_at": "2026-08-27T06:30:00Z",
+      "tags": ["finance", "credit", "approval", "refund"],
+      "planted": false,
+      "text": "@helen.brandt: reminder on service credits: Support can issue up to $2,000, Finance up to $10,000, and anything above that comes to me."
+    },
+    {
+      "id": "slk_data_welcome_neha",
+      "channel": "#data-analytics", "channel_id": "C08DATA", "ts": "1790330400.000721",
+      "author": "Tomas Novak", "author_id": "E-0180",
+      "posted_at": "2026-09-25T10:00:00Z",
+      "tags": ["data-analytics", "onboarding", "neha", "snowflake", "pii"],
+      "planted": false,
+      "text": "@tomas.novak: Neha Joshi starts Monday as a data analyst. Masked views first; raw PII only after the data-owner review."
+    },
+    {
+      "id": "slk_data_transfer_tanvi",
+      "channel": "#data-analytics", "channel_id": "C08DATA", "ts": "1789455600.000722",
+      "author": "Tomas Novak", "author_id": "E-0180",
+      "posted_at": "2026-09-15T07:00:00Z",
+      "tags": ["data-analytics", "transfer", "tanvi", "welcome"],
+      "planted": false,
+      "text": "@tomas.novak: Tanvi moved over from risk-analytics this week. Tanvi, ask for the same access as Wei and the risk-analytics access gets tidied up in the same run."
+    },
+    {
+      "id": "slk_perception_rollout",
+      "channel": "#perception", "channel_id": "C03PERC", "ts": "1790234400.000723",
+      "author": "Kenji Watanabe", "author_id": "E-0134",
+      "posted_at": "2026-09-24T07:20:00Z",
+      "tags": ["perception", "models", "rollout"],
+      "planted": false,
+      "text": "@kenji.watanabe: obstacle-classifier v4.2 is on 20% of the ap-south-1 fleet. Watching p95 latency."
+    },
+    {
+      "id": "slk_inc4412_declared",
+      "channel": "#incident-4412", "channel_id": "C09INC4412", "ts": "1790359800.000724",
+      "author": "Omar Haddad", "author_id": "E-0051",
+      "posted_at": "2026-09-25T18:10:00Z",
+      "tags": ["incident", "perception", "sev2", "latency", "access"],
+      "planted": false,
+      "text": "@omar.haddad: INC-4412 declared Sev-2: obstacle-classifier latency regression after the v4.2 rollout on the ap-south-1 fleet. I'm IC. Lucas has asked for read-only access to perception-prod logs to help triage."
+    },
+    {
+      "id": "slk_inc4412_rollback",
+      "channel": "#incident-4412", "channel_id": "C09INC4412", "ts": "1790366700.000725",
+      "author": "Kenji Watanabe", "author_id": "E-0134",
+      "posted_at": "2026-09-25T20:05:00Z",
+      "tags": ["incident", "perception", "rollback"],
+      "planted": false,
+      "text": "@kenji.watanabe: rolled v4.2 back to 5%; p95 is recovering. Keeping INC-4412 open until it holds for an hour."
+    },
+    {
+      "id": "slk_people_starts",
+      "channel": "#people-ops", "channel_id": "C0CPPL", "ts": "1790155800.000726",
+      "author": "Sanjay Kulkarni", "author_id": "E-0961",
+      "posted_at": "2026-09-23T09:30:00Z",
+      "tags": ["people-ops", "onboarding", "starters"],
+      "planted": false,
+      "text": "@sanjay.kulkarni: Monday 2026-09-28: Neha Joshi (data-analytics) and a perception contractor start. Both onboarding tickets are raised."
     }
   ]
 }

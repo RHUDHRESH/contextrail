@@ -109,8 +109,8 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 - [x] T074 `P0` Entitlements + role catalogue fixture: Rahul's 16 items (resource_class, repo_tags) → 13 / 2 / 1 for Anil; payments-engineer baseline.
 - [x] T075 `P0` GitHub fixture state (repos, collaborators, permissions).
 - [x] T076 `P0` Slack corpus fixture incl. the planted "ignore policy" message (ported from `src/lib/contextrail/data/corpus.ts`).
-- [ ] T077 `P1` Priya's SOW document naming `northbeam/perception-sdk` + incident INC-4412 fixture.
-- [ ] T078 `P2` Payments fixture: customers, plans, prior credits, one duplicate.
+- [x] T077 `P1` Priya's SOW document naming `northbeam/perception-sdk` + incident INC-4412 fixture.
+- [x] T078 `P2` Payments fixture: customers, plans, prior credits, one duplicate.
 - [x] T079 `P0` Fixture connectors with persistent state files and a real `verify()` against that state.
 - [x] T080 `P0` Seed script loading fixtures and the identity map for all doors (Slack, Teams, email, phone).
 - [x] T081 `P0` `/v1/connectors` endpoint listing each connector's LIVE/FIXTURE/ONE-WAY mode.
