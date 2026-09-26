@@ -205,7 +205,7 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 ## K. Freshworks FDK app (ticket sidebar) (13)
 
 - [x] T157 `P1` Scaffold with `/fw-app-dev`: Platform 3.0, `service_ticket`, `ticket_sidebar`.
-- [ ] T158 `P1` `manifest.json`: modules, location, engines (Node 24, FDK 10), request templates registered.
+- [x] T158 `P1` `manifest.json`: modules, location, engines (Node 24, FDK 10), request templates registered.
 - [x] T159 `P1` `iparams.json`: engine_url, engine_token (secure).
 - [x] T160 `P1` `config/requests.json`: getRunByTicket, startRun, getReceipt.
 - [ ] T161 `P1` `app.js` client init (`client.data.get('ticket')`) + Crayons layout: header, run status pill, LIVE/FIXTURE badge.

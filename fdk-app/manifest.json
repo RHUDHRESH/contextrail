@@ -3,6 +3,11 @@
   "app": {},
   "modules": {
     "common": {
+      "requests": {
+        "getRunByTicket": {},
+        "startRun": {},
+        "getReceipt": {}
+      },
       "events": {
         "onAppInstall": {
           "handler": "onAppInstallHandler"

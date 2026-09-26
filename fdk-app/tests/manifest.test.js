@@ -21,6 +21,19 @@ describe('manifest.json', () => {
     }
   });
 
+  test('pins the Node 24.x and FDK 10.x engines the toolkit requires', () => {
+    expect(manifest.engines.node).toMatch(/^24\.\d+\.\d+$/);
+    expect(manifest.engines.fdk).toMatch(/^10\.\d+\.\d+$/);
+  });
+
+  test('registers every request template in modules.common.requests, and nothing else', () => {
+    const templates = Object.keys(readJson('config/requests.json')).sort();
+    expect(Object.keys(manifest.modules.common.requests).sort()).toEqual(templates);
+    for (const name of templates) {
+      expect(manifest.modules.common.requests[name]).toEqual({});
+    }
+  });
+
   test('declares the vitest unit-test script that fdk validate requires', () => {
     expect(manifest.scripts['fdk-unit-test']).toBe('vitest run --coverage');
   });
