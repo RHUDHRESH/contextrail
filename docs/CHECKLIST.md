@@ -251,7 +251,7 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 ## N. Voice door (Vobiz × Sarvam, inbound conversational) (12)
 
 - [x] T194 `P1` Copy `vobiz-ai/Vobiz-Sarvam` into `voice/` with attribution (pinned commit from `refs/MANIFEST.md`).
-- [ ] T195 `P1` Replace the OpenAI call with the engine router (Haiku) for conversation only.
+- [x] T195 `P1` Replace the OpenAI call with the engine router (Haiku) for conversation only.
 - [ ] T196 `P1` `engine_client.py` wrapping the door contract (start_run, get_status, answer_query, decide).
 - [ ] T197 `P1` Intent routing: new request / status / policy question / approve.
 - [ ] T198 `P1` AI-disclosure opening line in each supported language.

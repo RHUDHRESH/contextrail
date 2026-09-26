@@ -10,5 +10,5 @@ target-version = "py312"
 
 [tool.ruff.lint.per-file-ignores]
 # Verbatim upstream copies (T194): import order and blind excepts are upstream's. Removed as each file is adapted.
-"agent.py" = ["I001", "BLE001"]
+"agent.py" = ["BLE001"]
 "server.py" = ["I001", "BLE001"]
