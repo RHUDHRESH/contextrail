@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from contextrail.connectors.base import Connector
+from contextrail.connectors.dodo import build_dodo
 from contextrail.connectors.fixture import FixtureEntitlements, FixtureGitHub, FixtureHRIS, FixtureSlackCorpus
 from contextrail.connectors.freshservice import FreshserviceConnector
 from contextrail.connectors.state import FixtureState
@@ -34,7 +35,9 @@ class Registry:
         return self.connectors[name]
 
     def describe(self, settings: Settings) -> dict[str, list[dict]]:
-        built = [{"name": c.name, "kind": "connector", "mode": c.mode, "status": "built"}
+        # `environment` where a LIVE connector is pinned to a sandbox: Dodo says "test_mode", never just "LIVE".
+        built = [{"name": c.name, "kind": "connector", "mode": c.mode, "status": "built",
+                  **({"environment": c.environment} if getattr(c, "environment", None) else {})}
                  for c in self.connectors.values()]
         planned = []
         for name, (kind, task, flag) in PLANNED.items():
@@ -53,6 +56,7 @@ def build_registry(state_directory: Path | None = None, settings: Settings | Non
         return FixtureState(name, directory=state_directory)
 
     return Registry({
+        "dodo": build_dodo(None, state=st("dodo_payments")),  # FIXTURE here; LIVE (test mode) needs settings (T206)
         "hris": FixtureHRIS(st("hris")),
         "entitlements": FixtureEntitlements(st("entitlements")),
         "github": FixtureGitHub(st("github")),

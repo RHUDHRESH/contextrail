@@ -80,7 +80,9 @@ class Settings(BaseSettings):
     vobiz_auth_id: str = ""
     vobiz_auth_token: SecretStr = SecretStr("")
 
-    # Payments (P2)
+    # Payments (P2). Dodo is pinned to test mode in code (connectors/dodo.py); there is no live-mode switch.
+    dodo_customer_id: str = ""  # the pilot's Dodo customer that governed-run usage events are billed to
+    dodo_product_id: str = ""   # the "ContextRail governed run" product behind the pilot checkout link (T011)
     dodo_api_key: SecretStr = SecretStr("")
 
     # Job worker: run it inside the API process (one box), or set false and run `python -m contextrail.worker`
@@ -111,6 +113,10 @@ class Settings(BaseSettings):
     @property
     def teams_one_way_configured(self) -> bool:
         return bool(self.teams_workflow_webhook_url.get_secret_value())
+
+    @property
+    def dodo_configured(self) -> bool:
+        return bool(self.dodo_api_key.get_secret_value())
 
 
 @lru_cache(maxsize=1)

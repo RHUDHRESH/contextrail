@@ -265,7 +265,7 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 
 ## O. Dodo Payments (3)
 
-- [ ] T206 `P2` Dodo client in test mode + usage event per completed run (idempotent by run_id) + pilot checkout link.
+- [x] T206 `P2` Dodo client in test mode + usage event per completed run (idempotent by run_id) + pilot checkout link.
 - [ ] T207 `P2` Refund reconciliation intent + fixtures; refund via the Dodo test API with read-back; payment webhook with signature check.
 - [ ] T208 `P2` Reconciliation receipt note + finance approver card in Slack.
 

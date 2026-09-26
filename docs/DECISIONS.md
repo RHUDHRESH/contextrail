@@ -22,8 +22,9 @@ Append-only. Each entry records what we chose, why, and what would change our mi
 | D-015 | 2026-09-26 | Freshservice approvals: the API cannot approve or reject, so decisions are mirrored as ticket notes | Accepted |
 | D-016 | — | Freshservice webhook: Workflow Automator cannot sign an HMAC; a signing hop or a weaker scheme | Open |
 | D-017 | 2026-09-26 | Freshservice assets: classic `/assets/{display_id}` built; newer (ITAM) tenants document no user assignment | Accepted |
-| D-016 | 2026-09-26 | MCP door: `/mcp` inside the engine, static ENGINE_TOKEN bearer, strict capsule handles | Accepted |
-| D-017 | 2026-09-26 | MCP runs name their requester (identity-map person id), or no run starts | Accepted |
+| D-018 | 2026-09-26 | MCP door: `/mcp` inside the engine, static ENGINE_TOKEN bearer, strict capsule handles | Accepted |
+| D-019 | 2026-09-26 | MCP runs name their requester (identity-map person id), or no run starts | Accepted |
+| D-020 | 2026-09-26 | Dodo Payments: official Python SDK, pinned to test mode, SDK retries off | Accepted |
 
 ---
 
@@ -236,7 +237,7 @@ classic call is expected to fail and the result is the labelled FIXTURE fallback
 **Revisit if.** The trial tenant turns out to be a classic tenant (then T130 is LIVE as built), or Freshservice
 documents user assignment on ITAM assets.
 
-## D-016 — MCP door: `/mcp` inside the engine, static bearer, strict capsule handles
+## D-018 — MCP door: `/mcp` inside the engine, static bearer, strict capsule handles
 **Found** (reading the installed `mcp` 2.2.0, not memory): `MCPServer.streamable_http_app()` returns a Starlette app
 whose session manager must run in the host's lifespan when mounted, and `run()` may be entered once per manager.
 The SDK speaks two protocol eras: handshake-era clients (2025-11-25 and earlier) accept a server-initiated
@@ -253,7 +254,7 @@ The SDK speaks two protocol eras: handshake-era clients (2025-11-25 and earlier)
   changed under it; a failed seal halts and is audited.
 **Revisit if.** Per-user MCP identity is needed (then OAuth via the SDK's auth provider, or per-agent tokens).
 
-## D-017 — MCP runs name their requester
+## D-019 — MCP runs name their requester
 **Found.** `policy.engine.check_decision` fails closed: an approval on a run whose requester is unknown is refused
 under POL-SOD-001 ("an approval nobody can attribute is refused"). An MCP run started without a requester could
 therefore never have a held action approved, in any door.
@@ -261,4 +262,29 @@ therefore never have a held action approved, in any door.
 maps to `identity_map.person_id`). An unknown id is refused before any run exists. As with the REST door, the
 engine-token holder asserts who is asking; separation of duties then applies to that person in every door, so
 the requester can never approve their own request.
-**Revisit if.** MCP clients get per-user credentials (D-016): the requester then comes from the token, not an argument.
+**Revisit if.** MCP clients get per-user credentials (D-018): the requester then comes from the token, not an argument.
+
+## D-020 — Dodo Payments: official Python SDK, pinned to test mode, SDK retries off
+**Found** (read 2026-09-26): PyPI `dodopayments` 1.118.0 (uploaded 2026-09-25) is the official Python SDK
+(github.com/dodopayments/dodopayments-python); its `webhooks` extra adds `standardwebhooks`. The installed package
+and the TypeScript SDK clone (`refs/dodopayments__dodopayments-typescript/src/resources`, 66b232c) agree on the
+calls we use: `POST /events/ingest` and `GET /events/{event_id}` (usage events; `event_id` is Dodo's idempotency
+key, and an id already ingested is ignored) and `POST /checkouts` (checkout sessions). Environments: `test_mode` =
+`https://test.dodopayments.com`, `live_mode` = `https://live.dodopayments.com`. The SDK defaults to live mode and
+honours a `DODO_PAYMENTS_BASE_URL` environment override. It sends **no idempotency header**
+(`_idempotency_header = None`), and by default it retries a POST twice on timeouts, 408/409/429 and 5xx.
+
+**Decision.**
+- `dodopayments[webhooks]==1.118.0`, through `AsyncDodoPayments`. The brief's package name is right.
+- `connectors/dodo.py` pins `environment="test_mode", base_url=None`, so neither a setting nor the SDK's
+  environment override can select live mode. With a `DODO_API_KEY` the connector's mode is LIVE and its label is
+  always "LIVE · test mode"; `/v1/connectors` shows `environment: test_mode`. Without a key it is FIXTURE.
+- `max_retries=0`: the rail owns retries and reconciles before it retries a write (§8 Execute). An SDK-level retry
+  of a POST that Dodo cannot deduplicate could write twice.
+- Usage billing: one `dodo.usage` job per completed run (done or partial, deduplicated by run id) sends one usage
+  event `contextrail.governed_run` with `event_id` = run id, and reads it back with `GET /events/{run_id}` before it
+  counts as verified. The event timestamp is the send time, because Dodo rejects events older than one hour; the
+  finalize time goes in metadata. The pilot checkout link is a checkout session for `DODO_PRODUCT_ID`.
+
+**Revisit if.** Dodo adds an idempotency header, or the pilot moves to live mode (a deliberate code change, never
+a setting).
