@@ -58,15 +58,15 @@ export function RequestComposer({ preset }: { preset?: string | null }) {
   }
 
   return (
-    <div className="mx-auto w-full max-w-[760px] px-5 pb-14 pt-12 md:px-8 md:pt-20">
+    <div className="mx-auto w-full max-w-[760px] px-5 pb-14 pt-12 md:px-8 md:pt-24">
       <div className="mb-9">
-        <p className="text-sm font-medium text-rail">New request</p>
-        <h1 className="mt-3 font-display text-4xl font-semibold tracking-tight text-text md:text-5xl">What needs to happen?</h1>
-        <p className="mt-3 max-w-xl text-[15px] leading-relaxed text-muted">Describe the outcome. Add people or a workflow if it helps. We’ll show you what happens next.</p>
+        <p className="text-sm font-medium text-rail">Your workspace</p>
+        <h1 className="mt-3 font-display text-[40px] font-normal leading-[1.13] tracking-tight text-text md:text-[54px]">What needs to happen?</h1>
+        <p className="mt-4 max-w-xl text-[16px] leading-relaxed text-muted">Tell us what you need. Add people or a workflow if you like.</p>
       </div>
-      <form onSubmit={submit} className="rounded-2xl border border-line-strong bg-panel p-4 shadow-[0_24px_80px_rgba(0,0,0,.16)] md:p-5">
+      <form onSubmit={submit} className="rounded-[20px] border border-line-strong bg-panel p-4 shadow-[0_12px_40px_rgba(70,53,36,.07)] md:p-5">
         <label htmlFor="request" className="sr-only">Describe your request</label>
-        <textarea id="request" value={request} onChange={(event) => { setRequest(event.target.value); setUnsupported(false); }} placeholder="For example, get Priya ready to join engineering on Monday…" rows={4} className="w-full resize-y bg-transparent text-[17px] leading-7 text-text outline-none placeholder:text-dim" />
+        <textarea id="request" value={request} onChange={(event) => { setRequest(event.target.value); setUnsupported(false); }} placeholder="For example, get Priya ready to join engineering on Monday…" rows={4} className="w-full resize-y bg-transparent text-[17px] leading-7 text-text outline-none placeholder:text-muted/80" />
         {(people.length > 0 || workflow || callRequested) && (
           <div className="mb-4 flex flex-wrap gap-2" aria-label="Added request context">
             {people.map((person) => <span key={person} className="inline-flex items-center gap-1.5 rounded-full border border-line-strong bg-panel-2 px-3 py-1.5 text-xs text-text">{person}<button type="button" onClick={() => setPeople((current) => current.filter((item) => item !== person))} aria-label={`Remove ${person}`} className="text-muted hover:text-text"><X className="size-3" /></button></span>)}
@@ -96,7 +96,7 @@ export function RequestComposer({ preset }: { preset?: string | null }) {
         </div>}
       </form>
       {unsupported && <div role="status" className="mt-4 rounded-xl border border-caution/35 bg-caution/5 px-4 py-3 text-sm leading-relaxed text-text">This demo only has sample records for Priya and Meridian Freight, and three prepared workflows. Your request was not sent or acted on. Try a sample person and workflow to see the flow.</div>}
-      <p className="mt-4 text-xs leading-relaxed text-dim">Demo with sample data. Sending a request here does not create a live Freshservice ticket or place a call.</p>
+      <p className="mt-4 text-xs leading-relaxed text-dim">Preview with sample data · No live ticket or call is placed.</p>
     </div>
   );
 }

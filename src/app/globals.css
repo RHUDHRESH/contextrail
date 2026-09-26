@@ -1,31 +1,26 @@
 @import "tailwindcss";
 
-/* ------------------------------------------------------------------ *
- * ContextRail — railway signalling as a design system.
- * Green is clear, amber is held, red is stopped. Nothing in the
- * interface uses those three colours for decoration.
- * ------------------------------------------------------------------ */
+/* A quiet writing surface for requesters. Status colours retain their
+ * meaning: green is done, amber needs a decision, red needs attention. */
 
 @theme {
-  --color-ink: #07090e;
-  --color-panel: #0d111a;
-  --color-panel-2: #121826;
-  --color-panel-3: #18202f;
-  --color-line: #1c2434;
-  --color-line-strong: #2b3548;
+  --color-ink: #f8f6f1;
+  --color-panel: #fffefa;
+  --color-panel-2: #f2eee6;
+  --color-panel-3: #eae3d7;
+  --color-line: #e8e2d8;
+  --color-line-strong: #d6cfc3;
 
-  --color-text: #e9edf6;
-  /* Both steps clear WCAG AA (4.5:1) on every surface token, including
-     panel-3. The old dim (#5a6377) measured 2.71:1 there. */
-  --color-muted: #9aa4b8;
-  --color-dim: #7e88a0;
+  --color-text: #292722;
+  --color-muted: #625d55;
+  --color-dim: #746d63;
 
-  --color-rail: #6e8cff;
-  --color-rail-dim: #3d4d8f;
+  --color-rail: #95402e;
+  --color-rail-dim: #b28172;
 
-  --color-clear: #3ddc97;
-  --color-caution: #f5a623;
-  --color-stop: #ff5a5f;
+  --color-clear: #237452;
+  --color-caution: #8b5b16;
+  --color-stop: #a23e32;
 
   --color-notion: #b8b3ff;
   --color-gdocs: #7cc4ff;
@@ -36,7 +31,7 @@
   --color-linear: #a8a0ff;
   --color-hris: #86e0a3;
 
-  --font-display: "Archivo", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-display: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, serif;
   --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", "Cascadia Mono", Menlo, monospace;
 }
@@ -47,7 +42,7 @@
   }
 
   html {
-    color-scheme: dark;
+    color-scheme: light;
     scrollbar-color: var(--color-line-strong) transparent;
   }
 
@@ -56,14 +51,11 @@
     color: var(--color-text);
     font-family: var(--font-sans);
     -webkit-font-smoothing: antialiased;
-    /* A faint track running behind everything — the rail the product is named for. */
-    background-image:
-      radial-gradient(900px 500px at 12% -10%, rgba(110, 140, 255, 0.09), transparent 62%),
-      linear-gradient(to bottom, rgba(110, 140, 255, 0.035), transparent 320px);
+    background-image: radial-gradient(900px 520px at 50% -240px, rgba(190, 143, 99, 0.07), transparent 80%);
   }
 
   ::selection {
-    background: rgba(110, 140, 255, 0.35);
+    background: rgba(149, 64, 46, 0.2);
   }
 
   /* Longhands, deliberately. The `outline` shorthand resolved
@@ -91,7 +83,7 @@
 }
 
 @layer utilities {
-  /* Uppercase micro-labels in mono — the control-plane voice. */
+  /* Kept for the technical details pages; the requester flow uses prose. */
   .eyebrow {
     font-family: var(--font-mono);
     font-size: 10px;
@@ -108,7 +100,7 @@
   }
 
   .panel-raised {
-    background: linear-gradient(180deg, var(--color-panel-2), var(--color-panel));
+    background: linear-gradient(180deg, var(--color-panel), var(--color-panel-2));
     border: 1px solid var(--color-line);
     border-radius: 10px;
   }
