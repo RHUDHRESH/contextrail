@@ -32,6 +32,7 @@ from contextrail.capsule import DigestMismatch
 from contextrail.db import Database
 from contextrail.intake import TICKET_CHANNELS, advisory_lock
 from contextrail.jobs import PermanentJobError, handler
+from contextrail.knowledge.rag import index_receipt
 from contextrail.logs import get_logger
 from contextrail.rail.store import load_case
 from contextrail.surfaces.presenter import LAMP, build_view
@@ -169,6 +170,7 @@ async def build_receipt(db: Database, run_id: UUID, *, people: dict[str, str], m
         audit = body["audit"]
         stored = await (await c.execute("select summary, body from receipts where run_id = %s", (run_id,))).fetchone()
         if stored and stored["body"].get("digest") == body["digest"]:
+            await index_receipt(c, run_id)
             return Receipt(run_id=run_id, digest=body["digest"], summary=stored["summary"], body=stored["body"],
                            audit_from=audit["from_seq"], audit_to=audit["to_seq"], created=False)
         # fs_note_id belongs to the receipt it carried: a new receipt has not been posted yet.
@@ -181,6 +183,7 @@ async def build_receipt(db: Database, run_id: UUID, *, people: dict[str, str], m
             "digest": body["digest"], "status": body["run"]["status"], "audit_from": audit["from_seq"],
             "audit_to": audit["to_seq"], "chain_ok": body["chain"]["ok"],
             "seal_verified": body["capsule"]["seal_verified"]})
+        await index_receipt(c, run_id)
         run = body["run"]
         if note and run["source"] in TICKET_CHANNELS and run["source_ref"]:
             await repo.enqueue_job(c, "receipt.note", {"run_id": str(run_id), "digest": body["digest"]},
