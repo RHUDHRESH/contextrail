@@ -167,7 +167,7 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 - [x] T123 `P0` Token-bucket rate limiter (default 80 calls/min).
 - [x] T124 `P0` GET ticket (incl. `source`), GET requester by ID, GET agent by ID and by email.
 - [x] T125 `P0` List service catalog items; store the Access Request item ID.
-- [ ] T126 `P0` POST approval on a ticket + read approval state (approvals list or activities).
+- [x] T126 `P0` POST approval on a ticket + read approval state (approvals list or activities).
 - [ ] T127 `P0` POST private note (receipt).
 - [ ] T128 `P1` Receipts custom object in admin; POST receipt records.
 - [ ] T129 `P1` GET Solutions article (policy source for OKF ingest).

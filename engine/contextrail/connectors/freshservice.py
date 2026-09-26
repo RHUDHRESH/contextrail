@@ -18,6 +18,7 @@ How outcomes map to the connector contract (connectors/base.py):
 from __future__ import annotations
 
 import re
+from enum import IntEnum
 from typing import Any, Self
 
 import httpx
@@ -44,6 +45,31 @@ MAX_PAGES = 50          # a tenant that always answers rel="next" cannot keep us
 
 def _norm(text: str) -> str:
     return " ".join(text.split()).casefold()
+
+
+class ApprovalType(IntEnum):
+    """Tickets > Approvals > Approval Properties: how several approvals on one ticket combine."""
+
+    EVERYONE = 1
+    ANYONE = 2
+    MAJORITY = 3
+    FIRST_RESPONDER = 4
+
+
+class ApprovalStatus(IntEnum):
+    """Approval status values. Through the API a status can only be set to CANCELLED; approve and reject happen
+    only by the approver's own action in Freshservice (Cancel an approval: "Any other status change will be done
+    based on the approver's action")."""
+
+    REQUESTED = 0
+    APPROVED = 1
+    REJECTED = 2
+    CANCELLED = 3
+
+
+def approval_status(approval: dict) -> ApprovalStatus:
+    """The status of an approval record, read from `approval_status.id` (the display name may vary)."""
+    return ApprovalStatus(int(approval["approval_status"]["id"]))
 
 
 def source_name(ticket: dict) -> str:
@@ -245,3 +271,42 @@ class FreshserviceClient:
                 raise ConnectorError(f"{what} named {ACCESS_REQUEST_ITEM!r}; an admin must create exactly one (T134)")
             self._access_item = {k: found[0][k] for k in ("id", "display_id", "name")}
         return dict(self._access_item)
+
+    # --- approvals on a ticket (T126) --------------------------------------------------------------------------
+
+    async def create_approval(self, ticket_id: object, approver_id: object, *,
+                              approval_type: ApprovalType = ApprovalType.EVERYONE,
+                              email_content: str | None = None) -> dict:
+        """POST /tickets/{id}/approvals: ask one Freshservice user to approve the ticket.
+
+        EVERYONE by default: each held action's approver gets their own approval, and the ticket counts as
+        approved in Freshservice only when all of them have approved, as in the rail.
+        """
+        path = f"tickets/{fs_id(ticket_id)}/approvals"
+        body: dict[str, Any] = {"approver_id": fs_id(approver_id), "approval_type": int(approval_type)}
+        if email_content is not None:
+            body["email_content"] = email_content
+        return _unwrap(await self.post(path, body), "approval", path)
+
+    async def list_approvals(self, ticket_id: object) -> list[dict]:
+        path = f"tickets/{fs_id(ticket_id)}/approvals"
+        return _unwrap(await self.get(path), "approvals", path)
+
+    async def get_approval(self, ticket_id: object, approval_id: object) -> dict:
+        path = f"tickets/{fs_id(ticket_id)}/approvals/{fs_id(approval_id)}"
+        return _unwrap(await self.get(path), "approval", path)
+
+    async def request_approval(self, ticket_id: object, approver_id: object, *,
+                               approval_type: ApprovalType = ApprovalType.EVERYONE,
+                               email_content: str | None = None) -> tuple[dict, bool]:
+        """Ask `approver_id` to approve the ticket unless a live (not cancelled) approval for them already exists.
+
+        Returns (approval, replayed). Freshservice accepts no idempotency key, so the read comes first: a job that
+        is retried after an UnknownOutcome finds what the earlier attempt created instead of asking twice.
+        """
+        who = fs_id(approver_id)
+        for a in await self.list_approvals(ticket_id):
+            if a.get("approver_id") == who and approval_status(a) is not ApprovalStatus.CANCELLED:
+                return a, True
+        return await self.create_approval(ticket_id, who, approval_type=approval_type,
+                                          email_content=email_content), False
