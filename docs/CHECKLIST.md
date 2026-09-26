@@ -191,15 +191,15 @@ Tags: `P0` must work live · `P1` strongly wanted · `P2` only if time remains �
 - [ ] T144 `P1` Assistant pane: user message → start run; `set_status` per stage.
 - [ ] T145 `P1` Assistant pane: final summary blocks (granted / held / refused) with receipt link.
 - [x] T146 `P0` Approval card Block Kit renderer from `RunView` (action, rule, risk, precedent, deadline, LIVE/FIXTURE).
-- [ ] T147 `P0` Deliver the card to the approver's DM (`users.lookupByEmail`); record in `door_messages`.
-- [ ] T148 `P0` Approve / Refuse handlers parsing `run_id|action_id|params_hash` → `door.decide`.
-- [ ] T149 `P0` On click: params_hash still matches and approver identity via the identity map.
-- [ ] T150 `P0` Update the card after a decision, including decisions made in another door.
+- [x] T147 `P0` Deliver the card to the approver's DM (`users.lookupByEmail`); record in `door_messages`.
+- [x] T148 `P0` Approve / Refuse handlers parsing `run_id|action_id|params_hash` → `door.decide`.
+- [x] T149 `P0` On click: params_hash still matches and approver identity via the identity map.
+- [x] T150 `P0` Update the card after a decision, including decisions made in another door.
 - [ ] T151 `P1` "Why refused?" button → explanation with clause.
 - [ ] T152 `P1` Refuse-with-reason modal (`views.open`).
 - [x] T153 `P0` Seed identity map for demo Slack users.
-- [ ] T154 `P0` Friendly `needs_input` message with candidate buttons.
-- [ ] T155 `P0` Candidate picker handler resumes the run with the chosen ID.
+- [x] T154 `P0` Friendly `needs_input` message with candidate buttons.
+- [x] T155 `P0` Candidate picker handler resumes the run with the chosen ID.
 - [ ] T156 `P1` Copy and design pass: consistent verbs, lamps (✅ 🟠 ⛔), short sentences.
 
 ## K. Freshworks FDK app (ticket sidebar) (13)

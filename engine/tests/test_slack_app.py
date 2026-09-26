@@ -197,7 +197,7 @@ async def test_status_message_is_posted_once_then_updated_per_stage(door):
     final = _text(updates[-1])                                 # the end of the pass renders the whole RunView
     assert "Waiting for approval" in final and "15 verified" in final and "waiting for Dana Osei" in final
     assert await _door_messages(door, run["id"]) == [{"action_id": "", "channel": "slack",
-                                                      "ref": {"channel": CHANNEL, "ts": ts}}]
+                                                      "ref": {"channel": CHANNEL, "ts": ts, "user": ANIL_SLACK}}]
 
 
 async def test_status_goes_to_the_requesters_dm_when_the_bot_is_not_in_the_channel(door):
@@ -256,3 +256,65 @@ async def test_no_slack_account_or_one_owned_by_someone_else_is_never_linked(doo
     async with door.db.connection() as c:
         row = await (await c.execute("select slack_user_id from identity_map where person_id = 'p-meera'")).fetchone()
     assert row["slack_user_id"] is None
+
+
+# --- T154 / T155: "which Rahul?" asked in the status message, answered with a button ------------------------------
+
+AMBIGUOUS = "Give Anil the same access as Rahul"
+
+
+def _pick_buttons(update: dict) -> list[dict]:
+    return [e for b in update["blocks"] if b["type"] == "actions" for e in b["elements"]]
+
+
+async def test_an_ambiguous_request_asks_which_one_in_the_status_message(door):
+    fake = FakeSlackClient()
+    slack = SlackDoor(door, client=fake, signing_secret=SIGNING_SECRET)
+    await slack.on_command(ack=Ack(door), command=_command(AMBIGUOUS))
+    [run] = await _runs(door)
+    assert run["status"] == "needs_input"
+    last = fake.called("chat.update")[-1]
+    assert "Which *Rahul* do you mean?" in _text(last)
+    assert [b["value"] for b in _pick_buttons(last)] == [f"{run['id']}|peer|E-0007", f"{run['id']}|peer|E-0415"]
+
+
+async def _asked(door):
+    """Anil asks about "Rahul"; returns the fake client, the door and the Rahul Mehta button he is shown."""
+    fake = FakeSlackClient()
+    slack = SlackDoor(door, client=fake, signing_secret=SIGNING_SECRET)
+    await slack.on_command(ack=Ack(door), command=_command(AMBIGUOUS))
+    mehta = next(b for b in _pick_buttons(fake.called("chat.update")[-1]) if b["value"].endswith("E-0007"))
+    return fake, slack, mehta
+
+
+def _pick_body(user: str) -> dict:
+    return {"type": "block_actions", "user": {"id": user}, "channel": {"id": CHANNEL},
+            "container": {"type": "message", "message_ts": "1790000000.000001", "channel_id": CHANNEL}}
+
+
+async def test_picking_a_candidate_resumes_the_run_through_the_door(door):
+    fake, slack, mehta = await _asked(door)
+    updates_before = len(fake.called("chat.update"))
+    view = await slack.on_pick(ack=Ack(door), body=_pick_body(ANIL_SLACK), action=mehta)
+    assert (view.status, view.peer) == ("awaiting_approval", "Rahul Mehta")    # looked up by E-0007 in the rail
+    later = fake.called("chat.update")[updates_before:]
+    assert later and all((u["channel"], u["ts"]) == (CHANNEL, "1790000000.000001") for u in later)
+    assert "Waiting for approval" in _text(later[-1]) and _pick_buttons(later[-1]) == []
+    assert fake.called("chat.postEphemeral") == []
+
+
+async def test_only_the_person_who_asked_can_answer(door):
+    fake, slack, mehta = await _asked(door)
+    assert await slack.on_pick(ack=Ack(door), body=_pick_body("U0RAHU007"), action=mehta) is None
+    [told] = fake.called("chat.postEphemeral")
+    assert told["user"] == "U0RAHU007" and f"<@{ANIL_SLACK}>" in told["text"]
+    [again] = await _runs(door)
+    assert again["status"] == "needs_input"                                        # nothing moved
+
+
+async def test_a_second_pick_is_told_the_question_was_answered(door):
+    fake, slack, mehta = await _asked(door)
+    await slack.on_pick(ack=Ack(door), body=_pick_body(ANIL_SLACK), action=mehta)
+    assert await slack.on_pick(ack=Ack(door), body=_pick_body(ANIL_SLACK), action=mehta) is None
+    [told] = fake.called("chat.postEphemeral")
+    assert "already answered" in told["text"]
