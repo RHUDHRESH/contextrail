@@ -2,6 +2,22 @@
 
 **A local demo that turns a plain-language access request into a Freshservice ticket, a policy-checked plan, an approval, and a verifiable record.**
 
+**Built for:** The Great Agent Hackathon (TGPF 2026, Freshworks)  
+**Stack:** Python 3.12 (FastAPI, Anthropic SDK, Slack Bolt, PostgreSQL), Next.js 16 with React 19 and Tailwind CSS, Freshservice API
+
+## Quick start
+
+Windows PowerShell, from the repository root:
+
+```powershell
+copy .env.example .env          # set ENGINE_TOKEN in .env first
+uv sync --project engine --group dev --frozen
+npm ci
+.\scripts\start-local-demo.ps1
+```
+
+Then open [http://127.0.0.1:3100/engine-demo](http://127.0.0.1:3100/engine-demo). The full steps and what each part does are in [Run the local demo](#run-the-local-demo).
+
 ## What it is
 
 ContextRail is a governed request workflow for employee and contractor access. A person asks in one sentence; a manager can review pending work from a separate persona and approve through Slack. The demo keeps the request simple while showing the decision and next step.
@@ -67,7 +83,7 @@ The three scenarios below have live Freshservice tickets **#123, #124, and #126*
 | Service | Status in this demo | What it does here |
 | --- | --- | --- |
 | **Freshworks / Freshservice** | **LIVE — ticket path verified** | The local web scenarios created and read back tickets **#123, #124, #126, and #128** in workspace 12; the tenant showed them open. This is Freshservice only. Service-catalog listing returned `403` for the current key, so catalog-based requests are not verified. |
-| **Freshworks / FDK** | **Code present; tenant install not verified** | A Freshservice ticket-sidebar app exists in `fdk-app/`. It is not part of the required local browser demo and has not been installed in the tenant. |
+| **Freshworks / FDK** | **Code ready; tenant install next** | A Freshservice ticket-sidebar app exists in `fdk-app/`. It is not part of the required local browser demo and has not been installed in the tenant. |
 | **Freshworks / Freshdesk, Freddy AI, Agent Studio** | **Not integrated** | These products are not used by the current demo. ContextRail has its own bearer-protected MCP server; that is not a Freshworks MCP service. |
 | **Anthropic Claude Haiku** | **LIVE — model call verified** | Direct Anthropic inference extracts intent and mentions and powers bounded read-only question handling. A same-text isolated probe after the prompt fix returned `llm:T1` and resolved Priya; the ticket-backed #124/#128 runs recorded heuristic fallback because their engine process had not loaded that update. Policy and access decisions stay in code. |
 | **Slack** | **LIVE — approval click verified** | Slack Socket Mode delivered approval cards for #123 and #124; Dana clicked both, and each audit records the Slack decision and verified fixture action. Slash-command ticket intake is implemented, but a live workspace command is not yet verified. |
@@ -77,7 +93,7 @@ The three scenarios below have live Freshservice tickets **#123, #124, and #126*
 | **AWS / Bedrock / SSM** | **Not used for this demo** | AWS is not hosting the app. AWS entitlements in the policy examples are fixture data; no AWS access was granted. |
 | **Dodo Payments** | **Planned for later** | The code is pinned to Dodo test mode. A checkout and usage-event flow has not been verified with a configured product/customer. |
 | **Databricks** | **Not integrated or used** | No Databricks connector, workspace, SQL endpoint, or data was involved. |
-| **Email / Amazon SES** | **Code present; live path unverified** | Signed decision links and SES delivery code exist, but no live end-to-end email approval was demonstrated. |
+| **Email / Amazon SES** | **Code ready; live run next** | Signed decision links and SES delivery code exist, but no live end-to-end email approval was demonstrated. |
 | **Microsoft Teams** | **Planned** | A working Teams bot and approval path are not claimed. |
 | **ContextRail MCP server** | **Available in code** | The engine exposes its own Streamable HTTP MCP tools at `/mcp`. The browser persona demo calls the engine HTTP API directly. |
 
@@ -117,3 +133,6 @@ The sample data and access connectors are fixtures. Stopping the engine removes 
 - [`docs/CHECKLIST.md`](docs/CHECKLIST.md) and [`docs/DECISIONS.md`](docs/DECISIONS.md) — task status and design record.
 
 MIT licensed; see [LICENSE](LICENSE).
+
+---
+Built by [Rhudhresh R](https://github.com/RHUDHRESH)
